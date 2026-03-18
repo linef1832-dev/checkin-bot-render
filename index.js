@@ -1,3 +1,6 @@
+const dns = require('node:dns');
+dns.setDefaultResultOrder('ipv4first');
+
 const { Client, GatewayIntentBits, ChannelType, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
