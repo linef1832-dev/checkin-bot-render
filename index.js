@@ -286,9 +286,14 @@ function startSummaryTimer(channelId) {
     }, 600000); 
 }
 
-app.listen(PORT, () => {
-    console.log(`🌐 Server web port ${PORT} is open and listening for Render!`);
+app.listen(process.env.PORT || 3000, () => {
+    console.log(`🌐 Server web port is open and listening for Render!`);
 });
+
+// 🕵️‍♂️ เปิดโหมดนักสืบ: ให้บอทรายงานทุกการกระทำเบื้องหลัง
+client.on('debug', console.log);
+
+console.log("🕵️‍♂️ เช็คตู้เซฟ: ค่า TOKEN ตอนนี้ " + (TOKEN ? "✅ มีข้อมูลอยู่ในเซฟ" : "❌ ว่างเปล่า (หาไม่เจอ!)"));
 
 client.once('ready', () => { 
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
