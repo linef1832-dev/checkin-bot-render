@@ -286,9 +286,14 @@ function startSummaryTimer(channelId) {
     }, 600000); 
 }
 
-client.once('clientReady', () => { 
-    console.log(`🚀 บอทพร้อม! ระบบเช็คชื่อแยกแผนก (10 นาที) ทำงานสมบูรณ์แล้ว`); 
+app.listen(PORT, () => {
+    console.log(`🌐 Server web port ${PORT} is open and listening for Render!`);
 });
 
-client.login(TOKEN);
-app.listen(PORT);
+client.once('ready', () => { 
+    console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
+});
+
+client.login(TOKEN).catch(error => {
+    console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error);
+});
