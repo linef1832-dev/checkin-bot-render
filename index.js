@@ -323,7 +323,7 @@ function startSummaryTimer(channelId) {
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
             if (tChannel) tChannel.send(`🏁 **จบการสรุปผลแผนก ${tChannel.name} เรียบร้อยแล้วค่ะ**`);
         }
-    }, 600000); 
+    }, 60000); 
 }
 
 app.listen(process.env.PORT || 3000, () => {
