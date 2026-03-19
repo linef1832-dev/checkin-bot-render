@@ -249,18 +249,38 @@ function startSummaryTimer(channelId) {
             if (guild && tChannel) {
                 let summary = `📊 **สรุปรายชื่อพนักงาน แผนก: ${tChannel.name}**\n📅 วันที่: ${dateTh}\n──────────────────────────\n`;
                 
-                // 1. เช็คชื่อสำเร็จ
+                // 1. เช็คชื่อสำเร็จ (แยกตามกะ)
                 summary += `✅ **เช็คชื่อสำเร็จ:**\n`;
                 if (session.members.length > 0) {
-                    session.members.forEach((m, i) => {
-                        const HH = m.time.getHours().toString().padStart(2, '0');
-                        const MM = m.time.getMinutes().toString().padStart(2, '0');
-                        summary += `${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
-                    });
-                } else { summary += `- ไม่มี -\n`; }
+                    // แยกกลุ่มคน
+                    const morningShift = session.members.filter(m => m.shift.includes("กะเช้า"));
+                    const nightShift = session.members.filter(m => m.shift.includes("กะดึก"));
+
+                    // แสดงผลกะเช้า
+                    if (morningShift.length > 0) {
+                        summary += `\n☀️ **กะเช้า:**\n`;
+                        morningShift.forEach((m, i) => {
+                            const HH = m.time.getHours().toString().padStart(2, '0');
+                            const MM = m.time.getMinutes().toString().padStart(2, '0');
+                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
+                        });
+                    }
+
+                    // แสดงผลกะดึก
+                    if (nightShift.length > 0) {
+                        summary += `\n🌙 **กะดึก:**\n`;
+                        nightShift.forEach((m, i) => {
+                            const HH = m.time.getHours().toString().padStart(2, '0');
+                            const MM = m.time.getMinutes().toString().padStart(2, '0');
+                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
+                        });
+                    }
+                } else { 
+                    summary += `- ไม่มี -\n`; 
+                }
 
                 // 2. คนหยุดงาน
-                summary += `\n😴 **รายชื่อที่แจ้งหยุดงาน:**\n`;
+                summary += `\n😴 **รายชื่อที่หยุดงาน:**\n`;
                 if (leaveNames.length > 0) {
                     leaveNames.forEach((name, i) => summary += `${i + 1}. **${name}**\n`);
                 } else { summary += `- ไม่มี -\n`; }
