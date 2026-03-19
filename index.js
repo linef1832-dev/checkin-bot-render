@@ -289,7 +289,7 @@ function startSummaryTimer(channelId) {
     }, 600000); 
 }
 
-app.listen(process.env.PORT || 3000, () => {
+app.listen(process.env.PORT || 5000, () => {
     console.log(`🌐 Server web port is open and listening for Render!`);
 });
 
