@@ -366,7 +366,7 @@ function startSummaryTimer(channelId) {
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
             if (tChannel) tChannel.send(`🏁 **จบการสรุปผล แผนก: ${session.department} เรียบร้อยแล้วค่ะ**`);
         }
-    }, 60000); 
+    }, 600000); 
 }
 
 app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
