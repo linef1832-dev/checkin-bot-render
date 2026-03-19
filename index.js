@@ -171,12 +171,29 @@ client.on('messageCreate', async (message) => {
         setTimeout(async () => {
             try {
                 if (member.voice.streaming) {
+                    // --- ⏰ เครื่องจับเวลาและแยกกะอัตโนมัติ ---
+                    const now = new Date();
+                    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+                    const localTime = new Date(utc + (3600000 * 7)); // เวลาไทย
+                    const currentHour = localTime.getHours();
+                    let shiftName = "";
+
+                    // เงื่อนไข: กะเช้า 06:00 - 16:59 | กะดึก 17:00 - 05:59
+                    if (currentHour >= 6 && currentHour < 17) {
+                        shiftName = "กะเช้า ☀️";
+                    } else {
+                        shiftName = "กะดึก 🌙";
+                    }
+                    // ----------------------------------------
+
                     session.members.push({ 
                         id: member.id, 
                         name: member.displayName, 
-                        time: new Date() 
+                        time: new Date(),
+                        shift: shiftName // <--- บันทึกกะลงในความจำบอท
                     });
-                    statusMsg.edit(`✅ **เช็คชื่อสำเร็จ!** (ลำดับที่ ${session.members.length})`);
+
+                    statusMsg.edit(`✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **${shiftName}** (ลำดับที่ ${session.members.length})`);
                 } else {
                     statusMsg.edit('❌ เช็คชื่อล้มเหลว: ปิดแชร์หน้าจอก่อนเวลาค่ะ');
                 }
