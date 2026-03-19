@@ -5,7 +5,7 @@
       "ODOL": ["MINI", "RORA"]
     },
     "night": {
-      "AMOL": ["SLOBE", "THINGTHING", "LUZY", "HIACHANG", "NATCHA", "NINJA", "KOKO", "MILO", "LOWELL", "GEENA"],
+      "AMOL": ["SLOBE", "THINGTHING", "LUZY", "HIACHANG", "NATCHA", "NINJA", "KOKO", "MILO", "LOWELL"],
       "ODOL": []
     }
   },
@@ -15,7 +15,7 @@
       "ODOL": ["MINI", "TOFFY", "COPTER", "SALY", "POPSICLE"]
     },
     "night": {
-      "AMOL": ["SEEN", "BEENA", "WENDY", "GIPZY", "MILO", "LOWELL"],
+      "AMOL": ["SEEN", "BEENA", "WENDY", "GIPZY", "MILO", "LOWELL", "GEENA"],
       "ODOL": ["SAKAI"]
     }
   },
