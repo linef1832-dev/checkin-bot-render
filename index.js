@@ -189,7 +189,7 @@ client.on('messageCreate', async (message) => {
                     session.members.push({ 
                         id: member.id, 
                         name: member.displayName, 
-                        time: new Date(),
+                        localTime: localTime(),
                         shift: shiftName // <--- บันทึกกะลงในความจำบอท
                     });
 
