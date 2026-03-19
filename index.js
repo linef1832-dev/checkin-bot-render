@@ -41,46 +41,54 @@ function saveData() {
     } catch (e) { console.error("Save Data Error:", e); }
 }
 
-// 🆕 ฟังก์ชันดึงวันที่แบบไทย (GMT+7) เพื่อป้องกันเซิร์ฟเวอร์เวลาเพี้ยน
-function getThaiDate() {
+// 🆕 ตัวช่วยคำนวณเวลาไทย (GMT+7) แบบเป๊ะๆ
+function getThaiTime() {
     const now = new Date();
     const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-    const localTime = new Date(utc + (3600000 * 7)); 
+    return new Date(utc + (3600000 * 7));
+}
+
+function getThaiDateStr() {
+    const localTime = getThaiTime();
     return `${localTime.getDate()}/${localTime.getMonth() + 1}/${localTime.getFullYear() + 543}`;
 }
 
+// 🆕 ดึงข้อมูลคนหยุดแบบ "แยกกะ" ชัดเจน
 function getLeavesToday(dateStr, department = 'ALL') {
     let targetFile = LEAVE_FILE;
     const possibleNames = [LEAVE_FILE, 'Leaves.json', 'leaves.json.txt', 'Leaves.json.txt'];
     for (const name of possibleNames) {
         if (fs.existsSync(name)) { targetFile = name; break; }
     }
-    if (!fs.existsSync(targetFile)) return [];
+    if (!fs.existsSync(targetFile)) return { morning: [], night: [] };
+
     try {
         const rawData = fs.readFileSync(targetFile, 'utf8');
-        if (!rawData.trim()) return [];
+        if (!rawData.trim()) return { morning: [], night: [] };
         const allLeaves = JSON.parse(rawData);
         const todayData = allLeaves[dateStr];
 
-        if (!todayData) return [];
+        if (!todayData) return { morning: [], night: [] };
 
-        let leaves = [];
-        const shifts = ['morning', 'night'];
+        let result = { morning: [], night: [] };
 
-        shifts.forEach(shift => {
+        ['morning', 'night'].forEach(shift => {
             if (todayData[shift]) {
                 if ((department === 'AMOL' || department === 'ALL') && Array.isArray(todayData[shift].AMOL)) {
-                    leaves.push(...todayData[shift].AMOL);
+                    result[shift].push(...todayData[shift].AMOL);
                 }
                 if ((department === 'ODOL' || department === 'ALL') && Array.isArray(todayData[shift].ODOL)) {
-                    leaves.push(...todayData[shift].ODOL);
+                    result[shift].push(...todayData[shift].ODOL);
                 }
             }
         });
-        return leaves.map(n => n.toString().trim());
+
+        result.morning = result.morning.map(n => n.toString().trim());
+        result.night = result.night.map(n => n.toString().trim());
+        return result;
     } catch (e) { 
         console.error("Parse JSON Error:", e);
-        return []; 
+        return { morning: [], night: [] }; 
     }
 }
 
@@ -107,18 +115,23 @@ client.on('messageCreate', async (message) => {
     }
 
     if (message.content === '!checkleave') {
-        const todayStr = getThaiDate(); // ใช้เวลาไทย
+        const todayStr = getThaiDateStr(); 
 
         let department = "ALL";
         if (message.channel.name.toUpperCase().includes('ODOL')) department = "ODOL";
         else if (message.channel.name.toUpperCase().includes('AMOL') || message.channel.name.includes('เช็คชื่อก่อนเข้างาน')) department = "AMOL";
 
-        const leaves = getLeavesToday(todayStr, department);
+        const leavesObj = getLeavesToday(todayStr, department);
         let msg = `🔎 **ผลการตรวจสอบไฟล์คนลา (วันที่ ${todayStr})**\n`;
-        msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n`;
+        msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
-        if (leaves.length > 0) {
-            msg += `✅ พบรายชื่อคนหยุด ${leaves.length} ท่าน:\n` + leaves.map((n, i) => `${i + 1}. ${n}`).join('\n');
+        if (leavesObj.morning.length > 0 || leavesObj.night.length > 0) {
+            if (leavesObj.morning.length > 0) {
+                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
+            }
+            if (leavesObj.night.length > 0) {
+                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((n, i) => `${i + 1}. ${n}`).join('\n');
+            }
         } else {
             msg += `⚠️ ไม่พบรายชื่อพนักงานหยุดของแผนกนี้ในวันนี้ค่ะ`;
         }
@@ -139,8 +152,7 @@ client.on('messageCreate', async (message) => {
             return message.reply('❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (พิมพ์ `!addchannel` ในห้องนี้ก่อนค่ะ)');
         }
 
-        const now = new Date();
-        const todayStr = getThaiDate(); // ใช้เวลาไทย
+        const todayStr = getThaiDateStr(); 
 
         if (activeSessions.has(channelId)) {
             return message.reply('⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้วค่ะ');
@@ -160,7 +172,7 @@ client.on('messageCreate', async (message) => {
 
         activeSessions.set(channelId, {
             members: [],
-            startTime: now,
+            startTime: getThaiTime(),
             adminChannel: message.channel,
             department: sessionDept, 
             jsonError: null
@@ -199,9 +211,7 @@ client.on('messageCreate', async (message) => {
         setTimeout(async () => {
             try {
                 if (member.voice.streaming) {
-                    const now = new Date();
-                    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-                    const localTime = new Date(utc + (3600000 * 7)); 
+                    const localTime = getThaiTime(); 
                     const currentHour = localTime.getHours();
 
                     let shiftName = (currentHour >= 8 && currentHour < 20) ? "กะเช้า ☀️" : "กะดึก 🌙";
@@ -253,10 +263,19 @@ function startSummaryTimer(channelId) {
         if (!session) return;
 
         try {
-            const dateTh = getThaiDate(); // ใช้เวลาไทย
+            const localTime = getThaiTime();
+            const currentHour = localTime.getHours();
+            const dateTh = getThaiDateStr(); 
             const checkedIds = new Set(session.members.map(m => m.id));
 
-            const leaveNames = getLeavesToday(dateTh, session.department); 
+            // 🧠 เช็คว่าตอนนี้เป็นเวลาของกะไหน
+            const isMorningShift = (currentHour >= 8 && currentHour < 20);
+            const shiftIcon = isMorningShift ? "☀️ กะเช้า" : "🌙 กะดึก";
+
+            const leavesObj = getLeavesToday(dateTh, session.department); 
+
+            // 🧠 ไฮไลท์สำคัญ: ดึงเฉพาะคนหยุดงาน "ของกะปัจจุบัน" มาโชว์เท่านั้น!
+            const currentShiftLeaves = isMorningShift ? leavesObj.morning : leavesObj.night;
 
             const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
@@ -288,10 +307,13 @@ function startSummaryTimer(channelId) {
                     }
                 } else { summary += `- ไม่มี -\n`; }
 
-                summary += `\n😴 **รายชื่อที่หยุดงาน:**\n`;
-                if (leaveNames.length > 0) {
-                    leaveNames.forEach((name, i) => summary += `${i + 1}. **${name}**\n`);
-                } else { summary += `- ไม่มี -\n`; }
+                // 🆕 โชว์รายชื่อหยุดงานเฉพาะกะที่กำลังเช็คชื่อ (ไม่มัดรวมแล้ว!)
+                summary += `\n😴 **รายชื่อที่หยุดงาน (${shiftIcon}):**\n`;
+                if (currentShiftLeaves.length > 0) {
+                    currentShiftLeaves.forEach((name, i) => summary += `   ${i + 1}. **${name}**\n`);
+                } else { 
+                    summary += `- ไม่มี -\n`; 
+                }
 
                 let missingMembers = [];
                 const departmentVoiceRooms = new Set();
@@ -306,9 +328,9 @@ function startSummaryTimer(channelId) {
                         vRoom.members.forEach(member => {
                             const cleanName = member.displayName.trim().toUpperCase();
 
-                            // 🧠 อัปเกรด: เช็คว่าชื่อใน Discord มีคำที่ตรงกับชื่อในไฟล์ JSON ไหม
+                            // เช็คว่าอยู่ในรายชื่อคนหยุดของกะนี้หรือเปล่า
                             let isLeave = false;
-                            for (const lName of leaveNames) {
+                            for (const lName of currentShiftLeaves) { 
                                 if (cleanName.includes(lName.toUpperCase())) {
                                     isLeave = true;
                                     break;
@@ -320,7 +342,6 @@ function startSummaryTimer(channelId) {
                                 isSameDepartment = member.roles.cache.some(r => r.name.includes(session.department));
                             }
 
-                            // ถ้าไม่ได้เป็นบอท + ไม่ได้เช็คชื่อ + ไม่ใช่วันหยุด + อยู่แผนกเดียวกัน = ถือว่าลืมเช็คชื่อ!
                             if (!member.user.bot && !checkedIds.has(member.id) && !isLeave && isSameDepartment) {
                                 missingMembers.push({ name: member.displayName, vName: vRoom.name });
                             }
