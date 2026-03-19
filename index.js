@@ -25,7 +25,6 @@ let dataStore = {
     lastCheckinDates: {} 
 };
 
-// ✅ ระบบจัดการ Session (แยกห้องอิสระ ทำพร้อมกันได้หลายห้อง!)
 let activeSessions = new Map(); 
 
 if (fs.existsSync(DATA_FILE)) {
@@ -40,6 +39,14 @@ function saveData() {
     try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(dataStore, null, 2), 'utf8'); 
     } catch (e) { console.error("Save Data Error:", e); }
+}
+
+// 🆕 ฟังก์ชันดึงวันที่แบบไทย (GMT+7) เพื่อป้องกันเซิร์ฟเวอร์เวลาเพี้ยน
+function getThaiDate() {
+    const now = new Date();
+    const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const localTime = new Date(utc + (3600000 * 7)); 
+    return `${localTime.getDate()}/${localTime.getMonth() + 1}/${localTime.getFullYear() + 543}`;
 }
 
 function getLeavesToday(dateStr, department = 'ALL') {
@@ -100,8 +107,7 @@ client.on('messageCreate', async (message) => {
     }
 
     if (message.content === '!checkleave') {
-        const now = new Date();
-        const todayStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear() + 543}`;
+        const todayStr = getThaiDate(); // ใช้เวลาไทย
 
         let department = "ALL";
         if (message.channel.name.toUpperCase().includes('ODOL')) department = "ODOL";
@@ -134,7 +140,7 @@ client.on('messageCreate', async (message) => {
         }
 
         const now = new Date();
-        const todayStr = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear() + 543}`;
+        const todayStr = getThaiDate(); // ใช้เวลาไทย
 
         if (activeSessions.has(channelId)) {
             return message.reply('⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้วค่ะ');
@@ -144,7 +150,6 @@ client.on('messageCreate', async (message) => {
             return message.reply(`❌ ห้องนี้สรุปยอดของวันนี้ (${todayStr}) ไปเรียบร้อยแล้วค่ะ`);
         }
 
-        // 🧠 ให้บอทฉลาดขึ้น: ตรวจแผนกจาก "ชื่อห้อง" แทน
         let sessionDept = "ALL";
         const chName = message.channel.name.toUpperCase();
         if (chName.includes('ODOL')) {
@@ -198,7 +203,8 @@ client.on('messageCreate', async (message) => {
                     const utc = now.getTime() + (now.getTimezoneOffset() * 60000);
                     const localTime = new Date(utc + (3600000 * 7)); 
                     const currentHour = localTime.getHours();
-                    let shiftName = (currentHour >= 6 && currentHour < 17) ? "กะเช้า ☀️" : "กะดึก 🌙";
+
+                    let shiftName = (currentHour >= 8 && currentHour < 20) ? "กะเช้า ☀️" : "กะดึก 🌙";
 
                     session.members.push({ 
                         id: member.id, 
@@ -247,12 +253,10 @@ function startSummaryTimer(channelId) {
         if (!session) return;
 
         try {
-            const now = new Date();
-            const dateTh = `${now.getDate()}/${now.getMonth() + 1}/${now.getFullYear() + 543}`;
+            const dateTh = getThaiDate(); // ใช้เวลาไทย
             const checkedIds = new Set(session.members.map(m => m.id));
 
             const leaveNames = getLeavesToday(dateTh, session.department); 
-            const leaveNamesSet = new Set(leaveNames.map(n => n.trim()));
 
             const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
@@ -300,14 +304,24 @@ function startSummaryTimer(channelId) {
                     const vRoom = guild.channels.cache.get(vId);
                     if (vRoom) {
                         vRoom.members.forEach(member => {
-                            const cleanName = member.displayName.trim();
+                            const cleanName = member.displayName.trim().toUpperCase();
+
+                            // 🧠 อัปเกรด: เช็คว่าชื่อใน Discord มีคำที่ตรงกับชื่อในไฟล์ JSON ไหม
+                            let isLeave = false;
+                            for (const lName of leaveNames) {
+                                if (cleanName.includes(lName.toUpperCase())) {
+                                    isLeave = true;
+                                    break;
+                                }
+                            }
 
                             let isSameDepartment = true;
                             if (session.department !== "ALL") {
                                 isSameDepartment = member.roles.cache.some(r => r.name.includes(session.department));
                             }
 
-                            if (!member.user.bot && !checkedIds.has(member.id) && !leaveNamesSet.has(cleanName) && isSameDepartment) {
+                            // ถ้าไม่ได้เป็นบอท + ไม่ได้เช็คชื่อ + ไม่ใช่วันหยุด + อยู่แผนกเดียวกัน = ถือว่าลืมเช็คชื่อ!
+                            if (!member.user.bot && !checkedIds.has(member.id) && !isLeave && isSameDepartment) {
                                 missingMembers.push({ name: member.displayName, vName: vRoom.name });
                             }
                         });
@@ -331,7 +345,7 @@ function startSummaryTimer(channelId) {
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
             if (tChannel) tChannel.send(`🏁 **จบการสรุปผล แผนก: ${session.department} เรียบร้อยแล้วค่ะ**`);
         }
-    }, 600000); 
+    }, 60000); 
 }
 
 app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
