@@ -4,6 +4,12 @@ dns.setDefaultResultOrder('ipv4first');
 const { Client, GatewayIntentBits, ChannelType, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
+// --- ตั้งค่าเชื่อมต่อ Supabase ---
+const { createClient } = require('@supabase/supabase-js');
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+// ------------------------------
 
 const app = express();
 
@@ -192,6 +198,28 @@ client.on('messageCreate', async (message) => {
                         time: localTime,
                         shift: shiftName // <--- บันทึกกะลงในความจำบอท
                     });
+                    // --- 🚀 ส่งข้อมูลพุ่งเข้า Supabase ---
+                    try {
+                        const { error } = await supabase
+                            .from('checkins') // <--- ชื่อตารางของเรา
+                            .insert([
+                                { 
+                                    discord_id: member.id, 
+                                    name: member.displayName, 
+                                    checkin_time: localTime, 
+                                    shift: shiftName 
+                                }
+                            ]);
+
+                        if (error) {
+                            console.error("❌ Supabase Error:", error);
+                        } else {
+                            console.log(`✅ ส่งข้อมูลคุณ ${member.displayName} เข้า Supabase สำเร็จ!`);
+                        }
+                    } catch (err) {
+                        console.error("❌ Database Connection Failed:", err);
+                    }
+                    // ------------------------------------
 
                     statusMsg.edit(`✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **${shiftName}** (ลำดับที่ ${session.members.length})`);
                 } else {
