@@ -108,9 +108,6 @@ client.on('messageCreate', async (message) => {
     const channelId = message.channel.id;
     if (message.content === '!exportstaff') {
         // เช็คสิทธิ์ว่าคนพิมพ์เป็นแอดมินไหม
-        if (!message.member.permissions.has('Administrator')) {
-            return message.reply('❌ คำสั่งนี้ใช้ได้เฉพาะแอดมินค่ะ');
-        }
 
         const statusMsg = await message.reply('⏳ กำลังรวบรวมข้อมูล ID พนักงานทั้งหมด พร้อมระบุชื่อ... กรุณารอซักครู่');
 
