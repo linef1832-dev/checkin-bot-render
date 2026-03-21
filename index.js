@@ -106,6 +106,47 @@ client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     const channelId = message.channel.id;
+    if (message.content === '!exportstaff') {
+        // เช็คสิทธิ์ว่าคนพิมพ์เป็นแอดมินไหม
+        if (!message.member.permissions.has('Administrator')) {
+            return message.reply('❌ คำสั่งนี้ใช้ได้เฉพาะแอดมินค่ะ');
+        }
+
+        const statusMsg = await message.reply('⏳ กำลังรวบรวมข้อมูล ID พนักงานทั้งหมด พร้อมระบุชื่อ... กรุณารอซักครู่');
+
+        // สั่งบอทให้กวาดรายชื่อทุกคนในเซิร์ฟเวอร์
+        await message.guild.members.fetch();
+
+        let staffShifts = {
+            AMOL: { morning: {}, night: {} },
+            ODOL: { morning: {}, night: {} }
+        };
+
+        message.guild.members.cache.forEach(member => {
+            if (member.user.bot) return; // ข้ามบอท
+
+            const name = member.displayName;
+            const id = member.id;
+
+            let isAMOL = member.roles.cache.some(r => r.name.toUpperCase().includes('AMOL'));
+            let isODOL = member.roles.cache.some(r => r.name.toUpperCase().includes('ODOL'));
+
+            // จับคู่ "ID": "ชื่อ" แล้วโยนใส่กะเช้าไว้ก่อน
+            if (isAMOL) staffShifts.AMOL.morning[id] = name;
+            if (isODOL) staffShifts.ODOL.morning[id] = name;
+        });
+
+        // สร้างไฟล์ชั่วคราวแล้วส่งเข้า Discord
+        const fs = require('fs');
+        fs.writeFileSync('staff_template.json', JSON.stringify(staffShifts, null, 2));
+
+        const { AttachmentBuilder } = require('discord.js');
+        const file = new AttachmentBuilder('staff_template.json');
+
+        await statusMsg.edit('✅ **ดูดข้อมูลพนักงานทั้งหมดเรียบร้อยแล้ว!** \nไฟล์นี้มี **ID คู่กับชื่อ** ให้แล้ว โหลดไปจัดกะเช้า-ดึก ได้ง่ายๆ เลยครับ 👇');
+        return message.channel.send({ files: [file] });
+    }
+    
 
     if (message.content === '!resettest') {
         delete dataStore.lastCheckinDates[channelId];
