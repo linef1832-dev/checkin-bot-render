@@ -106,44 +106,31 @@ client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
     const channelId = message.channel.id;
+
     if (message.content === '!exportstaff') {
-        // เช็คสิทธิ์ว่าคนพิมพ์เป็นแอดมินไหม
-
         const statusMsg = await message.reply('⏳ กำลังรวบรวมข้อมูล ID พนักงานทั้งหมด พร้อมระบุชื่อ... กรุณารอซักครู่');
-
-        // สั่งบอทให้กวาดรายชื่อทุกคนในเซิร์ฟเวอร์
         await message.guild.members.fetch();
-
         let staffShifts = {
             AMOL: { morning: {}, night: {} },
             ODOL: { morning: {}, night: {} }
         };
-
         message.guild.members.cache.forEach(member => {
             if (member.user.bot) return; // ข้ามบอท
-
             const name = member.displayName;
             const id = member.id;
-
             let isAMOL = member.roles.cache.some(r => r.name.toUpperCase().includes('AMOL'));
             let isODOL = member.roles.cache.some(r => r.name.toUpperCase().includes('ODOL'));
-
             // จับคู่ "ID": "ชื่อ" แล้วโยนใส่กะเช้าไว้ก่อน
             if (isAMOL) staffShifts.AMOL.morning[id] = name;
             if (isODOL) staffShifts.ODOL.morning[id] = name;
         });
-
-        // สร้างไฟล์ชั่วคราวแล้วส่งเข้า Discord
         const fs = require('fs');
         fs.writeFileSync('staff_template.json', JSON.stringify(staffShifts, null, 2));
-
         const { AttachmentBuilder } = require('discord.js');
         const file = new AttachmentBuilder('staff_template.json');
-
         await statusMsg.edit('✅ **ดูดข้อมูลพนักงานทั้งหมดเรียบร้อยแล้ว!** \nไฟล์นี้มี **ID คู่กับชื่อ** ให้แล้ว โหลดไปจัดกะเช้า-ดึก ได้ง่ายๆ เลยครับ 👇');
         return message.channel.send({ files: [file] });
     }
-    
 
     if (message.content === '!resettest') {
         delete dataStore.lastCheckinDates[channelId];
@@ -154,7 +141,6 @@ client.on('messageCreate', async (message) => {
 
     if (message.content === '!checkleave') {
         const todayStr = getThaiDateStr(); 
-
         let department = "ALL";
         if (message.channel.name.toUpperCase().includes('ODOL')) department = "ODOL";
         else if (message.channel.name.toUpperCase().includes('AMOL') || message.channel.name.includes('เช็คชื่อก่อนเข้างาน')) department = "AMOL";
@@ -176,6 +162,7 @@ client.on('messageCreate', async (message) => {
         return message.reply(msg);
     }
 
+    // --- ส่วนเพิ่มห้องและลบห้อง ---
     if (message.content === '!addchannel') {
         if (dataStore.checkinChannels.includes(channelId)) {
             return message.reply('⚠️ ห้องนี้ตั้งค่าเป็นจุดเช็คชื่อไว้แล้วค่ะ');
@@ -184,6 +171,7 @@ client.on('messageCreate', async (message) => {
         saveData();
         return message.reply(`✅ ตั้งค่าห้อง <#${channelId}> เป็นจุดเช็คชื่อเรียบร้อยแล้วค่ะ`);
     }
+
     if (message.content === '!removechannel') {
         const index = dataStore.checkinChannels.indexOf(channelId);
         if (index > -1) {
@@ -194,6 +182,7 @@ client.on('messageCreate', async (message) => {
             return message.reply('⚠️ ห้องนี้ไม่ได้ตั้งเป็นจุดเช็คชื่ออยู่แล้วค่ะ');
         }
     }
+    // ----------------------------
 
     if (message.content === '!startcheckin') {
         if (!dataStore.checkinChannels.includes(channelId)) {
@@ -452,3 +441,9 @@ function startSummaryTimer(channelId) {
         }
     }, 600000); 
 }
+
+app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
+
+client.once('ready', () => { console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); });
+
+client.login(TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
