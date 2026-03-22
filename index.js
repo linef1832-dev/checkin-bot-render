@@ -306,13 +306,11 @@ function startSummaryTimer(channelId) {
             const dateTh = getThaiDateStr(); 
             const checkedIds = new Set(session.members.map(m => m.id));
 
-            // 🧠 เช็คว่าตอนนี้เป็นเวลาของกะไหน
+            // 🧠 เช็คว่าตอนนี้เป็นเวลาของกะไหน (เช้า 08:00 - 19:59)
             const isMorningShift = (currentHour >= 8 && currentHour < 20);
             const shiftIcon = isMorningShift ? "☀️ กะเช้า" : "🌙 กะดึก";
 
             const leavesObj = getLeavesToday(dateTh, session.department); 
-
-            // 🧠 ไฮไลท์สำคัญ: ดึงเฉพาะคนหยุดงาน "ของกะปัจจุบัน" มาโชว์เท่านั้น!
             const currentShiftLeaves = isMorningShift ? leavesObj.morning : leavesObj.night;
 
             const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
@@ -345,7 +343,6 @@ function startSummaryTimer(channelId) {
                     }
                 } else { summary += `- ไม่มี -\n`; }
 
-                // 🆕 โชว์รายชื่อหยุดงานเฉพาะกะที่กำลังเช็คชื่อ (ไม่มัดรวมแล้ว!)
                 summary += `\n😴 **รายชื่อที่หยุดงาน (${shiftIcon}):**\n`;
                 if (currentShiftLeaves.length > 0) {
                     currentShiftLeaves.forEach((name, i) => summary += `   ${i + 1}. **${name}**\n`);
@@ -353,6 +350,7 @@ function startSummaryTimer(channelId) {
                     summary += `- ไม่มี -\n`; 
                 }
 
+                // 📌 ระบบที่ 1: สแกนคนลืมเช็คชื่อ (เช็คจากคนในห้องเสียง)
                 let missingMembers = [];
                 const departmentVoiceRooms = new Set();
                 session.members.forEach(m => {
@@ -366,7 +364,6 @@ function startSummaryTimer(channelId) {
                         vRoom.members.forEach(member => {
                             const cleanName = member.displayName.trim().toUpperCase();
 
-                            // เช็คว่าอยู่ในรายชื่อคนหยุดของกะนี้หรือเปล่า
                             let isLeave = false;
                             for (const lName of currentShiftLeaves) { 
                                 if (cleanName.includes(lName.toUpperCase())) {
@@ -390,8 +387,47 @@ function startSummaryTimer(channelId) {
                 if (missingMembers.length > 0) {
                     summary += `\n🔴 **ลืมเช็คชื่อ (พบในกลุ่มห้องเสียงเดียวกัน):**\n`;
                     missingMembers.forEach((m, i) => {
-                        summary += `${i + 1}. **${m.name}** (อยู่ในห้อง: ${m.vName})\n`;
+                        summary += `   ${i + 1}. **${m.name}** (อยู่ในห้อง: ${m.vName})\n`;
                     });
+                }
+
+                // 📌 ระบบที่ 2 (มาใหม่!): สแกนคนหายตัวไป (เช็คจากไฟล์ staff.json)
+                let absentMembers = [];
+                const fs = require('fs');
+                try {
+                    const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
+                    const currentShift = isMorningShift ? "morning" : "night";
+
+                    if (session.department !== "ALL" && staffData[session.department]) {
+                        let expectedStaff = staffData[session.department][currentShift];
+
+                        for (const [staffId, staffName] of Object.entries(expectedStaff)) {
+                            // เช็คว่าคนนี้อยู่ในรายชื่อคนหยุดไหม
+                            let isLeave = false;
+                            for (const lName of currentShiftLeaves) {
+                                if (staffName.toUpperCase().includes(lName.toUpperCase())) {
+                                    isLeave = true;
+                                    break;
+                                }
+                            }
+
+                            // ถ้าไม่ได้พิมพ์เช็คชื่อ (ไม่เจอ ID) และ ไม่ได้ลาหยุด = หายตัวจริงๆ!
+                            if (!checkedIds.has(staffId) && !isLeave) {
+                                absentMembers.push(staffName);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error("❌ เกิดข้อผิดพลาดในการอ่านไฟล์ staff.json:", error);
+                }
+
+                if (absentMembers.length > 0) {
+                    summary += `\n❓ **พนักงานที่หายตัวไป (ไม่มีชื่อลา & ไม่ได้เช็คชื่อ):**\n`;
+                    absentMembers.forEach((name, i) => {
+                        summary += `   ${i + 1}. **${name}**\n`;
+                    });
+                } else {
+                    summary += `\n✅ **เข้างานครบทุกคน (ไม่มีคนขาด)**\n`;
                 }
 
                 summary += `──────────────────────────\n`;
@@ -406,9 +442,3 @@ function startSummaryTimer(channelId) {
         }
     }, 600000); 
 }
-
-app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
-
-client.once('ready', () => { console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); });
-
-client.login(TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
