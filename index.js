@@ -184,6 +184,16 @@ client.on('messageCreate', async (message) => {
         saveData();
         return message.reply(`✅ ตั้งค่าห้อง <#${channelId}> เป็นจุดเช็คชื่อเรียบร้อยแล้วค่ะ`);
     }
+    if (message.content === '!removechannel') {
+        const index = dataStore.checkinChannels.indexOf(channelId);
+        if (index > -1) {
+            dataStore.checkinChannels.splice(index, 1);
+            saveData();
+            return message.reply(`🗑️ **ยกเลิก**การตั้งค่าห้อง <#${channelId}> เป็นจุดเช็คชื่อเรียบร้อยแล้วค่ะ`);
+        } else {
+            return message.reply('⚠️ ห้องนี้ไม่ได้ตั้งเป็นจุดเช็คชื่ออยู่แล้วค่ะ');
+        }
+    }
 
     if (message.content === '!startcheckin') {
         if (!dataStore.checkinChannels.includes(channelId)) {
