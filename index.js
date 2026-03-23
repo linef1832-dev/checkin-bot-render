@@ -141,7 +141,7 @@ client.on('messageCreate', async (message) => {
         );
 
         if (!hasPermission) {
-            return message.reply('❌ อย่ากดมั่ว');
+            return message.reply('❌ อย่ากดมั่วแบมือมา');
         }
 
         delete dataStore.lastCheckinDates[channelId];
