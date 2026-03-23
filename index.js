@@ -160,7 +160,6 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
         const onLeaveUsers = Object.keys(activeLeaves).filter(username => activeLeaves[username]);
 
-        // 🆕 ระบบเทียบชื่อกับไฟล์ staff.json เพื่อแยกกะเช้า-กะดึกอัตโนมัติ
         let staffData = {};
         try {
             if (fs.existsSync('./staff.json')) {
@@ -172,13 +171,15 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
         onLeaveUsers.forEach(leaveName => {
             let shiftFound = null;
+            let userDeptFound = null; // 🆕 เพิ่มตัวแปรเก็บแผนกของคนๆ นี้
 
-            // วนหาชื่อใน staff.json ว่าคนนี้อยู่กะไหน
+            // วนหาชื่อใน staff.json ว่าคนนี้อยู่กะไหน และแผนกอะไร
             for (const dept in staffData) {
                 if (staffData[dept].morning) {
                     for (const id in staffData[dept].morning) {
                         if (staffData[dept].morning[id].toUpperCase().includes(leaveName.toUpperCase())) {
                             shiftFound = 'morning';
+                            userDeptFound = dept;
                             break;
                         }
                     }
@@ -187,11 +188,17 @@ async function getLeavesFromSupabase(department = 'ALL') {
                     for (const id in staffData[dept].night) {
                         if (staffData[dept].night[id].toUpperCase().includes(leaveName.toUpperCase())) {
                             shiftFound = 'night';
+                            userDeptFound = dept;
                             break;
                         }
                     }
                 }
                 if (shiftFound) break;
+            }
+
+            // 🆕 ถ้าห้องที่เช็คมีระบุแผนกไว้ (เช่นห้อง ODOL) แต่คนหยุดอยู่คนละแผนก (เช่น AMOL) ให้ข้ามไปเลย ไม่เอามาโชว์!
+            if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) {
+                return; // ข้ามคนนี้ไปเลย
             }
 
             // จัดคนลงกะให้ถูกต้อง
@@ -280,7 +287,6 @@ client.on('messageCreate', async (message) => {
         let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
-        // 🆕 นำระบบแสดงผลแยกกะกลับมาให้เหมือนเดิม
         if (leavesObj.morning.length > 0 || leavesObj.night.length > 0) {
             if (leavesObj.morning.length > 0) {
                 msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
