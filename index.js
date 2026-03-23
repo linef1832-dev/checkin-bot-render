@@ -4,11 +4,19 @@ dns.setDefaultResultOrder('ipv4first');
 const { Client, GatewayIntentBits, ChannelType, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
-// --- ตั้งค่าเชื่อมต่อ Supabase ---
+
+// --- ตั้งค่าเชื่อมต่อ Supabase (ตัวที่ 1: บันทึกเช็คชื่อ) ---
 const { createClient } = require('@supabase/supabase-js');
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+// ------------------------------
+
+// 🆕 --- ตั้งค่าเชื่อมต่อ Supabase (ตัวที่ 2: วันหยุด) ---
+const supabaseLeaveUrl = process.env.SUPABASE_LEAVE_URL;
+const supabaseLeaveKey = process.env.SUPABASE_LEAVE_KEY;
+// ป้องกัน Error หากยังไม่ได้ใส่ค่าใน Railway
+const supabaseLeave = (supabaseLeaveUrl && supabaseLeaveKey) ? createClient(supabaseLeaveUrl, supabaseLeaveKey) : null;
 // ------------------------------
 
 const app = express();
@@ -41,6 +49,24 @@ function saveData() {
     } catch (e) { console.error("Save Data Error:", e); }
 }
 
+// 🆕 ฟังก์ชันใหม่สำหรับเทียบ ID เพื่อดึงชื่อจาก staff.json
+function getStaffName(userId, fallbackName) {
+    try {
+        if (!fs.existsSync('./staff.json')) return fallbackName;
+        const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
+        for (const dept in staffData) {
+            for (const shift in staffData[dept]) {
+                if (staffData[dept][shift] && staffData[dept][shift][userId]) {
+                    return staffData[dept][shift][userId];
+                }
+            }
+        }
+    } catch (e) {
+        console.error("❌ Error reading staff.json for name:", e);
+    }
+    return fallbackName;
+}
+
 // 🆕 ตัวช่วยคำนวณเวลาไทย (GMT+7) แบบเป๊ะๆ
 function getThaiTime() {
     const now = new Date();
@@ -53,7 +79,16 @@ function getThaiDateStr() {
     return `${localTime.getDate()}/${localTime.getMonth() + 1}/${localTime.getFullYear() + 543}`;
 }
 
-// 🆕 ดึงข้อมูลคนหยุดแบบ "แยกกะ" ชัดเจน
+// 🆕 ฟังก์ชันแปลงวันที่สำหรับค้นหาใน Supabase (รูปแบบ YYYY-MM-DD)
+function getSupabaseDateStr() {
+    const localTime = getThaiTime();
+    const yyyy = localTime.getFullYear();
+    const mm = String(localTime.getMonth() + 1).padStart(2, '0');
+    const dd = String(localTime.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+}
+
+// 🆕 ดึงข้อมูลคนหยุดแบบ "แยกกะ" ชัดเจน (โค้ดเดิม ไม่ลบ)
 function getLeavesToday(dateStr, department = 'ALL') {
     let targetFile = LEAVE_FILE;
     const possibleNames = [LEAVE_FILE, 'Leaves.json', 'leaves.json.txt', 'Leaves.json.txt'];
@@ -89,6 +124,64 @@ function getLeavesToday(dateStr, department = 'ALL') {
     } catch (e) { 
         console.error("Parse JSON Error:", e);
         return { morning: [], night: [] }; 
+    }
+}
+
+// 🆕 ฟังก์ชันใหม่ดึงข้อมูลวันหยุดจาก Supabase
+async function getLeavesFromSupabase(department = 'ALL') {
+    const targetDate = getSupabaseDateStr();
+    let result = { morning: [], night: [] };
+
+    // 🆕 ตรวจสอบว่าใส่ค่าตัวแปรของ Supabase ตัวที่ 2 หรือยัง
+    if (!supabaseLeave) {
+        console.error("⚠️ ยังไม่ได้ตั้งค่า SUPABASE_LEAVE_URL และ SUPABASE_LEAVE_KEY ใน Railway ระบบจะใช้ไฟล์ JSON ปกติแทน");
+        return result; 
+    }
+
+    try {
+        // 🆕 ดึงข้อมูลจากตาราง leave_logs โดยใช้ supabase ตัวที่ 2 (supabaseLeave)
+        const { data, error } = await supabaseLeave
+            .from('leave_logs')
+            .select('id, action_type, username, department')
+            .eq('leave_date', targetDate)
+            .order('id', { ascending: true });
+
+        if (error) {
+            console.error("❌ Supabase Fetch Leave Error:", error);
+            return result;
+        }
+
+        let activeLeaves = {};
+
+        if (data) {
+            for (const row of data) {
+                // กรองแผนก ถ้า department ไม่ใช่ ALL
+                if (department !== 'ALL' && row.department && !row.department.toUpperCase().includes(department.toUpperCase())) {
+                    continue;
+                }
+
+                // บันทึกสถานะ จอง หรือ ยกเลิก ล่าสุดของ username นั้นๆ
+                if (row.username) {
+                    if (row.action_type === 'จอง') {
+                        activeLeaves[row.username] = true;
+                    } else if (row.action_type === 'ยกเลิก') {
+                        activeLeaves[row.username] = false;
+                    }
+                }
+            }
+        }
+
+        // กรองเอาเฉพาะคนที่สถานะล่าสุดคือ จอง
+        const onLeaveUsers = Object.keys(activeLeaves).filter(username => activeLeaves[username]);
+
+        // นำรายชื่อใส่ทั้งสองกะเพื่อให้ระบบตรวจจับได้
+        result.morning = onLeaveUsers;
+        result.night = onLeaveUsers;
+
+        return result;
+    } catch (e) {
+        console.error("❌ Exception in getLeavesFromSupabase:", e);
+        return result;
     }
 }
 
@@ -141,7 +234,7 @@ client.on('messageCreate', async (message) => {
         );
 
         if (!hasPermission) {
-            return message.reply('❌ อย่ากดมั่วแบมือมา');
+            return message.reply('❌ อย่ากดมั่ว');
         }
 
         delete dataStore.lastCheckinDates[channelId];
@@ -156,17 +249,16 @@ client.on('messageCreate', async (message) => {
         if (message.channel.name.toUpperCase().includes('ODOL')) department = "ODOL";
         else if (message.channel.name.toUpperCase().includes('AMOL') || message.channel.name.includes('เช็คชื่อก่อนเข้างาน')) department = "AMOL";
 
-        const leavesObj = getLeavesToday(todayStr, department);
-        let msg = `🔎 **ผลการตรวจสอบไฟล์คนลา (วันที่ ${todayStr})**\n`;
+        // โค้ดเดิม: const leavesObj = getLeavesToday(todayStr, department);
+        const leavesObj = await getLeavesFromSupabase(department); // 🆕 ดึงจาก Supabase
+
+        let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
         if (leavesObj.morning.length > 0 || leavesObj.night.length > 0) {
-            if (leavesObj.morning.length > 0) {
-                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
-            }
-            if (leavesObj.night.length > 0) {
-                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((n, i) => `${i + 1}. ${n}`).join('\n');
-            }
+            // เนื่องจากตอนนี้ใส่รายชื่อเหมือนกันทั้งสองกะ ให้แสดงรวมเลยเพื่อความสวยงาม
+            const uniqueLeaves = [...new Set([...leavesObj.morning, ...leavesObj.night])];
+            msg += `🛌 **รายชื่อผู้ลาหยุด (${uniqueLeaves.length} ท่าน):**\n` + uniqueLeaves.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
         } else {
             msg += `⚠️ ไม่พบรายชื่อพนักงานหยุดของแผนกนี้ในวันนี้ค่ะ`;
         }
@@ -197,7 +289,7 @@ client.on('messageCreate', async (message) => {
 
     if (message.content === '!startcheckin') {
         if (!dataStore.checkinChannels.includes(channelId)) {
-            return message.reply('❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (พิมพ์ `!addchannel` ในห้องนี้ก่อนค่ะ)');
+            return message.reply('❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (พิมพ์ `!addchannel`ในห้องนี้ก่อนค่ะ)');
         }
 
         const todayStr = getThaiDateStr(); 
@@ -264,17 +356,21 @@ client.on('messageCreate', async (message) => {
 
                     let shiftName = (currentHour >= 8 && currentHour < 20) ? "กะเช้า ☀️" : "กะดึก 🌙";
 
+                    // 🆕 เปลี่ยนไปใช้ชื่อจาก staff.json ทันทีที่เช็คชื่อ
+                    const staffName = getStaffName(member.id, member.displayName);
+
                     session.members.push({ 
                         id: member.id, 
-                        name: member.displayName, 
+                        name: staffName, // 🆕 บันทึกชื่อจากไฟล์
                         time: localTime,
                         shift: shiftName 
                     });
 
                     try {
+                        // บันทึกเช็คชื่อลง Supabase ตัวที่ 1 (supabase ปกติ)
                         const { error } = await supabase
                             .from('checkins') 
-                            .insert([{ discord_id: member.id, name: member.displayName, checkin_time: localTime, shift: shiftName }]);
+                            .insert([{ discord_id: member.id, name: staffName, checkin_time: localTime, shift: shiftName }]); 
                         if (error) console.error("❌ Supabase Error:", error);
                     } catch (err) { console.error("❌ Database Connection Failed:", err); }
 
@@ -320,7 +416,9 @@ function startSummaryTimer(channelId) {
             const isMorningShift = (currentHour >= 8 && currentHour < 20);
             const shiftIcon = isMorningShift ? "☀️ กะเช้า" : "🌙 กะดึก";
 
-            const leavesObj = getLeavesToday(dateTh, session.department); 
+            // โค้ดเดิม: const leavesObj = getLeavesToday(dateTh, session.department); 
+            const leavesObj = await getLeavesFromSupabase(session.department); // 🆕 ดึงข้อมูลลาจาก Supabase ตัวที่ 2
+
             const currentShiftLeaves = isMorningShift ? leavesObj.morning : leavesObj.night;
 
             const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
@@ -372,7 +470,9 @@ function startSummaryTimer(channelId) {
                     const vRoom = guild.channels.cache.get(vId);
                     if (vRoom) {
                         vRoom.members.forEach(member => {
-                            const cleanName = member.displayName.trim().toUpperCase();
+                            // 🆕 เปลี่ยนชื่อคนลืมเช็คชื่อให้ตรงกับไฟล์ staff.json ด้วย
+                            const staffName = getStaffName(member.id, member.displayName);
+                            const cleanName = staffName.trim().toUpperCase();
 
                             let isLeave = false;
                             for (const lName of currentShiftLeaves) { 
@@ -388,7 +488,7 @@ function startSummaryTimer(channelId) {
                             }
 
                             if (!member.user.bot && !checkedIds.has(member.id) && !isLeave && isSameDepartment) {
-                                missingMembers.push({ name: member.displayName, vName: vRoom.name });
+                                missingMembers.push({ name: staffName, vName: vRoom.name }); // 🆕 โชว์ชื่อตามไฟล์
                             }
                         });
                     }
@@ -401,9 +501,8 @@ function startSummaryTimer(channelId) {
                     });
                 }
 
-                // 📌 ระบบที่ 2 (มาใหม่!): สแกนคนหายตัวไป (เช็คจากไฟล์ staff.json)
+                // 📌 ระบบที่ 2: สแกนคนหายตัวไป (เช็คจากไฟล์ staff.json)
                 let absentMembers = [];
-                const fs = require('fs');
                 try {
                     const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
                     const currentShift = isMorningShift ? "morning" : "night";
@@ -423,7 +522,7 @@ function startSummaryTimer(channelId) {
 
                             // ถ้าไม่ได้พิมพ์เช็คชื่อ (ไม่เจอ ID) และ ไม่ได้ลาหยุด = หายตัวจริงๆ!
                             if (!checkedIds.has(staffId) && !isLeave) {
-                                absentMembers.push(staffName);
+                                absentMembers.push(staffName); // 🆕 ตรงนี้ใช้ชื่อจากไฟล์อยู่แล้ว
                             }
                         }
                     }
