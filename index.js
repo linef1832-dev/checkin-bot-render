@@ -148,11 +148,12 @@ async function getLeavesFromSupabase(department = 'ALL') {
         if (data) {
             for (const row of data) {
                 if (row.username) {
+                    const leaveName = row.username.trim(); 
                     const action = row.action_type ? row.action_type.trim() : '';
                     if (action === 'จอง') {
-                        activeLeaves[row.username] = true;
+                        activeLeaves[leaveName] = true;
                     } else if (action === 'ยกเลิก') {
-                        activeLeaves[row.username] = false;
+                        activeLeaves[leaveName] = false;
                     }
                 }
             }
@@ -171,13 +172,15 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
         onLeaveUsers.forEach(leaveName => {
             let shiftFound = null;
-            let userDeptFound = null; // 🆕 เพิ่มตัวแปรเก็บแผนกของคนๆ นี้
+            let userDeptFound = null; 
+            const cleanLeaveName = leaveName.toUpperCase();
 
             // วนหาชื่อใน staff.json ว่าคนนี้อยู่กะไหน และแผนกอะไร
             for (const dept in staffData) {
                 if (staffData[dept].morning) {
                     for (const id in staffData[dept].morning) {
-                        if (staffData[dept].morning[id].toUpperCase().includes(leaveName.toUpperCase())) {
+                        const staffName = staffData[dept].morning[id].trim().toUpperCase();
+                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
                             shiftFound = 'morning';
                             userDeptFound = dept;
                             break;
@@ -186,7 +189,8 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 }
                 if (!shiftFound && staffData[dept].night) {
                     for (const id in staffData[dept].night) {
-                        if (staffData[dept].night[id].toUpperCase().includes(leaveName.toUpperCase())) {
+                        const staffName = staffData[dept].night[id].trim().toUpperCase();
+                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
                             shiftFound = 'night';
                             userDeptFound = dept;
                             break;
@@ -196,19 +200,15 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 if (shiftFound) break;
             }
 
-            // 🆕 ถ้าห้องที่เช็คมีระบุแผนกไว้ (เช่นห้อง ODOL) แต่คนหยุดอยู่คนละแผนก (เช่น AMOL) ให้ข้ามไปเลย ไม่เอามาโชว์!
+            // ถ้าห้องที่เช็คมีระบุแผนกไว้ แต่คนหยุดอยู่คนละแผนก ให้ข้าม
             if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) {
-                return; // ข้ามคนนี้ไปเลย
+                return; 
             }
 
-            // จัดคนลงกะให้ถูกต้อง
+            // จัดคนลงกะให้ถูกต้อง (ถ้าหาไม่เจอในไฟล์ staff.json จะไม่เอามาแสดงผลเลย)
             if (shiftFound === 'morning') {
                 result.morning.push(leaveName);
             } else if (shiftFound === 'night') {
-                result.night.push(leaveName);
-            } else {
-                // ถ้าหาชื่อไม่เจอในไฟล์ (พนักงานใหม่/พิมพ์ชื่อผิด) ให้โชว์ทั้ง 2 กะ ป้องกันการถูกเช็คขาด
-                result.morning.push(leaveName);
                 result.night.push(leaveName);
             }
         });
@@ -283,7 +283,7 @@ client.on('messageCreate', async (message) => {
         else if (message.channel.name.toUpperCase().includes('AMOL') || message.channel.name.includes('เช็คชื่อก่อนเข้างาน') || message.channel.name.includes('เช็คชื่อเข้างาน')) department = "AMOL";
 
         const leavesObj = await getLeavesFromSupabase(department); 
-
+        
         let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
