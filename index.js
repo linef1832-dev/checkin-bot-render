@@ -150,7 +150,8 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 if (row.username) {
                     const leaveName = row.username.trim(); 
                     const action = row.action_type ? row.action_type.trim() : '';
-                    if (action === 'จอง') {
+                    // 🆕 ปรับให้ครอบคลุม "จอง", "จอง [TX]", "จอง [KL]", "จอง [X]" ทุกแบบที่ขึ้นต้นด้วยคำว่า จอง
+                    if (action.startsWith('จอง')) {
                         activeLeaves[leaveName] = true;
                     } else if (action === 'ยกเลิก') {
                         activeLeaves[leaveName] = false;
@@ -283,7 +284,7 @@ client.on('messageCreate', async (message) => {
         else if (message.channel.name.toUpperCase().includes('AMOL') || message.channel.name.includes('เช็คชื่อก่อนเข้างาน') || message.channel.name.includes('เช็คชื่อเข้างาน')) department = "AMOL";
 
         const leavesObj = await getLeavesFromSupabase(department); 
-        
+
         let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
