@@ -133,6 +133,17 @@ client.on('messageCreate', async (message) => {
     }
 
     if (message.content === '!resettest') {
+        // 🔒 เช็คสิทธิ์: ต้องมียศ PTT หรือ TT HAED เท่านั้น
+        const hasPermission = message.member.roles.cache.some(role => 
+            role.name.toUpperCase() === 'PTT' || 
+            role.name.toUpperCase() === 'TT HAED' || 
+            role.name.toUpperCase() === 'TT HEAD' // ดักไว้เผื่อพิมพ์สลับที่ครับ
+        );
+
+        if (!hasPermission) {
+            return message.reply('❌ อย่ากดมั่ว');
+        }
+
         delete dataStore.lastCheckinDates[channelId];
         activeSessions.delete(channelId);
         saveData();
