@@ -147,7 +147,6 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
         if (data) {
             for (const row of data) {
-                // 🆕 เอาส่วนที่เช็ค department ออก เพื่อให้ดึงรายชื่อคนจองมาทั้งหมดก่อน ป้องกันปัญหาแผนกไม่ตรง
                 if (row.username) {
                     const action = row.action_type ? row.action_type.trim() : '';
                     if (action === 'จอง') {
@@ -161,8 +160,51 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
         const onLeaveUsers = Object.keys(activeLeaves).filter(username => activeLeaves[username]);
 
-        result.morning = onLeaveUsers;
-        result.night = onLeaveUsers;
+        // 🆕 ระบบเทียบชื่อกับไฟล์ staff.json เพื่อแยกกะเช้า-กะดึกอัตโนมัติ
+        let staffData = {};
+        try {
+            if (fs.existsSync('./staff.json')) {
+                staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
+            }
+        } catch (err) {
+            console.error("❌ Error reading staff.json:", err);
+        }
+
+        onLeaveUsers.forEach(leaveName => {
+            let shiftFound = null;
+
+            // วนหาชื่อใน staff.json ว่าคนนี้อยู่กะไหน
+            for (const dept in staffData) {
+                if (staffData[dept].morning) {
+                    for (const id in staffData[dept].morning) {
+                        if (staffData[dept].morning[id].toUpperCase().includes(leaveName.toUpperCase())) {
+                            shiftFound = 'morning';
+                            break;
+                        }
+                    }
+                }
+                if (!shiftFound && staffData[dept].night) {
+                    for (const id in staffData[dept].night) {
+                        if (staffData[dept].night[id].toUpperCase().includes(leaveName.toUpperCase())) {
+                            shiftFound = 'night';
+                            break;
+                        }
+                    }
+                }
+                if (shiftFound) break;
+            }
+
+            // จัดคนลงกะให้ถูกต้อง
+            if (shiftFound === 'morning') {
+                result.morning.push(leaveName);
+            } else if (shiftFound === 'night') {
+                result.night.push(leaveName);
+            } else {
+                // ถ้าหาชื่อไม่เจอในไฟล์ (พนักงานใหม่/พิมพ์ชื่อผิด) ให้โชว์ทั้ง 2 กะ ป้องกันการถูกเช็คขาด
+                result.morning.push(leaveName);
+                result.night.push(leaveName);
+            }
+        });
 
         return result;
     } catch (e) {
@@ -238,9 +280,14 @@ client.on('messageCreate', async (message) => {
         let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
+        // 🆕 นำระบบแสดงผลแยกกะกลับมาให้เหมือนเดิม
         if (leavesObj.morning.length > 0 || leavesObj.night.length > 0) {
-            const uniqueLeaves = [...new Set([...leavesObj.morning, ...leavesObj.night])];
-            msg += `🛌 **รายชื่อผู้ลาหยุด (${uniqueLeaves.length} ท่าน):**\n` + uniqueLeaves.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
+            if (leavesObj.morning.length > 0) {
+                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
+            }
+            if (leavesObj.night.length > 0) {
+                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
+            }
         } else {
             msg += `⚠️ ไม่พบรายชื่อพนักงานหยุดของแผนกนี้ในวันนี้ค่ะ`;
         }
