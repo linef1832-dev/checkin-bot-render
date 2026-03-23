@@ -13,7 +13,7 @@ const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 // ------------------------------
 
-// 🆕 --- ตั้งค่าเชื่อมต่อ Supabase (ตัวที่ 2: วันหยุด) ---
+// --- ตั้งค่าเชื่อมต่อ Supabase (ตัวที่ 2: วันหยุด) ---
 const supabaseLeaveUrl = process.env.SUPABASE_LEAVE_URL;
 const supabaseLeaveKey = process.env.SUPABASE_LEAVE_KEY;
 const supabaseLeave = (supabaseLeaveUrl && supabaseLeaveKey) ? createClient(supabaseLeaveUrl, supabaseLeaveKey) : null;
@@ -30,12 +30,13 @@ const LEAVE_FILE = 'leaves.json';
 
 let dataStore = {
     checkinChannels: [],
-    lastCheckinDates: {} 
+    lastCheckinDates: {},
+    autoCheckinEnabled: true // 🆕 ค่าเริ่มต้นคือเปิดใช้งาน
 };
 
 let activeSessions = new Map(); 
 
-// 🆕 ตัวแปรความจำของบอท เพื่อจำว่างานไหนอัปเดตลงไฟล์ไปแล้วบ้าง
+// ตัวแปรความจำของบอท เพื่อจำว่างานไหนอัปเดตลงไฟล์ไปแล้วบ้าง
 let processedTasks = new Set();
 
 if (fs.existsSync(DATA_FILE)) {
@@ -43,6 +44,8 @@ if (fs.existsSync(DATA_FILE)) {
         const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
         dataStore.checkinChannels = loaded.checkinChannels || [];
         dataStore.lastCheckinDates = loaded.lastCheckinDates || {};
+        // 🆕 โหลดสถานะเปิด/ปิด (ถ้ามีบันทึกไว้)
+        dataStore.autoCheckinEnabled = loaded.autoCheckinEnabled !== undefined ? loaded.autoCheckinEnabled : true;
     } catch (e) { console.error("Load Data Error:", e); }
 }
 
@@ -88,14 +91,12 @@ function getSupabaseDateStr() {
     return `${yyyy}-${mm}-${dd}`;
 }
 
-// 🆕 ฟังก์ชันใหม่: ดึงคิวที่ "เสร็จแล้ว" จาก Supabase มาอัปเดตไฟล์ staff.json (ไม่แก้ DB)
+// ฟังก์ชันดึงคิวที่ "เสร็จแล้ว" จาก Supabase มาอัปเดตไฟล์ staff.json (ไม่แก้ DB)
 async function processAutoShiftSwaps() {
     try {
-        // ดึงเฉพาะงานของเมื่อวานถึงวันนี้ (ย้อนหลัง 24 ชม.) จะได้ไม่ต้องโหลดประวัติเก่าๆ เป็นพันรายการ
         const now = new Date();
         const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000)).toISOString();
 
-        // 🎯 สั่งให้บอทหาแค่งานที่เว็บทำสำเร็จแล้ว (completed)
         const { data: tasks, error } = await supabase
             .from('scheduled_tasks')
             .select('*')
@@ -111,7 +112,6 @@ async function processAutoShiftSwaps() {
         let isUpdated = false;
 
         for (const task of tasks) {
-            // ถ้างงานนี้บอทเคยดึงมาอัปเดตไฟล์ staff.json แล้ว ให้ข้ามไปเลย
             if (processedTasks.has(task.id)) continue;
 
             let p = task.payload;
@@ -127,7 +127,6 @@ async function processAutoShiftSwaps() {
                     let foundDept = null;
                     let foundName = null;
 
-                    // 1. ค้นหาพนักงานจากกะเดิม
                     for (const dept in staffData) {
                         for (const shift in staffData[dept]) {
                             for (const uid in staffData[dept][shift]) {
@@ -141,7 +140,6 @@ async function processAutoShiftSwaps() {
                         }
                     }
 
-                    // 2. จับใส่กะใหม่ให้ตรงตามที่เว็บสั่งมา
                     if (foundUserId && foundDept) {
                         if (!staffData[foundDept][newShiftKey]) staffData[foundDept][newShiftKey] = {};
                         staffData[foundDept][newShiftKey][foundUserId] = foundName;
@@ -151,11 +149,9 @@ async function processAutoShiftSwaps() {
                 }
             }
 
-            // 🎯 จดจำ ID งานนี้ไว้ในสมองบอท จะได้ไม่เอามาเขียนไฟล์ซ้ำในนาทีถัดไป (ไม่มีการส่งคำสั่งกลับไปแก้ DB)
             processedTasks.add(task.id);
         }
 
-        // 3. เซฟข้อมูลกลับเข้าไฟล์ staff.json แค่ครั้งเดียวถ้ามีการเปลี่ยนแปลง
         if (isUpdated) {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
             console.log('✅ อัปเดตไฟล์ staff.json ตามเว็บเรียบร้อยแล้ว!');
@@ -314,7 +310,30 @@ client.on('messageCreate', async (message) => {
 
     const channelId = message.channel.id;
 
-    // 🆕 คำสั่งสำหรับลบพนักงานออกจากระบบ
+    // 🆕 คำสั่งเปิดระบบเช็คชื่ออัตโนมัติ
+    if (message.content === '!autoon') {
+        const hasPermission = message.member.roles.cache.some(role => 
+            ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
+        );
+        if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
+
+        dataStore.autoCheckinEnabled = true;
+        saveData();
+        return message.reply('✅ **เปิด** ระบบแจ้งเตือนเช็คชื่ออัตโนมัติ (08:00 และ 20:00) เรียบร้อยแล้วค่ะ');
+    }
+
+    // 🆕 คำสั่งปิดระบบเช็คชื่ออัตโนมัติ
+    if (message.content === '!autooff') {
+        const hasPermission = message.member.roles.cache.some(role => 
+            ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
+        );
+        if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
+
+        dataStore.autoCheckinEnabled = false;
+        saveData();
+        return message.reply('🛑 **ปิด** ระบบแจ้งเตือนเช็คชื่ออัตโนมัติแล้วค่ะ แอดมินต้องพิมพ์ `!startcheckin` เพื่อเริ่มเองนะคะ');
+    }
+
     if (message.content.startsWith('!removestaff')) {
         const hasPermission = message.member.roles.cache.some(role => 
             ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
@@ -352,7 +371,6 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    // 🆕 คำสั่งสำหรับเพิ่มพนักงานเข้าระบบ หรือย้ายแผนก/กะ
     if (message.content.startsWith('!addstaff')) {
         const hasPermission = message.member.roles.cache.some(role => 
             ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
@@ -388,7 +406,6 @@ client.on('messageCreate', async (message) => {
         if (!staffData[dept]) staffData[dept] = { morning: {}, night: {} };
         if (!staffData[dept][shift]) staffData[dept][shift] = {};
 
-        // เคลียร์ ID นี้ออกจากกะ/แผนกอื่นๆ ก่อน เพื่อป้องกันชื่อเบิ้ลเวลาพนักงานย้ายกะ
         for (const d in staffData) {
             for (const s in staffData[d]) {
                 if (staffData[d][s] && staffData[d][s][staffId]) {
@@ -444,7 +461,6 @@ client.on('messageCreate', async (message) => {
         return message.reply(`🔄 **รีเซ็ตระบบสำหรับห้องนี้เรียบร้อย!** เริ่มทดสอบใหม่ได้เลยค่ะ`);
     }
 
-    // 🆕 คำสั่งลับสำหรับทดสอบระบบย้ายกะอัตโนมัติ (บังคับรันทันที)
     if (message.content === '!testswap') {
         const hasPermission = message.member.roles.cache.some(role => 
             ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
@@ -773,6 +789,12 @@ client.once('ready', () => {
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
 
     cron.schedule('0 8,20 * * *', async () => {
+        // 🆕 เช็คว่าระบบถูกปิดไว้หรือไม่
+        if (!dataStore.autoCheckinEnabled) {
+            console.log("🛑 ข้ามการเช็คชื่ออัตโนมัติ เพราะระบบถูกปิดไว้ (!autooff)");
+            return;
+        }
+
         console.log("⏰ ถึงเวลาเปิดระบบเช็คชื่ออัตโนมัติแล้ว!");
 
         const localTime = getThaiTime();
@@ -828,7 +850,7 @@ client.once('ready', () => {
         timezone: "Asia/Bangkok" 
     });
 
-    // 🆕 🕒 ตั้งเวลาให้บอทส่องดูงานใน Supabase "ทุกๆ 1 นาที"
+    // 🕒 ตั้งเวลาให้บอทส่องดูงานใน Supabase "ทุกๆ 1 นาที"
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
     });
