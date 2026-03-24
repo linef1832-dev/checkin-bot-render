@@ -31,7 +31,7 @@ const LEAVE_FILE = 'leaves.json';
 let dataStore = {
     checkinChannels: [],
     lastCheckinDates: {},
-    autoCheckinEnabled: true // 🆕 ค่าเริ่มต้นคือเปิดใช้งาน
+    autoCheckinEnabled: true // ค่าเริ่มต้นคือเปิดใช้งาน
 };
 
 let activeSessions = new Map(); 
@@ -39,12 +39,45 @@ let activeSessions = new Map();
 // ตัวแปรความจำของบอท เพื่อจำว่างานไหนอัปเดตลงไฟล์ไปแล้วบ้าง
 let processedTasks = new Set();
 
+// 🆕 ฟังก์ชันให้บอทวิ่งไปแก้ไฟล์ใน GitHub อัตโนมัติ
+async function syncToGitHub(newStaffData) {
+    const token = process.env.GITHUB_TOKEN;
+    const owner = process.env.GITHUB_OWNER;
+    const repo = process.env.GITHUB_REPO;
+
+    if (!token || !owner || !repo) return console.log("⚠️ ข้ามการอัปเดต GitHub (ไม่ได้ตั้งค่า Variables)");
+
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/staff.json`;
+
+    try {
+        const getRes = await fetch(url, { headers: { 'Authorization': `token ${token}` } });
+        const fileData = await getRes.json();
+
+        const contentBase64 = Buffer.from(JSON.stringify(newStaffData, null, 2)).toString('base64');
+
+        await fetch(url, {
+            method: 'PUT',
+            headers: { 
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            body: JSON.stringify({
+                message: "🤖 บอทอัปเดตรายชื่อพนักงานอัตโนมัติ",
+                content: contentBase64,
+                sha: fileData.sha 
+            })
+        });
+        console.log("✅ อัปเดตไฟล์ staff.json ทับลง GitHub สำเร็จ!");
+    } catch (e) {
+        console.error("❌ อัปเดต GitHub พลาด:", e);
+    }
+}
+
 if (fs.existsSync(DATA_FILE)) {
     try { 
         const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
         dataStore.checkinChannels = loaded.checkinChannels || [];
         dataStore.lastCheckinDates = loaded.lastCheckinDates || {};
-        // 🆕 โหลดสถานะเปิด/ปิด (ถ้ามีบันทึกไว้)
         dataStore.autoCheckinEnabled = loaded.autoCheckinEnabled !== undefined ? loaded.autoCheckinEnabled : true;
     } catch (e) { console.error("Load Data Error:", e); }
 }
@@ -91,7 +124,6 @@ function getSupabaseDateStr() {
     return `${yyyy}-${mm}-${dd}`;
 }
 
-// ฟังก์ชันดึงคิวที่ "เสร็จแล้ว" จาก Supabase มาอัปเดตไฟล์ staff.json (ไม่แก้ DB)
 async function processAutoShiftSwaps() {
     try {
         const now = new Date();
@@ -154,6 +186,7 @@ async function processAutoShiftSwaps() {
 
         if (isUpdated) {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
+            await syncToGitHub(staffData); // 🆕 สั่งอัปเดตไป GitHub ด้วย
             console.log('✅ อัปเดตไฟล์ staff.json ตามเว็บเรียบร้อยแล้ว!');
         }
 
@@ -310,7 +343,6 @@ client.on('messageCreate', async (message) => {
 
     const channelId = message.channel.id;
 
-    // 🆕 คำสั่งเปิดระบบเช็คชื่ออัตโนมัติ
     if (message.content === '!autoon') {
         const hasPermission = message.member.roles.cache.some(role => 
             ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
@@ -322,7 +354,6 @@ client.on('messageCreate', async (message) => {
         return message.reply('✅ **เปิด** ระบบแจ้งเตือนเช็คชื่ออัตโนมัติ (08:00 และ 20:00) เรียบร้อยแล้วค่ะ');
     }
 
-    // 🆕 คำสั่งปิดระบบเช็คชื่ออัตโนมัติ
     if (message.content === '!autooff') {
         const hasPermission = message.member.roles.cache.some(role => 
             ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
@@ -348,7 +379,6 @@ client.on('messageCreate', async (message) => {
             return message.reply('❌ ยังไม่มีฐานข้อมูลพนักงาน (staff.json) ค่ะ');
         }
 
-        // ดึงข้อความที่ต่อท้ายคำสั่งมาเช็ค
         const argsText = message.content.replace('!removestaff', '').trim();
         if (!argsText) {
             return message.reply('⚠️ **วิธีใช้:** `!removestaff @แท็กพนักงาน` หรือ `!removestaff ชื่อพนักงาน`');
@@ -358,7 +388,6 @@ client.on('messageCreate', async (message) => {
         let removedName = null;
 
         if (targetUser) {
-            // กรณีที่ 1: ถ้าระบบแท็กทำงานสมบูรณ์ (ลบจาก ID)
             const staffId = targetUser.id;
             for (const dept in staffData) {
                 for (const shift in staffData[dept]) {
@@ -369,14 +398,12 @@ client.on('messageCreate', async (message) => {
                 }
             }
         } else {
-            // กรณีที่ 2: แท็กไม่ติด หรือ พิมพ์แค่ชื่อตรงๆ (บอทจะค้นหาจากชื่อให้เลย)
-            const searchName = argsText.replace('@', '').toUpperCase(); // ตัดตัว @ ออกเผื่อพิมพ์ติดมา
+            const searchName = argsText.replace('@', '').toUpperCase(); 
 
             for (const dept in staffData) {
                 for (const shift in staffData[dept]) {
                     for (const uid in staffData[dept][shift]) {
                         const nameInDb = staffData[dept][shift][uid].toUpperCase();
-                        // ถ้าชื่อที่พิมพ์มา ตรงกับชื่อในระบบ
                         if (nameInDb.includes(searchName) || searchName.includes(nameInDb)) {
                             removedName = staffData[dept][shift][uid];
                             delete staffData[dept][shift][uid];
@@ -388,6 +415,7 @@ client.on('messageCreate', async (message) => {
 
         if (removedName) {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
+            await syncToGitHub(staffData); // 🆕 สั่งอัปเดตไป GitHub ด้วย
             return message.reply(`🗑️ **ลบพนักงานสำเร็จ!**\nถอดรายชื่อ **${removedName}** ออกจากระบบเรียบร้อยแล้วค่ะ`);
         } else {
             return message.reply('⚠️ ไม่พบรายชื่อพนักงานคนนี้ในระบบค่ะ (ลองเช็คตัวสะกดดูอีกครั้งนะครับ)');
@@ -440,6 +468,7 @@ client.on('messageCreate', async (message) => {
         staffData[dept][shift][staffId] = staffName;
 
         fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
+        await syncToGitHub(staffData); // 🆕 สั่งอัปเดตไป GitHub ด้วย
         return message.reply(`✅ **บันทึกข้อมูลพนักงานสำเร็จ!**\n👤 ชื่อ: **${staffName}**\n🏢 แผนก: **${dept}**\n⏱️ กะ: **${shift === 'morning' ? 'เช้า ☀️' : 'ดึก 🌙'}**`);
     }
 
@@ -812,7 +841,6 @@ client.once('ready', () => {
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
 
     cron.schedule('0 8,20 * * *', async () => {
-        // 🆕 เช็คว่าระบบถูกปิดไว้หรือไม่
         if (!dataStore.autoCheckinEnabled) {
             console.log("🛑 ข้ามการเช็คชื่ออัตโนมัติ เพราะระบบถูกปิดไว้ (!autooff)");
             return;
@@ -873,7 +901,6 @@ client.once('ready', () => {
         timezone: "Asia/Bangkok" 
     });
 
-    // 🕒 ตั้งเวลาให้บอทส่องดูงานใน Supabase "ทุกๆ 1 นาที"
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
     });
