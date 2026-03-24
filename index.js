@@ -340,12 +340,7 @@ client.on('messageCreate', async (message) => {
         );
         if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
 
-        const targetUser = message.mentions.users.first();
-        if (!targetUser) return message.reply('⚠️ **วิธีใช้:** `!removestaff @แท็กพนักงาน`\n*(เช่น: `!removestaff @สมชาย`)*');
-
-        const staffId = targetUser.id;
         let staffData = {};
-
         if (fs.existsSync('./staff.json')) {
             try { staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8')); }
             catch (e) { return message.reply('❌ เกิดข้อผิดพลาดในการอ่านไฟล์ staff.json'); }
@@ -353,12 +348,40 @@ client.on('messageCreate', async (message) => {
             return message.reply('❌ ยังไม่มีฐานข้อมูลพนักงาน (staff.json) ค่ะ');
         }
 
+        // ดึงข้อความที่ต่อท้ายคำสั่งมาเช็ค
+        const argsText = message.content.replace('!removestaff', '').trim();
+        if (!argsText) {
+            return message.reply('⚠️ **วิธีใช้:** `!removestaff @แท็กพนักงาน` หรือ `!removestaff ชื่อพนักงาน`');
+        }
+
+        const targetUser = message.mentions.users.first();
         let removedName = null;
-        for (const dept in staffData) {
-            for (const shift in staffData[dept]) {
-                if (staffData[dept][shift] && staffData[dept][shift][staffId]) {
-                    removedName = staffData[dept][shift][staffId];
-                    delete staffData[dept][shift][staffId];
+
+        if (targetUser) {
+            // กรณีที่ 1: ถ้าระบบแท็กทำงานสมบูรณ์ (ลบจาก ID)
+            const staffId = targetUser.id;
+            for (const dept in staffData) {
+                for (const shift in staffData[dept]) {
+                    if (staffData[dept][shift] && staffData[dept][shift][staffId]) {
+                        removedName = staffData[dept][shift][staffId];
+                        delete staffData[dept][shift][staffId];
+                    }
+                }
+            }
+        } else {
+            // กรณีที่ 2: แท็กไม่ติด หรือ พิมพ์แค่ชื่อตรงๆ (บอทจะค้นหาจากชื่อให้เลย)
+            const searchName = argsText.replace('@', '').toUpperCase(); // ตัดตัว @ ออกเผื่อพิมพ์ติดมา
+
+            for (const dept in staffData) {
+                for (const shift in staffData[dept]) {
+                    for (const uid in staffData[dept][shift]) {
+                        const nameInDb = staffData[dept][shift][uid].toUpperCase();
+                        // ถ้าชื่อที่พิมพ์มา ตรงกับชื่อในระบบ
+                        if (nameInDb.includes(searchName) || searchName.includes(nameInDb)) {
+                            removedName = staffData[dept][shift][uid];
+                            delete staffData[dept][shift][uid];
+                        }
+                    }
                 }
             }
         }
@@ -367,7 +390,7 @@ client.on('messageCreate', async (message) => {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
             return message.reply(`🗑️ **ลบพนักงานสำเร็จ!**\nถอดรายชื่อ **${removedName}** ออกจากระบบเรียบร้อยแล้วค่ะ`);
         } else {
-            return message.reply('⚠️ ไม่พบรายชื่อพนักงานคนนี้ในระบบค่ะ');
+            return message.reply('⚠️ ไม่พบรายชื่อพนักงานคนนี้ในระบบค่ะ (ลองเช็คตัวสะกดดูอีกครั้งนะครับ)');
         }
     }
 
