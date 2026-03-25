@@ -351,7 +351,7 @@ client.on('messageCreate', async (message) => {
 
         dataStore.autoCheckinEnabled = true;
         saveData();
-        return message.reply('✅ **เปิด** ระบบแจ้งเตือนเช็คชื่ออัตโนมัติ (08:00 และ 20:00) เรียบร้อยแล้วค่ะ');
+        return message.reply('✅ **เปิด** ระบบแจ้งเตือนเช็คชื่ออัตโนมัติ (07:50 และ 19:50) เรียบร้อยแล้วค่ะ'); // 👈 แก้ไขเวลาแจ้งเตือน
     }
 
     if (message.content === '!autooff') {
@@ -582,7 +582,8 @@ client.on('messageCreate', async (message) => {
         const todayStr = getThaiDateStr(); 
         const currentHour = localTime.getHours();
 
-        const shiftType = (currentHour >= 7 && currentHour < 19) ? "Morning" : "Night";
+        // 👈 แก้ไขเงื่อนไขกะ: (06:00 ถึง 17:59 คือกะเช้า เพื่อให้เช็คตอน 07:50 ได้อย่างถูกต้อง)
+        const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
         const checkinKey = `${todayStr}-${shiftType}`;
 
         if (activeSessions.has(channelId)) {
@@ -645,7 +646,8 @@ client.on('messageCreate', async (message) => {
                     const localTime = getThaiTime(); 
                     const currentHour = localTime.getHours();
 
-                    let shiftName = (currentHour >= 7 && currentHour < 19) ? "กะเช้า ☀️" : "กะดึก 🌙";
+                    // 👈 แก้ไขเงื่อนไขกะเช้าตอนพิมพ์เช็คชื่อ
+                    let shiftName = (currentHour >= 6 && currentHour < 18) ? "กะเช้า ☀️" : "กะดึก 🌙";
 
                     const staffName = getStaffName(member.id, member.displayName);
 
@@ -700,7 +702,8 @@ function startSummaryTimer(channelId) {
             const dateTh = getThaiDateStr(); 
             const checkedIds = new Set(session.members.map(m => m.id));
 
-            const isMorningShift = (currentHour >= 8 && currentHour < 20);
+            // 👈 แก้ไขเงื่อนไขกะตอนสรุปผล (หลัง 10 นาที)
+            const isMorningShift = (currentHour >= 6 && currentHour < 18);
             const shiftIcon = isMorningShift ? "☀️ กะเช้า" : "🌙 กะดึก";
 
             const leavesObj = await getLeavesFromSupabase(session.department); 
@@ -840,6 +843,7 @@ function startSummaryTimer(channelId) {
 client.once('ready', () => { 
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
 
+    // 👈 แก้ไขเวลาเปิดระบบอัตโนมัติเป็น นาทีที่ 50 ของชั่วโมงที่ 7 (07:50) และ 19 (19:50)
     cron.schedule('50 7,19 * * *', async () => {
         if (!dataStore.autoCheckinEnabled) {
             console.log("🛑 ข้ามการเช็คชื่ออัตโนมัติ เพราะระบบถูกปิดไว้ (!autooff)");
@@ -852,7 +856,8 @@ client.once('ready', () => {
         const todayStr = getThaiDateStr();
         const currentHour = localTime.getHours();
 
-        const shiftType = (currentHour >= 7 && currentHour < 19) ? "Morning" : "Night";
+        // 👈 แก้ไขเงื่อนไขกะ: กะเช้าเริ่ม 06:00 ถึง 17:59 เพื่อให้เวลา 07:50 ถูกอ่านเป็นกะเช้า
+        const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
         const checkinKey = `${todayStr}-${shiftType}`;
 
         for (const channelId of dataStore.checkinChannels) {
