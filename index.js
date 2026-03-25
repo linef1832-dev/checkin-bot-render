@@ -582,7 +582,7 @@ client.on('messageCreate', async (message) => {
         const todayStr = getThaiDateStr(); 
         const currentHour = localTime.getHours();
 
-        const shiftType = (currentHour >= 8 && currentHour < 20) ? "Morning" : "Night";
+        const shiftType = (currentHour >= 7 && currentHour < 19) ? "Morning" : "Night";
         const checkinKey = `${todayStr}-${shiftType}`;
 
         if (activeSessions.has(channelId)) {
@@ -645,7 +645,7 @@ client.on('messageCreate', async (message) => {
                     const localTime = getThaiTime(); 
                     const currentHour = localTime.getHours();
 
-                    let shiftName = (currentHour >= 8 && currentHour < 20) ? "กะเช้า ☀️" : "กะดึก 🌙";
+                    let shiftName = (currentHour >= 7 && currentHour < 19) ? "กะเช้า ☀️" : "กะดึก 🌙";
 
                     const staffName = getStaffName(member.id, member.displayName);
 
@@ -840,7 +840,7 @@ function startSummaryTimer(channelId) {
 client.once('ready', () => { 
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
 
-    cron.schedule('0 8,20 * * *', async () => {
+    cron.schedule('50 7,19 * * *', async () => {
         if (!dataStore.autoCheckinEnabled) {
             console.log("🛑 ข้ามการเช็คชื่ออัตโนมัติ เพราะระบบถูกปิดไว้ (!autooff)");
             return;
@@ -852,7 +852,7 @@ client.once('ready', () => {
         const todayStr = getThaiDateStr();
         const currentHour = localTime.getHours();
 
-        const shiftType = (currentHour >= 8 && currentHour < 20) ? "Morning" : "Night";
+        const shiftType = (currentHour >= 7 && currentHour < 19) ? "Morning" : "Night";
         const checkinKey = `${todayStr}-${shiftType}`;
 
         for (const channelId of dataStore.checkinChannels) {
