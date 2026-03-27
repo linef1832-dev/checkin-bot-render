@@ -34,6 +34,13 @@
 </head>
 <body onload="loadConfig()">
 
+    <datalist id="shiftOptions">
+        <option value="☀️ กะเช้า">
+        <option value="🕛 กะเที่ยง">
+        <option value="🌙 กะดึก">
+        <option value="⏳ กะ OT">
+    </datalist>
+
     <h2 style="text-align: center;">🤖 แผงควบคุมบอท (Web Dashboard)</h2>
 
     <div class="card" style="padding-bottom: 10px;">
@@ -50,7 +57,7 @@
     <div id="checkinMenu" class="tab-content active">
         <div class="card" style="border-left: 4px solid #5865F2;">
             <h3 style="margin-top: 0;">⚙️ ตั้งเวลารอบเช็คชื่ออัตโนมัติ</h3>
-            <p style="font-size: 14px; color: #aaa;">เพิ่มได้ไม่จำกัด พร้อมระบุไปเลยว่าเวลานี้คือกะเช้าหรือดึก</p>
+            <p style="font-size: 14px; color: #aaa;">สามารถเลือกกะ หรือ "พิมพ์ชื่อกะเอง" ได้ตามต้องการเลยครับ</p>
             
             <div id="timeSlotsContainer">
                 </div>
@@ -85,7 +92,14 @@
             <input type="text" id="staffName" placeholder="เช่น AMOL-SOMCHAI">
             <div style="display: flex; gap: 10px;">
                 <div style="flex: 1;"><label>แผนก</label><select id="staffDept"><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
-                <div style="flex: 1;"><label>กะการทำงาน</label><select id="staffShift"><option value="morning">☀️ กะเช้า</option><option value="night">🌙 กะดึก</option></select></div>
+                
+                <div style="flex: 1;"><label>กะการทำงานหลัก</label>
+                    <select id="staffShift">
+                        <option value="morning">☀️ กะเช้า</option>
+                        <option value="noon">🕛 กะเที่ยง</option>
+                        <option value="night">🌙 กะดึก</option>
+                    </select>
+                </div>
             </div>
             <button id="btnSaveStaff" onclick="saveStaff()">💾 บันทึกพนักงาน</button>
         </div>
@@ -114,8 +128,9 @@
 
         /* --- ระบบจัดการเวลารอบเช็คชื่อ --- */
         let timeSlots = [
-            { time: "07:50", shift: "morning" }, 
-            { time: "19:50", shift: "night" }
+            { time: "07:50", shift: "☀️ กะเช้า" }, 
+            { time: "11:50", shift: "🕛 กะเที่ยง" },
+            { time: "19:50", shift: "🌙 กะดึก" }
         ];
 
         function renderTimeSlots() {
@@ -125,10 +140,7 @@
                 container.innerHTML += `
                     <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
                         <input type="time" value="${slot.time}" style="margin: 0; flex: 1;" onchange="updateTimeValue(${i}, this.value)">
-                        <select style="margin: 0; flex: 1;" onchange="updateTimeShift(${i}, this.value)">
-                            <option value="morning" ${slot.shift === 'morning' ? 'selected' : ''}>☀️ กะเช้า</option>
-                            <option value="night" ${slot.shift === 'night' ? 'selected' : ''}>🌙 กะดึก</option>
-                        </select>
+                        <input list="shiftOptions" value="${slot.shift}" style="margin: 0; flex: 1;" onchange="updateTimeShift(${i}, this.value)" placeholder="พิมพ์ชื่อกะ...">
                         <button class="btn-red" style="width: auto; margin: 0; padding: 0 15px;" onclick="removeTimeSlot(${i})">🗑️ ลบ</button>
                     </div>
                 `;
@@ -137,7 +149,7 @@
 
         function updateTimeValue(index, val) { timeSlots[index].time = val; }
         function updateTimeShift(index, val) { timeSlots[index].shift = val; }
-        function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "morning" }); renderTimeSlots(); }
+        function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "☀️ กะเช้า" }); renderTimeSlots(); }
         function removeTimeSlot(index) { timeSlots.splice(index, 1); renderTimeSlots(); }
 
         async function loadConfig() {
@@ -146,14 +158,7 @@
                 const json = await res.json();
                 if (json.success && json.autoCheckinTimes) {
                     if (Array.isArray(json.autoCheckinTimes)) {
-                        // ปรับปรุงข้อมูลเก่าที่เป็น String ให้เป็น Object
-                        timeSlots = json.autoCheckinTimes.map(item => {
-                            if (typeof item === 'string') {
-                                const h = parseInt(item.split(':')[0]);
-                                return { time: item, shift: (h >= 6 && h < 18) ? 'morning' : 'night' };
-                            }
-                            return item;
-                        });
+                        timeSlots = json.autoCheckinTimes;
                     }
                 }
                 renderTimeSlots();
@@ -205,7 +210,14 @@
             } catch(e) {}
         }
         function renderStaffList(data) {
-            let html = ''; const depts = ['AMOL', 'ODOL']; const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'night', label: '🌙 กะดึก'}];
+            let html = ''; const depts = ['AMOL', 'ODOL']; 
+            // เพิ่มการโชว์กะเที่ยงลงในหน้ารายชื่อ
+            const shifts = [
+                {key: 'morning', label: '☀️ กะเช้า'}, 
+                {key: 'noon', label: '🕛 กะเที่ยง'},
+                {key: 'night', label: '🌙 กะดึก'}
+            ];
+            
             depts.forEach(dept => { if(data[dept]) {
                 html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px;">แผนก ${dept}</h4>`;
                 shifts.forEach(shift => { const shiftData = data[dept][shift.key];

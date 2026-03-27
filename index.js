@@ -336,12 +336,9 @@ function getLeavesToday(dateStr, department = 'ALL') {
 
 async function getLeavesFromSupabase(department = 'ALL') {
     const targetDate = getSupabaseDateStr();
-    let result = { morning: [], night: [] };
+    let result = { morning: [], noon: [], night: [] }; // เพิ่ม noon
 
-    if (!supabaseLeave) {
-        console.error("⚠️ ยังไม่ได้ตั้งค่า SUPABASE_LEAVE_URL และ SUPABASE_LEAVE_KEY ใน Railway");
-        return result; 
-    }
+    if (!supabaseLeave) return result; 
 
     try {
         const { data, error } = await supabaseLeave
@@ -350,23 +347,16 @@ async function getLeavesFromSupabase(department = 'ALL') {
             .eq('leave_date', targetDate)
             .order('id', { ascending: true });
 
-        if (error) {
-            console.error("❌ Supabase Fetch Leave Error:", error);
-            return result;
-        }
+        if (error) return result;
 
         let activeLeaves = {};
-
         if (data) {
             for (const row of data) {
                 if (row.username) {
                     const leaveName = row.username.trim(); 
                     const action = row.action_type ? row.action_type.trim() : '';
-                    if (action.startsWith('จอง')) {
-                        activeLeaves[leaveName] = true;
-                    } else if (action === 'ยกเลิก') {
-                        activeLeaves[leaveName] = false;
-                    }
+                    if (action.startsWith('จอง')) activeLeaves[leaveName] = true;
+                    else if (action === 'ยกเลิก') activeLeaves[leaveName] = false;
                 }
             }
         }
@@ -374,13 +364,8 @@ async function getLeavesFromSupabase(department = 'ALL') {
         const onLeaveUsers = Object.keys(activeLeaves).filter(username => activeLeaves[username]);
 
         let staffData = {};
-        try {
-            if (fs.existsSync('./staff.json')) {
-                staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-            }
-        } catch (err) {
-            console.error("❌ Error reading staff.json:", err);
-        }
+        try { if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8')); } 
+        catch (err) { }
 
         onLeaveUsers.forEach(leaveName => {
             let shiftFound = null;
@@ -388,45 +373,45 @@ async function getLeavesFromSupabase(department = 'ALL') {
             const cleanLeaveName = leaveName.toUpperCase();
 
             for (const dept in staffData) {
+                // หาในกะเช้า
                 if (staffData[dept].morning) {
                     for (const id in staffData[dept].morning) {
                         const staffName = staffData[dept].morning[id].trim().toUpperCase();
                         if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
-                            shiftFound = 'morning';
-                            userDeptFound = dept;
-                            break;
+                            shiftFound = 'morning'; userDeptFound = dept; break;
                         }
                     }
                 }
+                // หาในกะเที่ยง
+                if (!shiftFound && staffData[dept].noon) {
+                    for (const id in staffData[dept].noon) {
+                        const staffName = staffData[dept].noon[id].trim().toUpperCase();
+                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
+                            shiftFound = 'noon'; userDeptFound = dept; break;
+                        }
+                    }
+                }
+                // หาในกะดึก
                 if (!shiftFound && staffData[dept].night) {
                     for (const id in staffData[dept].night) {
                         const staffName = staffData[dept].night[id].trim().toUpperCase();
                         if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
-                            shiftFound = 'night';
-                            userDeptFound = dept;
-                            break;
+                            shiftFound = 'night'; userDeptFound = dept; break;
                         }
                     }
                 }
                 if (shiftFound) break;
             }
 
-            if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) {
-                return; 
-            }
+            if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) return; 
 
-            if (shiftFound === 'morning') {
-                result.morning.push(leaveName);
-            } else if (shiftFound === 'night') {
-                result.night.push(leaveName);
-            }
+            if (shiftFound === 'morning') result.morning.push(leaveName);
+            else if (shiftFound === 'noon') result.noon.push(leaveName);
+            else if (shiftFound === 'night') result.night.push(leaveName);
         });
 
         return result;
-    } catch (e) {
-        console.error("❌ Exception in getLeavesFromSupabase:", e);
-        return result;
-    }
+    } catch (e) { return result; }
 }
 
 const client = new Client({
@@ -892,7 +877,7 @@ function startSummaryTimer(channelId) {
                 let absentMembers = [];
                 try {
                     const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-                    const currentShift = isMorningShift ? "morning" : "night";
+                    const currentShift = currentShiftKey; // ใช้ค่ากะเที่ยง/เช้า/ดึก จากที่เราคำนวณไว้ด้านบน
 
                     let deptsToCheck = session.department === "ALL" ? Object.keys(staffData) : [session.department];
 
