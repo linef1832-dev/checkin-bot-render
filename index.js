@@ -56,52 +56,71 @@ app.post('/api/autocheckin', (req, res) => {
         }
     });
 
-    // --- 6. API สำหรับ เพิ่ม/ลบ พนักงาน ---
-    app.post('/api/updatestaff', async (req, res) => {
-        const { pin, action, dept, shift, discordId, staffName } = req.body;
-        if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+// --- 6. API สำหรับ เพิ่ม/ลบ/แก้ไขพนักงาน ---
+app.post('/api/updatestaff', async (req, res) => {
+    // เพิ่ม newName มาจาก body ด้วย
+    const { pin, action, dept, shift, discordId, staffName, newName } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
 
-        try {
-            let staffData = {};
-            if (fs.existsSync('./staff.json')) {
-                staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-            }
-
-            if (action === 'add') {
-                if (!staffData[dept]) staffData[dept] = { morning: {}, night: {} };
-                if (!staffData[dept][shift]) staffData[dept][shift] = {};
-
-                // ลบชื่อเก่าออกก่อน (กันกรณีคนนี้เคยอยู่กะอื่น จะได้ไม่ซ้ำ)
-                for (const d in staffData) {
-                    for (const s in staffData[d]) {
-                        if (staffData[d][s] && staffData[d][s][discordId]) {
-                            delete staffData[d][s][discordId];
-                        }
-                    }
-                }
-                // เพิ่มชื่อใหม่เข้าไป
-                staffData[dept][shift][discordId] = staffName;
-
-            } else if (action === 'remove') {
-                // ค้นหาและลบพนักงานตาม Discord ID
-                for (const d in staffData) {
-                    for (const s in staffData[d]) {
-                        if (staffData[d][s] && staffData[d][s][discordId]) {
-                            delete staffData[d][s][discordId];
-                        }
-                    }
-                }
-            }
-
-            // เซฟลงไฟล์ และสั่งซิงค์ขึ้น GitHub
-            fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
-            syncToGitHub(staffData); // เรียกใช้ฟังก์ชันที่คุณเขียนไว้แล้ว
-
-            res.json({ success: true, message: action === 'add' ? `✅ บันทึกพนักงาน ${staffName} สำเร็จ!` : `🗑️ ลบพนักงานออกจากระบบแล้ว!` });
-        } catch (error) {
-            console.error("Update Staff Error:", error);
-            res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
+    try {
+        let staffData = {};
+        if (fs.existsSync('./staff.json')) {
+            staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
         }
+
+        if (action === 'add') {
+            if (!staffData[dept]) staffData[dept] = { morning: {}, night: {} };
+            if (!staffData[dept][shift]) staffData[dept][shift] = {};
+
+            // ลบชื่อเก่าออกก่อน (กันกรณีคนนี้เคยอยู่กะอื่น จะได้ไม่ซ้ำ)
+            for (const d in staffData) {
+                for (const s in staffData[d]) {
+                    if (staffData[d][s] && staffData[d][s][discordId]) {
+                        delete staffData[d][s][discordId];
+                    }
+                }
+            }
+            // เพิ่มชื่อใหม่เข้าไป
+            staffData[dept][shift][discordId] = staffName;
+
+        } else if (action === 'edit_name') {
+            // ค้นหาพนักงานตาม Discord ID และแก้ชื่อ
+            let found = false;
+            for (const d in staffData) {
+                for (const s in staffData[d]) {
+                    if (staffData[d][s] && staffData[d][s][discordId]) {
+                        staffData[d][s][discordId] = newName;
+                        found = true;
+                        break;
+                    }
+                }
+                if (found) break;
+            }
+            if (!found) {
+                return res.status(404).json({ success: false, message: '❌ ไม่พบรายชื่อพนักงาน' });
+            }
+        } else if (action === 'remove') {
+            // ค้นหาและลบพนักงานตาม Discord ID
+            for (const d in staffData) {
+                for (const s in staffData[d]) {
+                    if (staffData[d][s] && staffData[d][s][discordId]) {
+                        delete staffData[d][s][discordId];
+                    }
+                }
+            }
+        }
+
+        // เซฟลงไฟล์ และสั่งซิงค์ขึ้น GitHub
+        fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
+        syncToGitHub(staffData); // เรียกใช้ฟังก์ชันที่คุณเขียนไว้แล้ว
+
+        // แก้ไขข้อความตอบกลับตามการกระทำต่างๆ
+        let msg = action === 'add' ? `✅ บันทึกพนักงาน ${staffName} สำเร็จ!` : (action === 'edit_name' ? '✅ เปลี่ยนชื่อพนักงานแล้ว!' : '🗑️ ลบพนักงานออกจากระบบแล้ว!');
+        res.json({ success: true, message: msg });
+    } catch (error) {
+        console.error("Update Staff Error:", error);
+        res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
+    }
 });
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = '1442466109503569992'; 
