@@ -253,9 +253,42 @@ if (fs.existsSync(DATA_FILE)) {
     } catch (e) { console.error("Load Data Error:", e); }
 }
 
+// 🆕 ฟังก์ชันให้บอทเซฟการตั้งค่าเวลาขึ้น GitHub อัตโนมัติ (ป้องกัน Railway ลบข้อมูลทิ้ง)
+async function syncConfigToGitHub() {
+    const token = process.env.GITHUB_TOKEN;
+    const owner = process.env.GITHUB_OWNER;
+    const repo = process.env.GITHUB_REPO;
+    if (!token || !owner || !repo) return;
+
+    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${DATA_FILE}`;
+    try {
+        let sha;
+        const getRes = await fetch(url, { headers: { 'Authorization': `token ${token}` } });
+        if (getRes.ok) {
+            const fileData = await getRes.json();
+            sha = fileData.sha;
+        }
+
+        const contentBase64 = Buffer.from(JSON.stringify(dataStore, null, 2)).toString('base64');
+        const bodyObj = {
+            message: "🤖 บอทบันทึกการตั้งค่าเวลาเช็คชื่อ",
+            content: contentBase64
+        };
+        if (sha) bodyObj.sha = sha;
+
+        await fetch(url, {
+            method: 'PUT',
+            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+            body: JSON.stringify(bodyObj)
+        });
+        console.log("✅ อัปเดตไฟล์เวลา (bot_timer_data.json) ขึ้น GitHub สำเร็จ!");
+    } catch (e) { console.error("❌ ซิงค์เวลาพลาด:", e); }
+}
+
 function saveData() { 
     try {
         fs.writeFileSync(DATA_FILE, JSON.stringify(dataStore, null, 2), 'utf8'); 
+        syncConfigToGitHub(); // 👈 สั่งให้ดึงไฟล์ไปเก็บใน GitHub ถาวรด้วย
     } catch (e) { console.error("Save Data Error:", e); }
 }
 

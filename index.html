@@ -197,9 +197,9 @@
                 </div>`;
             });
         }
-        function updateTimeValue(index, field, val) { 
-            timeSlots[index][field] = val; 
-            if(field === 'time' || field === 'endTime') renderTimeSlots(); // อัปเดตเพื่อโชว์ตัวเลขนาทีใหม่
+        function updateTimeValue(index, field, val) {
+            timeSlots[index][field] = val;
+            // ลบคำสั่ง renderTimeSlots() ออก เพื่อไม่ให้กล่องเด้งหลุดตอนกำลังพิมพ์
         }
         function addTimeSlot() { timeSlots.push({ time: "12:00", endTime: "12:15", shift: "☀️ กะเช้า" }); renderTimeSlots(); }
         function removeTimeSlot(index) { timeSlots.splice(index, 1); renderTimeSlots(); }
