@@ -20,7 +20,84 @@ const supabaseLeave = (supabaseLeaveUrl && supabaseLeaveKey) ? createClient(supa
 // ------------------------------
 
 const app = express();
+const path = require('path');
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// รหัสผ่านสำหรับสั่งงานผ่านเว็บ (เปลี่ยนได้ตามต้องการ)
+const WEB_ADMIN_PIN = "123456"; 
+
+// --- 3. สร้าง API สำหรับคำสั่ง !autoon / !autooff ---
+app.post('/api/autocheckin', (req, res) => {
+    const { status, pin } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+
+    dataStore.autoCheckinEnabled = (status === 'on');
+    saveData();
+    res.json({ success: true, message: `✅ ระบบเปิดเช็คชื่ออัตโนมัติ: ${status === 'on' ? 'เปิด' : 'ปิด'} เรียบร้อยแล้ว` });
+});
+
+// --- 4. สร้าง API สำหรับคำสั่ง !startcheckin ---
+app.post('/api/startcheckin', async (req, res) => {
+    const { channelId, pin } = req.body;
+
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+    if (!dataStore.checkinChannels.includes(channelId)) {
+        return res.status(400).json({ success: false, message: '❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (!addchannel ก่อน)' });
+    }
+
+    const localTime = getThaiTime(); 
+    const todayStr = getThaiDateStr(); 
+    const currentHour = localTime.getHours();
+    const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
+    const checkinKey = `${todayStr}-${shiftType}`;
+
+    if (activeSessions.has(channelId)) {
+        return res.status(400).json({ success: false, message: '⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้ว' });
+    }
+    if (dataStore.lastCheckinDates[channelId] === checkinKey) {
+        return res.status(400).json({ success: false, message: '❌ ห้องนี้สรุปยอดของกะนี้ไปเรียบร้อยแล้ว' });
+    }
+
+    try {
+        const channel = await client.channels.fetch(channelId);
+
+        let sessionDept = "ALL";
+        const chName = channel.name.toUpperCase();
+        if (chName.includes('ODOL')) sessionDept = "ODOL";
+        else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
+
+        activeSessions.set(channelId, {
+            members: [],
+            startTime: localTime,
+            adminChannel: channel,
+            department: sessionDept, 
+            jsonError: null
+        });
+
+        dataStore.lastCheckinDates[channelId] = checkinKey;
+        saveData();
+
+        const startEmbed = new EmbedBuilder()
+            .setColor('#00FF00')
+            .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (สั่งจาก Web)`)
+            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง 10 นาทีเท่านั้น!**`)
+            .setTimestamp();
+
+        await channel.send({ embeds: [startEmbed] });
+        startSummaryTimer(channelId); // เรียกฟังก์ชันนับเวลาถอยหลัง
+
+        res.json({ success: true, message: `✅ สั่งเปิดระบบเช็คชื่อห้อง ${channel.name} สำเร็จ!` });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: '❌ หา Channel ไม่เจอ หรือบอทไม่มีสิทธิ์ส่งข้อความ' });
+    }
+});
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = '1442466109503569992'; 
 

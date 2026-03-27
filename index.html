@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Control Panel</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #1e1e2f; 
+            color: white; 
+            padding: 20px; 
+            max-width: 600px; 
+            margin: auto; 
+        }
+        .card { 
+            background-color: #2a2a40; 
+            padding: 20px; 
+            border-radius: 10px; 
+            margin-bottom: 20px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); 
+        }
+        input, select { 
+            width: 100%; 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 5px; 
+            border: none; 
+            box-sizing: border-box; 
+            font-size: 16px;
+        }
+        button { 
+            background-color: #5865F2; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            width: 100%; 
+            font-size: 16px; 
+            margin-top: 5px;
+            font-weight: bold;
+        }
+        button:hover { background-color: #4752C4; }
+        button.btn-red { background-color: #ED4245; }
+        button.btn-red:hover { background-color: #C13537; }
+        .response { 
+            margin-top: 15px; 
+            font-weight: bold; 
+            color: #43b581; 
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h2 style="text-align: center;">🤖 แผงควบคุมบอทเช็คชื่อ (Web Dashboard)</h2>
+
+    <div class="card">
+        <h3>🔑 รหัสผ่านผู้ดูแลระบบ</h3>
+        <input type="password" id="adminPin" placeholder="ใส่รหัสผ่าน (เช่น 123456)">
+    </div>
+
+    <div class="card">
+        <h3>⚙️ เปิด/ปิด เช็คชื่ออัตโนมัติ</h3>
+        <p style="font-size: 14px; color: #aaa;">เปิดหรือปิดระบบแจ้งเตือน 07:50 และ 19:50</p>
+        <button onclick="toggleAuto('on')">เปิดใช้งาน (!autoon)</button>
+        <button class="btn-red" onclick="toggleAuto('off')">ปิดใช้งาน (!autooff)</button>
+        <div id="resAuto" class="response"></div>
+    </div>
+
+    <div class="card">
+        <h3>▶️ สั่งเริ่มเช็คชื่อทันที (!startcheckin)</h3>
+        <p style="font-size: 14px; color: #aaa;">ใส่ ID ของห้องเสียงที่ต้องการให้บอทเริ่มจับเวลา</p>
+        <input type="text" id="channelId" placeholder="ใส่ Channel ID (เช่น 144246...)">
+        <button onclick="startCheckin()">เริ่มเช็คชื่อ</button>
+        <div id="resCheckin" class="response"></div>
+    </div>
+
+    <script>
+        // ฟังก์ชันเปิด/ปิด Auto Checkin
+        async function toggleAuto(status) {
+            const pin = document.getElementById('adminPin').value;
+            const resDiv = document.getElementById('resAuto');
+
+            if (!pin) return alert('กรุณาใส่รหัสผ่านผู้ดูแลระบบด้วยครับ');
+
+            resDiv.innerText = "⏳ กำลังประมวลผล...";
+            resDiv.style.color = "yellow";
+
+            try {
+                const response = await fetch('/api/autocheckin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status, pin })
+                });
+                const data = await response.json();
+                resDiv.innerText = data.message;
+                resDiv.style.color = data.success ? "#43b581" : "#ED4245";
+            } catch (error) {
+                resDiv.innerText = "❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์";
+                resDiv.style.color = "#ED4245";
+            }
+        }
+
+        // ฟังก์ชันสั่ง Start Checkin
+        async function startCheckin() {
+            const pin = document.getElementById('adminPin').value;
+            const channelId = document.getElementById('channelId').value.trim();
+            const resDiv = document.getElementById('resCheckin');
+
+            if (!pin) return alert('กรุณาใส่รหัสผ่านผู้ดูแลระบบด้วยครับ');
+            if (!channelId) return alert('กรุณาใส่ Channel ID ด้วยครับ');
+
+            resDiv.innerText = "⏳ กำลังสั่งงานบอท...";
+            resDiv.style.color = "yellow";
+
+            try {
+                const response = await fetch('/api/startcheckin', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ channelId, pin })
+                });
+                const data = await response.json();
+                resDiv.innerText = data.message;
+                resDiv.style.color = data.success ? "#43b581" : "#ED4245";
+            } catch (error) {
+                resDiv.innerText = "❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์";
+                resDiv.style.color = "#ED4245";
+            }
+        }
+    </script>
+
+</body>
+</html>
