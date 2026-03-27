@@ -965,28 +965,38 @@ function startSummaryTimer(channelId) {
                 try {
                     const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
 
-                    // 1. เช็คว่าเป็นกะไหนจากชื่อกะที่ตั้งในเว็บ
+                    // 1. เช็คว่าเป็นกะไหน
                     let shiftKey = 'morning';
                     const sType = session.shiftType ? session.shiftType.toLowerCase() : '';
                     if (sType.includes('ดึก') || sType.includes('night') || sType.includes('กะดึก')) shiftKey = 'night';
                     else if (sType.includes('เที่ยง') || sType.includes('บ่าย') || sType.includes('กะเที่ยง')) shiftKey = 'afternoon';
 
-                    // 2. ดึงรายชื่อพนักงานตามกะ (ถ้าหาไม่เจอให้ดึง night เผื่อไว้)
-                    const shiftStaff = staffData[shiftKey] || staffData['night'] || {}; 
+                    // 2. ดึงรายชื่อพนักงาน (แก้ใหม่ให้บอทเจาะเข้าไปหาในหมวด AMOL/ODOL ก่อน)
+                    let shiftStaff = {};
+                    const targetDept = session.department.toUpperCase(); // เช่น 'AMOL', 'ODOL' หรือ 'ALL'
 
-                    // 3. ป้องกันบั๊กเรื่องรายชื่อคนลา (บังคับให้เป็น Array เสมอ)
+                    if (targetDept === 'ALL') {
+                        // ถ้ารวมทุกแผนก ก็ดึงกะดึกของทุกแผนกมารวมกัน
+                        for (const dept in staffData) {
+                            if (staffData[dept] && staffData[dept][shiftKey]) {
+                                Object.assign(shiftStaff, staffData[dept][shiftKey]);
+                            }
+                        }
+                    } else {
+                        // ดึงเฉพาะแผนกที่กำลังเช็คชื่อ
+                        if (staffData[targetDept] && staffData[targetDept][shiftKey]) {
+                            shiftStaff = staffData[targetDept][shiftKey];
+                        }
+                    }
+
+                    // 3. ป้องกันบั๊กเรื่องรายชื่อคนลา
                     let safeLeaves = [];
                     if (Array.isArray(leavesObj)) safeLeaves = leavesObj;
                     else if (leavesObj && Array.isArray(leavesObj[shiftKey])) safeLeaves = leavesObj[shiftKey];
                     else if (leavesObj && Array.isArray(leavesObj.night)) safeLeaves = leavesObj.night;
 
-                    // 4. วนเช็คพนักงานทีละคนในแผนก
+                    // 4. วนเช็คพนักงานทีละคน
                     for (const [staffId, staffName] of Object.entries(shiftStaff)) {
-                        // คัดกรองเอาเฉพาะพนักงานแผนกที่ตรงกับห้อง
-                        if (session.department !== 'ALL' && !staffName.toUpperCase().includes(session.department.toUpperCase())) {
-                            continue;
-                        }
-
                         // เช็คว่าพนักงานคนนี้ "ลา" หรือไม่
                         let isLeave = false;
                         for (const lData of safeLeaves) {
@@ -1004,7 +1014,6 @@ function startSummaryTimer(channelId) {
                 } catch (error) {
                     console.error("❌ เกิดข้อผิดพลาดในการคำนวณคนขาด:", error);
                 }
-                // --- สิ้นสุดส่วนคำนวณคนขาด ---
 
                 if (absentMembers.length > 0) {
                     summary += `\n❓ **พนักงานที่หายตัวไป (ไม่มีชื่อลา & ไม่ได้เช็คชื่อ):**\n`;
