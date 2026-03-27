@@ -256,7 +256,7 @@ if (fs.existsSync(DATA_FILE)) {
     } catch (e) { console.error("Load Data Error:", e); }
 }
 
-// 🆕 ฟังก์ชันให้บอทเซฟการตั้งค่าเวลาขึ้น GitHub อัตโนมัติ (ป้องกัน Railway ลบข้อมูลทิ้ง)
+// 🆕 ฟังก์ชันให้บอทเซฟการตั้งค่าเวลาขึ้น GitHub อัตโนมัติ (ฉลาดขึ้น ป้องกันการรีสตาร์ทมั่ว)
 async function syncConfigToGitHub() {
     const token = process.env.GITHUB_TOKEN;
     const owner = process.env.GITHUB_OWNER;
@@ -267,14 +267,31 @@ async function syncConfigToGitHub() {
     try {
         let sha;
         const getRes = await fetch(url, { headers: { 'Authorization': `token ${token}` } });
+
         if (getRes.ok) {
             const fileData = await getRes.json();
             sha = fileData.sha;
+
+            // 🧠 อัปเกรดความฉลาด: ให้บอทอ่านไฟล์เดิมใน GitHub มาเช็คก่อน
+            try {
+                const decodedContent = Buffer.from(fileData.content, 'base64').toString('utf8');
+                const githubData = JSON.parse(decodedContent);
+
+                // เช็คว่าการตั้งค่าหน้าเว็บ (เวลา/สถานะ/ช่อง) มีการเปลี่ยนแปลงจริงๆ หรือไม่
+                const isSameTimes = JSON.stringify(githubData.autoCheckinTimes) === JSON.stringify(dataStore.autoCheckinTimes);
+                const isSameStatus = githubData.autoCheckinEnabled === dataStore.autoCheckinEnabled;
+                const isSameChannels = JSON.stringify(githubData.checkinChannels) === JSON.stringify(dataStore.checkinChannels);
+
+                // 🛑 ถ้าไม่มีอะไรเปลี่ยน (แค่บอทเซฟประวัติเช็คชื่อลงไฟล์) ให้หยุดทำงาน! ไม่ต้องอัปโหลด! (ป้องกัน Railway รีสตาร์ท)
+                if (isSameTimes && isSameStatus && isSameChannels) {
+                    return console.log("🛑 ข้ามการอัปโหลดไป GitHub เพราะการตั้งค่าเว็บไม่ได้เปลี่ยน (กันบอทรีสตาร์ท)");
+                }
+            } catch (err) { console.error("Parse GitHub Data Error", err); }
         }
 
         const contentBase64 = Buffer.from(JSON.stringify(dataStore, null, 2)).toString('base64');
         const bodyObj = {
-            message: "🤖 บอทบันทึกการตั้งค่าเวลาเช็คชื่อ [skip ci]",
+            message: "🤖 บอทอัปเดตการตั้งค่าระบบเช็คชื่อ",
             content: contentBase64
         };
         if (sha) bodyObj.sha = sha;
