@@ -748,7 +748,7 @@ client.on('messageCreate', async (message) => {
                     const currentHour = localTime.getHours();
 
                     // 👈 แก้ไขเงื่อนไขกะเช้าตอนพิมพ์เช็คชื่อ
-                    let shiftName = (currentHour >= 6 && currentHour < 18) ? "กะเช้า ☀️" : "กะดึก 🌙";
+                    let shiftName = (session.shiftType === 'morning') ? "กะเช้า ☀️" : "กะดึก 🌙";
 
                     const staffName = getStaffName(member.id, member.displayName);
 
@@ -804,7 +804,7 @@ function startSummaryTimer(channelId) {
             const checkedIds = new Set(session.members.map(m => m.id));
 
             // 👈 แก้ไขเงื่อนไขกะตอนสรุปผล (หลัง 10 นาที)
-            const isMorningShift = (currentHour >= 6 && currentHour < 18);
+            const isMorningShift = (session.shiftType === 'morning');
             const shiftIcon = isMorningShift ? "☀️ กะเช้า" : "🌙 กะดึก";
 
             const leavesObj = await getLeavesFromSupabase(session.department); 
@@ -941,25 +941,46 @@ function startSummaryTimer(channelId) {
     }, 600000); 
 }
 
+// ====== วางทับส่วนนี้ไว้ด้านล่างสุดของไฟล์ index.js ======
 client.once('ready', () => { 
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
 
-    // 👈 แก้ไขเวลาเปิดระบบอัตโนมัติเป็น นาทีที่ 50 ของชั่วโมงที่ 7 (07:50) และ 19 (19:50)
-    cron.schedule('50 7,19 * * *', async () => {
-        if (!dataStore.autoCheckinEnabled) {
-            console.log("🛑 ข้ามการเช็คชื่ออัตโนมัติ เพราะระบบถูกปิดไว้ (!autooff)");
-            return;
-        }
-
-        console.log("⏰ ถึงเวลาเปิดระบบเช็คชื่ออัตโนมัติแล้ว!");
+    cron.schedule('* * * * *', async () => {
+        await processAutoShiftSwaps();
+        if (!dataStore.autoCheckinEnabled) return;
 
         const localTime = getThaiTime();
-        const todayStr = getThaiDateStr();
         const currentHour = localTime.getHours();
+        const HH = String(currentHour).padStart(2, '0');
+        const MM = String(localTime.getMinutes()).padStart(2, '0');
+        const currentTimeStr = `${HH}:${MM}`;
 
-        // 👈 แก้ไขเงื่อนไขกะ: กะเช้าเริ่ม 06:00 ถึง 17:59 เพื่อให้เวลา 07:50 ถูกอ่านเป็นกะเช้า
-        const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
-        const checkinKey = `${todayStr}-${shiftType}`;
+        let scheduleTimes = dataStore.autoCheckinTimes;
+        if (!Array.isArray(scheduleTimes) || scheduleTimes.length === 0) return;
+
+        // ค้นหาว่าเวลาปัจจุบัน ตรงกับรอบที่ตั้งไว้ในเว็บไหม
+        let currentSlot = null;
+        for (let i = 0; i < scheduleTimes.length; i++) {
+            if (typeof scheduleTimes[i] === 'string') {
+                if (scheduleTimes[i] === currentTimeStr) {
+                    currentSlot = { time: currentTimeStr, shift: (currentHour >= 6 && currentHour < 18) ? "morning" : "night" };
+                    break;
+                }
+            } else if (scheduleTimes[i].time === currentTimeStr) {
+                currentSlot = scheduleTimes[i]; // ดึงข้อมูลกะมาจากเว็บโดยตรง
+                break;
+            }
+        }
+
+        if (!currentSlot) return; // ถ้าไม่ตรงเวลาที่ตั้งไว้ ให้ข้ามไป
+
+        console.log(`⏰ ถึงเวลา ${currentTimeStr} เปิดระบบเช็คชื่ออัตโนมัติ กะ: ${currentSlot.shift}`);
+
+        const todayStr = getThaiDateStr();
+        // เอาค่ากะที่ตั้งในเว็บไปใช้เช็คชื่อเลย (ไม่ต้องใช้เวลามาคำนวณแล้ว)
+        const shiftType = currentSlot.shift === 'morning' ? "Morning" : "Night";
+        const shiftLabel = currentSlot.shift === 'morning' ? "☀️ กะเช้า" : "🌙 กะดึก";
+        const checkinKey = `${todayStr}-${shiftType}-${currentTimeStr}`;
 
         for (const channelId of dataStore.checkinChannels) {
             if (activeSessions.has(channelId)) continue; 
@@ -971,18 +992,17 @@ client.once('ready', () => {
 
                 let sessionDept = "ALL";
                 const chName = channel.name.toUpperCase();
-                if (chName.includes('ODOL')) {
-                    sessionDept = "ODOL";
-                } else if (chName.includes('AMOL') || chName.includes('เช็คชื่อก่อนเข้างาน') || chName.includes('เช็คชื่อเข้างาน')) {
-                    sessionDept = "AMOL";
-                }
+                if (chName.includes('ODOL')) sessionDept = "ODOL";
+                else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
 
-                activeSessions.set(channelId, {
-                    members: [],
-                    startTime: localTime,
-                    adminChannel: channel,
+                // เซฟข้อมูลกะลงใน Session เพื่อให้คำสั่ง !checkin ดึงไปใช้ต่อได้ถูกต้อง
+                activeSessions.set(channelId, { 
+                    members: [], 
+                    startTime: localTime, 
+                    adminChannel: channel, 
                     department: sessionDept, 
-                    jsonError: null
+                    jsonError: null,
+                    shiftType: currentSlot.shift // ระบุว่าเป็น morning หรือ night
                 });
 
                 dataStore.lastCheckinDates[channelId] = checkinKey;
@@ -990,26 +1010,15 @@ client.once('ready', () => {
 
                 const startEmbed = new EmbedBuilder()
                     .setColor('#00FF00')
-                    .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (เริ่มอัตโนมัติ)`)
-                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง 10 นาทีเท่านั้น!**`)
+                    .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (อัตโนมัติ)`)
+                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง 10 นาทีเท่านั้น!**`)
                     .setTimestamp();
 
                 await channel.send({ embeds: [startEmbed] });
-
                 startSummaryTimer(channelId);
-
-            } catch (error) {
-                console.error(`❌ เกิดข้อผิดพลาดในการเปิดเช็คชื่อห้อง ${channelId}:`, error);
-            }
+            } catch (error) { console.error(`❌ เกิดข้อผิดพลาดในการเปิดเช็คชื่อห้อง ${channelId}:`, error); }
         }
-    }, {
-        scheduled: true,
-        timezone: "Asia/Bangkok" 
-    });
-
-    cron.schedule('* * * * *', async () => {
-        await processAutoShiftSwaps();
-    });
+    }, { scheduled: true, timezone: "Asia/Bangkok" });
 });
 
 app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
