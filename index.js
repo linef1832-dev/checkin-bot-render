@@ -1183,4 +1183,3 @@ app.get('/api/getconfig', (req, res) => {
 });
 app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
 client.login(TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
-// แก้คิวค้าง
