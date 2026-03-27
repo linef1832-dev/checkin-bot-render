@@ -233,7 +233,7 @@ async function syncToGitHub(newStaffData) {
                 'Accept': 'application/vnd.github.v3+json'
             },
             body: JSON.stringify({
-                message: "🤖 บอทอัปเดตรายชื่อพนักงานอัตโนมัติ",
+                message: "🤖 บอทอัปเดตรายชื่อพนักงานอัตโนมัติ [skip ci]",
                 content: contentBase64,
                 sha: fileData.sha 
             })
@@ -274,7 +274,7 @@ async function syncConfigToGitHub() {
 
         const contentBase64 = Buffer.from(JSON.stringify(dataStore, null, 2)).toString('base64');
         const bodyObj = {
-            message: "🤖 บอทบันทึกการตั้งค่าเวลาเช็คชื่อ",
+            message: "🤖 บอทบันทึกการตั้งค่าเวลาเช็คชื่อ [skip ci]",
             content: contentBase64
         };
         if (sha) bodyObj.sha = sha;
