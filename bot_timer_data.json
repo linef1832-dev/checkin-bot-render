@@ -7,5 +7,22 @@
   "lastCheckinDates": {
     "1470629106172428309": "20/3/2569"
   },
-  "autoCheckinEnabled": false
+  "autoCheckinEnabled": false,
+  "autoCheckinTimes": [
+    {
+      "time": "07:50",
+      "endTime": "08:00",
+      "shift": "☀️ กะเช้า"
+    },
+    {
+      "time": "11:50",
+      "endTime": "12:00",
+      "shift": "🕛 กะเที่ยง"
+    },
+    {
+      "time": "05:02",
+      "endTime": "05:03",
+      "shift": "🌙 กะดึก"
+    }
+  ]
 }
