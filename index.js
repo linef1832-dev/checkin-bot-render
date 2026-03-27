@@ -103,28 +103,29 @@ app.post('/api/startcheckin', async (req, res) => {
         } catch (error) {
             res.status(500).json({ success: false, message: '❌ ไม่สามารถอ่านไฟล์ staff.json ได้' });
         }
-        // --- 7. API สำหรับตั้งเวลา Auto Checkin (แบบกำหนดเวลาแต่ละรอบได้) ---
-        app.post('/api/setautotime', (req, res) => {
-            const { pin, times } = req.body;
-            if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
-
-            if (times) {
-                dataStore.autoCheckinTimes = times; 
-                saveData();
-                return res.json({ success: true, message: `✅ บันทึกตั้งค่าสำเร็จ! (บอทจะทำงานทั้งหมด ${times.length} รอบ)` });
-            }
-            res.status(400).json({ success: false, message: '❌ ข้อมูลไม่ครบถ้วน' });
-        });
-
-        // --- 8. API สำหรับให้เว็บดึงการตั้งค่าปัจจุบันไปแสดง ---
-        app.get('/api/getconfig', (req, res) => {
-            res.json({ 
-                success: true, 
-                autoCheckinEnabled: dataStore.autoCheckinEnabled, 
-                autoCheckinTimes: dataStore.autoCheckinTimes
-            });
-        });
     });
+
+// --- 7. API สำหรับตั้งเวลา Auto Checkin (แบบกำหนดเวลาแต่ละรอบได้) ---
+app.post('/api/setautotime', (req, res) => {
+    const { pin, times } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+
+    if (times) {
+        dataStore.autoCheckinTimes = times; 
+        saveData();
+        return res.json({ success: true, message: `✅ บันทึกตั้งค่าสำเร็จ! (บอทจะทำงานทั้งหมด ${times.length} รอบ)` });
+    }
+    res.status(400).json({ success: false, message: '❌ ข้อมูลไม่ครบถ้วน' });
+});
+
+// --- 8. API สำหรับให้เว็บดึงการตั้งค่าปัจจุบันไปแสดง ---
+app.get('/api/getconfig', (req, res) => {
+    res.json({ 
+        success: true, 
+        autoCheckinEnabled: dataStore.autoCheckinEnabled, 
+        autoCheckinTimes: dataStore.autoCheckinTimes
+    });
+});
 
 // --- 6. API สำหรับ เพิ่ม/ลบ/แก้ไขพนักงาน ---
 app.post('/api/updatestaff', async (req, res) => {
