@@ -250,6 +250,9 @@ if (fs.existsSync(DATA_FILE)) {
         dataStore.checkinChannels = loaded.checkinChannels || [];
         dataStore.lastCheckinDates = loaded.lastCheckinDates || {};
         dataStore.autoCheckinEnabled = loaded.autoCheckinEnabled !== undefined ? loaded.autoCheckinEnabled : true;
+
+        // 👈 บรรทัดฮีโร่! สั่งให้บอทโหลดเวลาที่เคยเซฟไว้ออกมาใช้
+        dataStore.autoCheckinTimes = loaded.autoCheckinTimes || []; 
     } catch (e) { console.error("Load Data Error:", e); }
 }
 
@@ -805,7 +808,7 @@ client.on('messageCreate', async (message) => {
             adminChannel: message.channel,
             department: sessionDept, 
             jsonError: null,
-            shiftType: shiftName,
+            shiftType: shiftType,
             duration: checkinDuration // 👈 เซฟลง session
         });
 
