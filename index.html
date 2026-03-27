@@ -156,44 +156,65 @@
             if(menuName === 'staffMenu') loadStaff();
         }
 
-        /* --- ระบบจัดการเวลารอบเช็คชื่อ (ปรับให้มีตัวแปร Duration แยกแต่ละรอบ) --- */
+        /* --- ระบบจัดการเวลารอบเช็คชื่อ (เปลี่ยนเป็นแบบ เวลาเริ่ม - เวลาสิ้นสุด) --- */
         let timeSlots = [
-            { time: "07:50", shift: "☀️ กะเช้า", duration: 30 }, 
-            { time: "11:50", shift: "🕛 กะเที่ยง", duration: 10 }, 
-            { time: "19:50", shift: "🌙 กะดึก", duration: 60 }
+            { time: "07:50", endTime: "08:00", shift: "☀️ กะเช้า" }, 
+            { time: "11:50", endTime: "12:00", shift: "🕛 กะเที่ยง" }, 
+            { time: "19:50", endTime: "20:00", shift: "🌙 กะดึก" }
         ];
-        
+
         function renderTimeSlots() {
             const container = document.getElementById('timeSlotsContainer'); container.innerHTML = '';
             timeSlots.forEach((slot, i) => {
+                // คำนวณระยะเวลา (นาที) เพื่อแสดงให้เห็นง่ายๆ
+                let minDiffText = "";
+                if (slot.time && slot.endTime) {
+                    const start = new Date(`1970/01/01 ${slot.time}`);
+                    const end = new Date(`1970/01/01 ${slot.endTime}`);
+                    let diff = (end - start) / 60000;
+                    if (diff < 0) diff += 1440; // กรณีข้ามคืน
+                    minDiffText = `(${diff} นาที)`;
+                }
+
                 container.innerHTML += `
-                <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
-                    <input type="time" value="${slot.time}" style="margin: 0; flex: 1.5;" onchange="updateTimeValue(${i}, this.value)">
-                    <input list="shiftOptions" value="${slot.shift}" style="margin: 0; flex: 2;" onchange="updateTimeShift(${i}, this.value)" placeholder="พิมพ์ชื่อกะ...">
-                    <input type="number" value="${slot.duration || 10}" style="margin: 0; flex: 1;" onchange="updateTimeDuration(${i}, this.value)" placeholder="นาที" title="เวลาเปิดรับ (นาที)">
-                    <button class="btn-red" style="width: auto; margin: 0; padding: 0 15px;" onclick="removeTimeSlot(${i})">🗑️</button>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
+                    <div style="flex: 1; min-width: 100px;">
+                        <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">เวลาเริ่ม</label>
+                        <input type="time" value="${slot.time}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'time', this.value)">
+                    </div>
+                    <span style="color:#aaa;">ถึง</span>
+                    <div style="flex: 1; min-width: 100px;">
+                        <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">เวลาปิดรับ <span style="color:#43b581;">${minDiffText}</span></label>
+                        <input type="time" value="${slot.endTime || slot.time}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'endTime', this.value)">
+                    </div>
+                    <div style="flex: 2; min-width: 150px;">
+                        <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">ชื่อกะ</label>
+                        <input list="shiftOptions" value="${slot.shift}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'shift', this.value)" placeholder="พิมพ์ชื่อกะ...">
+                    </div>
+                    <div style="display:flex; align-items:flex-end; height: 100%;">
+                        <button class="btn-red" style="width: auto; margin: 0; padding: 12px 15px;" onclick="removeTimeSlot(${i})" title="ลบรอบนี้">🗑️</button>
+                    </div>
                 </div>`;
             });
         }
-        function updateTimeValue(index, val) { timeSlots[index].time = val; }
-        function updateTimeShift(index, val) { timeSlots[index].shift = val; }
-        function updateTimeDuration(index, val) { timeSlots[index].duration = parseInt(val) || 10; }
-        function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "☀️ กะเช้า", duration: 10 }); renderTimeSlots(); }
+        function updateTimeValue(index, field, val) { 
+            timeSlots[index][field] = val; 
+            if(field === 'time' || field === 'endTime') renderTimeSlots(); // อัปเดตเพื่อโชว์ตัวเลขนาทีใหม่
+        }
+        function addTimeSlot() { timeSlots.push({ time: "12:00", endTime: "12:15", shift: "☀️ กะเช้า" }); renderTimeSlots(); }
         function removeTimeSlot(index) { timeSlots.splice(index, 1); renderTimeSlots(); }
-
         async function loadConfig() {
             try {
                 const res = await fetch('/api/getconfig'); const json = await res.json();
                 if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) { 
                     timeSlots = json.autoCheckinTimes.map(slot => {
-                        if (!slot.duration) slot.duration = 10; // กำหนดค่าเริ่มต้นถ้าของเก่าไม่มี
+                        if (!slot.endTime) slot.endTime = slot.time; // กำหนดเวลาปิดรับเริ่มต้น
                         return slot;
                     });
                 }
                 renderTimeSlots();
             } catch(e) { renderTimeSlots(); }
         }
-
         async function saveAutoTime() {
             const pin = document.getElementById('adminPin').value; const resDiv = document.getElementById('resAuto');
             if (!pin) return alert('🔑 กรุณาใส่รหัสผ่านผู้ดูแลระบบ (ด้านบนสุด) ก่อนครับ');

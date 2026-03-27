@@ -82,7 +82,7 @@ app.post('/api/startcheckin', async (req, res) => {
         const startEmbed = new EmbedBuilder()
             .setColor('#00FF00')
             .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (สั่งจาก Web)`)
-            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง ${checkinDuration} นาทีเท่านั้น!**`)
+            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **เปิดรับเช็คชื่อถึงเวลา: ${currentSlot.endTime || "ไม่ได้ระบุ"} น.** (${checkinDuration} นาที)`)
             .setTimestamp();
 
         await channel.send({ embeds: [startEmbed] });
@@ -103,29 +103,28 @@ app.post('/api/startcheckin', async (req, res) => {
         } catch (error) {
             res.status(500).json({ success: false, message: '❌ ไม่สามารถอ่านไฟล์ staff.json ได้' });
         }
+        // --- 7. API สำหรับตั้งเวลา Auto Checkin (แบบกำหนดเวลาแต่ละรอบได้) ---
+        app.post('/api/setautotime', (req, res) => {
+            const { pin, times } = req.body;
+            if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+
+            if (times) {
+                dataStore.autoCheckinTimes = times; 
+                saveData();
+                return res.json({ success: true, message: `✅ บันทึกตั้งค่าสำเร็จ! (บอทจะทำงานทั้งหมด ${times.length} รอบ)` });
+            }
+            res.status(400).json({ success: false, message: '❌ ข้อมูลไม่ครบถ้วน' });
+        });
+
+        // --- 8. API สำหรับให้เว็บดึงการตั้งค่าปัจจุบันไปแสดง ---
+        app.get('/api/getconfig', (req, res) => {
+            res.json({ 
+                success: true, 
+                autoCheckinEnabled: dataStore.autoCheckinEnabled, 
+                autoCheckinTimes: dataStore.autoCheckinTimes
+            });
+        });
     });
-
-// --- 7. API สำหรับตั้งเวลา Auto Checkin (แบบกำหนดเวลาแต่ละรอบได้) ---
-app.post('/api/setautotime', (req, res) => {
-    const { pin, times } = req.body;
-    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
-
-    if (times) {
-        dataStore.autoCheckinTimes = times; 
-        saveData();
-        return res.json({ success: true, message: `✅ บันทึกตั้งค่าสำเร็จ! (บอทจะทำงานทั้งหมด ${times.length} รอบ)` });
-    }
-    res.status(400).json({ success: false, message: '❌ ข้อมูลไม่ครบถ้วน' });
-});
-
-// --- 8. API สำหรับให้เว็บดึงการตั้งค่าปัจจุบันไปแสดง ---
-app.get('/api/getconfig', (req, res) => {
-    res.json({ 
-        success: true, 
-        autoCheckinEnabled: dataStore.autoCheckinEnabled, 
-        autoCheckinTimes: dataStore.autoCheckinTimes
-    });
-});
 
 // --- 6. API สำหรับ เพิ่ม/ลบ/แก้ไขพนักงาน ---
 app.post('/api/updatestaff', async (req, res) => {
@@ -783,7 +782,7 @@ client.on('messageCreate', async (message) => {
         const startEmbed = new EmbedBuilder()
             .setColor('#00FF00')
             .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? message.channel.name : sessionDept}`)
-            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง ${checkinDuration} นาทีเท่านั้น!**`)
+            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดรับเช็คชื่อเป็นเวลา ${checkinDuration} นาที**`)
             .setTimestamp();
 
         message.channel.send({ embeds: [startEmbed] });
@@ -1011,7 +1010,7 @@ function startSummaryTimer(channelId) {
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
             if (tChannel) tChannel.send(`🏁 **จบการสรุปผล แผนก: ${session.department} เรียบร้อยแล้วค่ะ**`);
         }
-    }, (session.duration || 10) * 60000);
+    }, (activeSessions.get(channelId)?.duration || 10) * 60000);
 }
 
 // ====== วางทับส่วนนี้ไว้ด้านล่างสุดของไฟล์ index.js ======
@@ -1069,7 +1068,15 @@ client.once('ready', () => {
                 else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
 
                 // เซฟข้อมูลกะลงใน Session เพื่อให้คำสั่ง !checkin ดึงไปใช้ต่อได้ถูกต้อง
-                const checkinDuration = currentSlot.duration ? parseInt(currentSlot.duration) : 10;
+                // คำนวณระยะเวลา (นาที) จากเวลาเริ่มและเวลาสิ้นสุดที่ตั้งไว้ในเว็บ
+                let checkinDuration = 10; // ค่าเริ่มต้นเผื่อเหนียว
+                if (currentSlot.endTime && currentSlot.time) {
+                    const start = new Date(`1970/01/01 ${currentSlot.time}`);
+                    const end = new Date(`1970/01/01 ${currentSlot.endTime}`);
+                    let diffMs = end - start;
+                    if (diffMs < 0) diffMs += (24 * 60 * 60 * 1000); // จัดการกรณีตั้งเวลาข้ามคืน (เช่น 23:50 ถึง 00:10)
+                    checkinDuration = Math.round(diffMs / 60000); // แปลงเป็นนาที
+                }
 
                 activeSessions.set(channelId, { 
                     members: [], 
@@ -1087,7 +1094,7 @@ client.once('ready', () => {
                 const startEmbed = new EmbedBuilder()
                     .setColor('#00FF00')
                     .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (อัตโนมัติ)`)
-                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง ${checkinDuration} นาทีเท่านั้น!**`)
+                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **เปิดรับเช็คชื่อถึงเวลา: ${currentSlot.endTime || "ไม่ได้ระบุ"} น.** (${checkinDuration} นาที)`)
                     .setTimestamp();
 
                 await channel.send({ embeds: [startEmbed] });
