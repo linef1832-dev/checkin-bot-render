@@ -629,14 +629,17 @@ client.on('messageCreate', async (message) => {
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
         if (leavesObj.morning.length > 0 || leavesObj.noon.length > 0 || leavesObj.night.length > 0) {
-        if (leavesObj.morning && leavesObj.morning.length > 0) {
-            msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
-        }
-        if (leavesObj.noon && leavesObj.noon.length > 0) {
-            msg += `🕛 **กะเที่ยง (${leavesObj.noon.length} ท่าน):**\n` + leavesObj.noon.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
-        }
-        if (leavesObj.night && leavesObj.night.length > 0) {
-            msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+            if (leavesObj.morning && leavesObj.morning.length > 0) {
+                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+            }
+            if (leavesObj.noon && leavesObj.noon.length > 0) {
+                msg += `🕛 **กะเที่ยง (${leavesObj.noon.length} ท่าน):**\n` + leavesObj.noon.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+            }
+            if (leavesObj.night && leavesObj.night.length > 0) {
+                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+            }
+        } else {
+            msg += `⚠️ ไม่พบรายชื่อพนักงานหยุดของแผนกนี้ในวันนี้ค่ะ`;
         }
         return message.reply(msg);
     }
@@ -841,7 +844,6 @@ function startSummaryTimer(channelId) {
                     if (klLeaves.length > 0) {
                         klLeaves.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
                     } else { summary += `- ไม่มี -\n`; }
-                }
 
                 let missingMembers = [];
                 const departmentVoiceRooms = new Set();
