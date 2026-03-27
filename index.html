@@ -10,7 +10,7 @@
             background-color: #1e1e2f; 
             color: white; 
             padding: 20px; 
-            max-width: 600px; 
+            max-width: 650px; 
             margin: auto; 
         }
         .card { 
@@ -22,114 +22,264 @@
         }
         input, select { 
             width: 100%; 
-            padding: 10px; 
-            margin: 10px 0; 
+            padding: 12px; 
+            margin: 8px 0 15px 0; 
             border-radius: 5px; 
             border: none; 
             box-sizing: border-box; 
             font-size: 16px;
+            background-color: #383852;
+            color: white;
         }
+        input::placeholder { color: #aaa; }
         button { 
             background-color: #5865F2; 
             color: white; 
             border: none; 
-            padding: 10px 20px; 
+            padding: 12px 20px; 
             border-radius: 5px; 
             cursor: pointer; 
             width: 100%; 
             font-size: 16px; 
             margin-top: 5px;
             font-weight: bold;
+            transition: 0.2s;
         }
         button:hover { background-color: #4752C4; }
         button.btn-red { background-color: #ED4245; }
         button.btn-red:hover { background-color: #C13537; }
-        .response { 
-            margin-top: 15px; 
-            font-weight: bold; 
-            color: #43b581; 
-            text-align: center;
-        }
+        button.btn-small { width: auto; padding: 5px 10px; font-size: 13px; margin: 0; }
+        
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #2a2a40; }
+        .tab-btn { background: transparent; width: auto; color: #aaa; padding: 10px 20px; margin: 0; border-radius: 0; border-bottom: 3px solid transparent; }
+        .tab-btn:hover { background: rgba(255,255,255,0.05); color: white; }
+        .tab-btn.active { color: #5865F2; border-bottom: 3px solid #5865F2; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        .response { margin-top: 15px; font-weight: bold; color: #43b581; text-align: center; }
+        
+        /* ตกแต่งรายชื่อพนักงาน */
+        .staff-list-ul { list-style: none; padding-left: 0; margin-top: 5px; }
+        .staff-list-li { display: flex; justify-content: space-between; align-items: center; background: #383852; padding: 10px; border-radius: 5px; margin-bottom: 5px; }
+        .staff-info { display: flex; flex-direction: column; }
+        .staff-name { font-weight: bold; font-size: 15px; }
+        .staff-id { font-size: 12px; color: #aaa; }
     </style>
 </head>
 <body>
 
-    <h2 style="text-align: center;">🤖 แผงควบคุมบอทเช็คชื่อ (Web Dashboard)</h2>
+    <h2 style="text-align: center;">🤖 แผงควบคุมบอท (Web Dashboard)</h2>
 
-    <div class="card">
-        <h3>🔑 รหัสผ่านผู้ดูแลระบบ</h3>
-        <input type="password" id="adminPin" placeholder="ใส่รหัสผ่าน (เช่น 123456)">
+    <div class="card" style="padding-bottom: 10px;">
+        <h3 style="margin-top: 0;">🔑 รหัสผ่านผู้ดูแลระบบ</h3>
+        <input type="password" id="adminPin" placeholder="ใส่รหัสผ่าน (เช่น 123456) ก่อนสั่งงาน">
     </div>
 
-    <div class="card">
-        <h3>⚙️ เปิด/ปิด เช็คชื่ออัตโนมัติ</h3>
-        <p style="font-size: 14px; color: #aaa;">เปิดหรือปิดระบบแจ้งเตือน 07:50 และ 19:50</p>
-        <button onclick="toggleAuto('on')">เปิดใช้งาน (!autoon)</button>
-        <button class="btn-red" onclick="toggleAuto('off')">ปิดใช้งาน (!autooff)</button>
-        <div id="resAuto" class="response"></div>
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab(event, 'checkinMenu')">🕒 ระบบเช็คชื่อ</button>
+        <button class="tab-btn" onclick="openTab(event, 'staffMenu')">👥 จัดการพนักงาน</button>
+        <button class="tab-btn" onclick="openTab(event, 'otherMenu')">⚙️ ตั้งค่าอื่นๆ</button>
     </div>
 
-    <div class="card">
-        <h3>▶️ สั่งเริ่มเช็คชื่อทันที (!startcheckin)</h3>
-        <p style="font-size: 14px; color: #aaa;">ใส่ ID ของห้องเสียงที่ต้องการให้บอทเริ่มจับเวลา</p>
-        <input type="text" id="channelId" placeholder="ใส่ Channel ID (เช่น 144246...)">
-        <button onclick="startCheckin()">เริ่มเช็คชื่อ</button>
-        <div id="resCheckin" class="response"></div>
+    <div id="checkinMenu" class="tab-content active">
+        <div class="card">
+            <h3 style="margin-top: 0;">⚙️ เปิด/ปิด เช็คชื่ออัตโนมัติ</h3>
+            <button onclick="toggleAuto('on')">เปิดใช้งาน (!autoon)</button>
+            <button class="btn-red" onclick="toggleAuto('off')">ปิดใช้งาน (!autooff)</button>
+            <div id="resAuto" class="response"></div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที</h3>
+            <input type="text" id="channelId" placeholder="ใส่ Channel ID (เช่น 144246...)">
+            <button onclick="startCheckin()">เริ่มเช็คชื่อ</button>
+            <div id="resCheckin" class="response"></div>
+        </div>
+    </div>
+
+    <div id="staffMenu" class="tab-content">
+        <div class="card" style="border-left: 4px solid #5865F2;">
+            <h3 style="margin-top: 0;">➕ เพิ่ม/แก้ไข พนักงาน</h3>
+            <label>Discord ID พนักงาน (คลิกขวาที่ชื่อ Copy ID)</label>
+            <input type="text" id="staffId" placeholder="เช่น 123456789012345678">
+            
+            <label>ชื่อพนักงาน (ที่จะให้โชว์ตอนเช็คชื่อ)</label>
+            <input type="text" id="staffName" placeholder="เช่น AMOL-SOMCHAI">
+            
+            <div style="display: flex; gap: 10px;">
+                <div style="flex: 1;">
+                    <label>แผนก</label>
+                    <select id="staffDept">
+                        <option value="AMOL">AMOL</option>
+                        <option value="ODOL">ODOL</option>
+                    </select>
+                </div>
+                <div style="flex: 1;">
+                    <label>กะการทำงาน</label>
+                    <select id="staffShift">
+                        <option value="morning">☀️ กะเช้า</option>
+                        <option value="night">🌙 กะดึก</option>
+                    </select>
+                </div>
+            </div>
+            
+            <button id="btnSaveStaff" onclick="saveStaff()">💾 บันทึกพนักงาน</button>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top: 0; display: flex; justify-content: space-between;">
+                📋 รายชื่อพนักงานในระบบ
+                <button class="btn-small" style="background:#43b581;" onclick="loadStaff()">🔄 โหลดใหม่</button>
+            </h3>
+            <div id="staffListArea">⏳ กำลังโหลดข้อมูล...</div>
+        </div>
+    </div>
+
+    <div id="otherMenu" class="tab-content">
+        <div class="card">
+            <h3 style="margin-top: 0; color: #FEE75C;">🚧 ส่วนนี้อยู่ระหว่างการพัฒนา</h3>
+        </div>
     </div>
 
     <script>
-        // ฟังก์ชันเปิด/ปิด Auto Checkin
+        // เปลี่ยนหน้าแท็บ
+        function openTab(evt, menuName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(menuName).classList.add('active');
+            evt.currentTarget.classList.add('active');
+
+            // ถ้าเปิดแท็บพนักงาน ให้โหลดข้อมูลพนักงานอัตโนมัติ
+            if(menuName === 'staffMenu') loadStaff();
+        }
+
+        /* ----- โค้ดส่วน Tab 1: เช็คชื่อ (เหมือนเดิม) ----- */
         async function toggleAuto(status) {
             const pin = document.getElementById('adminPin').value;
             const resDiv = document.getElementById('resAuto');
-
             if (!pin) return alert('กรุณาใส่รหัสผ่านผู้ดูแลระบบด้วยครับ');
-
-            resDiv.innerText = "⏳ กำลังประมวลผล...";
-            resDiv.style.color = "yellow";
-
+            resDiv.innerText = "⏳ กำลังประมวลผล..."; resDiv.style.color = "yellow";
             try {
-                const response = await fetch('/api/autocheckin', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status, pin })
-                });
-                const data = await response.json();
-                resDiv.innerText = data.message;
-                resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-            } catch (error) {
-                resDiv.innerText = "❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์";
-                resDiv.style.color = "#ED4245";
-            }
+                const res = await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, pin }) });
+                const data = await res.json();
+                resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
+            } catch (e) { resDiv.innerText = "❌ Error"; resDiv.style.color = "#ED4245"; }
         }
 
-        // ฟังก์ชันสั่ง Start Checkin
         async function startCheckin() {
             const pin = document.getElementById('adminPin').value;
             const channelId = document.getElementById('channelId').value.trim();
             const resDiv = document.getElementById('resCheckin');
-
-            if (!pin) return alert('กรุณาใส่รหัสผ่านผู้ดูแลระบบด้วยครับ');
-            if (!channelId) return alert('กรุณาใส่ Channel ID ด้วยครับ');
-
-            resDiv.innerText = "⏳ กำลังสั่งงานบอท...";
-            resDiv.style.color = "yellow";
-
+            if (!pin || !channelId) return alert('กรุณาใส่รหัสผ่าน และ Channel ID ให้ครบครับ');
+            resDiv.innerText = "⏳ กำลังสั่งงาน..."; resDiv.style.color = "yellow";
             try {
-                const response = await fetch('/api/startcheckin', {
+                const res = await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId, pin }) });
+                const data = await res.json();
+                resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
+            } catch (e) { resDiv.innerText = "❌ Error"; resDiv.style.color = "#ED4245"; }
+        }
+
+        /* ----- โค้ดส่วน Tab 2: จัดการพนักงาน ----- */
+        
+        // 1. ดึงรายชื่อพนักงาน
+        async function loadStaff() {
+            const listArea = document.getElementById('staffListArea');
+            listArea.innerHTML = "<p style='color:yellow;'>⏳ กำลังโหลดข้อมูลจาก staff.json...</p>";
+            try {
+                const res = await fetch('/api/getstaff');
+                const json = await res.json();
+                if (json.success) renderStaffList(json.data);
+                else listArea.innerHTML = "❌ โหลดข้อมูลไม่สำเร็จ";
+            } catch(e) { listArea.innerHTML = "❌ ขาดการเชื่อมต่อกับบอท"; }
+        }
+
+        // 2. จัดรูปแบบการแสดงผล
+        function renderStaffList(data) {
+            let html = '';
+            const depts = ['AMOL', 'ODOL'];
+            const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'night', label: '🌙 กะดึก'}];
+
+            depts.forEach(dept => {
+                if(data[dept]) {
+                    html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px;">แผนก ${dept}</h4>`;
+                    shifts.forEach(shift => {
+                        const shiftData = data[dept][shift.key];
+                        if(shiftData && Object.keys(shiftData).length > 0) {
+                            html += `<p style="color: #43b581; margin: 10px 0 5px 0;">${shift.label}</p><ul class="staff-list-ul">`;
+                            for(const [id, name] of Object.entries(shiftData)) {
+                                html += `
+                                <li class="staff-list-li">
+                                    <div class="staff-info">
+                                        <span class="staff-name">${name}</span>
+                                        <span class="staff-id">ID: ${id}</span>
+                                    </div>
+                                    <button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️ ลบ</button>
+                                </li>`;
+                            }
+                            html += `</ul>`;
+                        }
+                    });
+                }
+            });
+            if(html === '') html = '<p style="color:#aaa; text-align:center;">ยังไม่มีข้อมูลพนักงานในระบบ</p>';
+            document.getElementById('staffListArea').innerHTML = html;
+        }
+
+        // 3. เซฟพนักงานใหม่ (เพิ่ม/แก้ไข)
+        async function saveStaff() {
+            const pin = document.getElementById('adminPin').value;
+            const discordId = document.getElementById('staffId').value.trim();
+            const staffName = document.getElementById('staffName').value.trim();
+            const dept = document.getElementById('staffDept').value;
+            const shift = document.getElementById('staffShift').value;
+
+            if (!pin) return alert('🔑 กรุณาใส่รหัสผ่านผู้ดูแลระบบ (ด้านบนสุด) ก่อนครับ');
+            if (!discordId || !staffName) return alert('⚠️ กรุณากรอก Discord ID และ ชื่อพนักงาน ให้ครบถ้วน');
+
+            const btn = document.getElementById('btnSaveStaff');
+            btn.innerText = "⏳ กำลังบันทึก...";
+            try {
+                const res = await fetch('/api/updatestaff', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ channelId, pin })
+                    body: JSON.stringify({ action: 'add', discordId, staffName, dept, shift, pin })
                 });
-                const data = await response.json();
-                resDiv.innerText = data.message;
-                resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-            } catch (error) {
-                resDiv.innerText = "❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์";
-                resDiv.style.color = "#ED4245";
-            }
+                const data = await res.json();
+                if (data.success) {
+                    alert(data.message);
+                    document.getElementById('staffId').value = '';
+                    document.getElementById('staffName').value = '';
+                    loadStaff(); // รีเฟรชรายการ
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) { alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์"); }
+            btn.innerText = "💾 บันทึกพนักงาน";
+        }
+
+        // 4. ลบพนักงาน
+        async function removeStaff(discordId) {
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) return alert('🔑 กรุณาใส่รหัสผ่านผู้ดูแลระบบ (ด้านบนสุด) ก่อนครับ');
+            if (!confirm('⚠️ คุณแน่ใจหรือไม่ที่จะลบพนักงานคนนี้ออกจากระบบ?')) return;
+
+            try {
+                const res = await fetch('/api/updatestaff', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'remove', discordId, pin })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    loadStaff(); // รีเฟรชรายการใหม่ทันที
+                } else {
+                    alert(data.message);
+                }
+            } catch (e) { alert("❌ เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์"); }
         }
     </script>
-
 </body>
 </html>

@@ -42,61 +42,66 @@ app.post('/api/autocheckin', (req, res) => {
     res.json({ success: true, message: `✅ ระบบเปิดเช็คชื่ออัตโนมัติ: ${status === 'on' ? 'เปิด' : 'ปิด'} เรียบร้อยแล้ว` });
 });
 
-// --- 4. สร้าง API สำหรับคำสั่ง !startcheckin ---
-app.post('/api/startcheckin', async (req, res) => {
-    const { channelId, pin } = req.body;
+    // --- 5. API สำหรับดึงรายชื่อพนักงานมาแสดง ---
+    app.get('/api/getstaff', (req, res) => {
+        try {
+            if (fs.existsSync('./staff.json')) {
+                const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
+                res.json({ success: true, data: staffData });
+            } else {
+                res.json({ success: true, data: {} });
+            }
+        } catch (error) {
+            res.status(500).json({ success: false, message: '❌ ไม่สามารถอ่านไฟล์ staff.json ได้' });
+        }
+    });
 
-    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
-    if (!dataStore.checkinChannels.includes(channelId)) {
-        return res.status(400).json({ success: false, message: '❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (!addchannel ก่อน)' });
-    }
+    // --- 6. API สำหรับ เพิ่ม/ลบ พนักงาน ---
+    app.post('/api/updatestaff', async (req, res) => {
+        const { pin, action, dept, shift, discordId, staffName } = req.body;
+        if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
 
-    const localTime = getThaiTime(); 
-    const todayStr = getThaiDateStr(); 
-    const currentHour = localTime.getHours();
-    const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
-    const checkinKey = `${todayStr}-${shiftType}`;
+        try {
+            let staffData = {};
+            if (fs.existsSync('./staff.json')) {
+                staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
+            }
 
-    if (activeSessions.has(channelId)) {
-        return res.status(400).json({ success: false, message: '⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้ว' });
-    }
-    if (dataStore.lastCheckinDates[channelId] === checkinKey) {
-        return res.status(400).json({ success: false, message: '❌ ห้องนี้สรุปยอดของกะนี้ไปเรียบร้อยแล้ว' });
-    }
+            if (action === 'add') {
+                if (!staffData[dept]) staffData[dept] = { morning: {}, night: {} };
+                if (!staffData[dept][shift]) staffData[dept][shift] = {};
 
-    try {
-        const channel = await client.channels.fetch(channelId);
+                // ลบชื่อเก่าออกก่อน (กันกรณีคนนี้เคยอยู่กะอื่น จะได้ไม่ซ้ำ)
+                for (const d in staffData) {
+                    for (const s in staffData[d]) {
+                        if (staffData[d][s] && staffData[d][s][discordId]) {
+                            delete staffData[d][s][discordId];
+                        }
+                    }
+                }
+                // เพิ่มชื่อใหม่เข้าไป
+                staffData[dept][shift][discordId] = staffName;
 
-        let sessionDept = "ALL";
-        const chName = channel.name.toUpperCase();
-        if (chName.includes('ODOL')) sessionDept = "ODOL";
-        else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
+            } else if (action === 'remove') {
+                // ค้นหาและลบพนักงานตาม Discord ID
+                for (const d in staffData) {
+                    for (const s in staffData[d]) {
+                        if (staffData[d][s] && staffData[d][s][discordId]) {
+                            delete staffData[d][s][discordId];
+                        }
+                    }
+                }
+            }
 
-        activeSessions.set(channelId, {
-            members: [],
-            startTime: localTime,
-            adminChannel: channel,
-            department: sessionDept, 
-            jsonError: null
-        });
+            // เซฟลงไฟล์ และสั่งซิงค์ขึ้น GitHub
+            fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
+            syncToGitHub(staffData); // เรียกใช้ฟังก์ชันที่คุณเขียนไว้แล้ว
 
-        dataStore.lastCheckinDates[channelId] = checkinKey;
-        saveData();
-
-        const startEmbed = new EmbedBuilder()
-            .setColor('#00FF00')
-            .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (สั่งจาก Web)`)
-            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง 10 นาทีเท่านั้น!**`)
-            .setTimestamp();
-
-        await channel.send({ embeds: [startEmbed] });
-        startSummaryTimer(channelId); // เรียกฟังก์ชันนับเวลาถอยหลัง
-
-        res.json({ success: true, message: `✅ สั่งเปิดระบบเช็คชื่อห้อง ${channel.name} สำเร็จ!` });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, message: '❌ หา Channel ไม่เจอ หรือบอทไม่มีสิทธิ์ส่งข้อความ' });
-    }
+            res.json({ success: true, message: action === 'add' ? `✅ บันทึกพนักงาน ${staffName} สำเร็จ!` : `🗑️ ลบพนักงานออกจากระบบแล้ว!` });
+        } catch (error) {
+            console.error("Update Staff Error:", error);
+            res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล' });
+        }
 });
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = '1442466109503569992'; 
