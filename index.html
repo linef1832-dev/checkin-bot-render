@@ -33,6 +33,21 @@
         .search-box { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 5px;}
         .search-box > div { flex: 1; min-width: 120px; }
         .search-box input, .search-box select { margin: 5px 0 0 0; padding: 10px; font-size: 14px;}
+        .search-box input, .search-box select { margin: 5px 0 0 0; padding: 10px; font-size: 14px;}
+
+                /* --- ทำให้กล่องรายชื่อพนักงานมีแถบเลื่อน (Scrollbar) --- */
+                #staffListArea {
+                    max-height: 450px; 
+                    overflow-y: auto;  
+                    padding-right: 10px;
+                }
+                #staffListArea::-webkit-scrollbar { width: 8px; }
+                #staffListArea::-webkit-scrollbar-track { background: #1e1e2f; border-radius: 4px; }
+                #staffListArea::-webkit-scrollbar-thumb { background: #4f545c; border-radius: 4px; }
+                #staffListArea::-webkit-scrollbar-thumb:hover { background: #72767d; }
+
+            </style>
+        </head>
     </style>
 </head>
 <body onload="loadConfig()">
