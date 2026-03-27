@@ -30,8 +30,6 @@
         .staff-name-input:focus { border: 1px solid #5865F2; background: #2a2a40; outline: none; cursor: text; }
         .staff-name-input:hover { border: 1px solid #aaa; }
         .staff-id { font-size: 12px; color: #aaa; }
-        
-        /* สไตล์กล่องค้นหาแบบ Flex */
         .search-box { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 5px;}
         .search-box > div { flex: 1; min-width: 120px; }
         .search-box input, .search-box select { margin: 5px 0 0 0; padding: 10px; font-size: 14px;}
@@ -62,8 +60,10 @@
     <div id="checkinMenu" class="tab-content active">
         <div class="card" style="border-left: 4px solid #5865F2;">
             <h3 style="margin-top: 0;">⚙️ ตั้งเวลารอบเช็คชื่ออัตโนมัติ</h3>
-            <p style="font-size: 14px; color: #aaa;">สามารถเลือกกะ หรือ "พิมพ์ชื่อกะเอง" ได้ตามต้องการเลยครับ</p>
+            <p style="font-size: 14px; color: #aaa;">ตั้งค่าเวลา กะ และ "ระยะเวลาที่เปิดรับ (นาที)" ได้อิสระแต่ละรอบเลยครับ</p>
+            
             <div id="timeSlotsContainer"></div>
+            
             <div style="display: flex; gap: 10px;">
                 <button onclick="addTimeSlot()" style="background-color: #383852;">➕ เพิ่มรอบใหม่</button>
                 <button onclick="saveAutoTime()" style="background-color: #43b581;">💾 บันทึกเวลาทั้งหมด</button>
@@ -77,8 +77,12 @@
         </div>
 
         <div class="card">
-            <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที</h3>
-            <input type="text" id="channelId" placeholder="ใส่ Channel ID (เช่น 144246...)">
+            <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที (!startcheckin)</h3>
+            <p style="font-size: 14px; color: #aaa;">ถ้าต้องการกดสั่งเองตอนนี้ สามารถตั้งระยะเวลาได้ด้วยครับ</p>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="channelId" placeholder="ใส่ Channel ID (เช่น 144246...)" style="flex: 3;">
+                <input type="number" id="manualDuration" value="10" placeholder="นาที" style="flex: 1;" title="ระยะเวลาเปิดรับ (นาที)">
+            </div>
             <button onclick="startCheckin()">เริ่มเช็คชื่อ</button>
             <div id="resCheckin" class="response"></div>
         </div>
@@ -107,27 +111,9 @@
         <div class="card" style="background-color: #202231;">
             <h3 style="margin-top: 0; margin-bottom: 5px;">🔍 ค้นหาและกรองพนักงาน</h3>
             <div class="search-box">
-                <div style="flex: 2;">
-                    <label style="font-size: 13px; color: #aaa;">ชื่อพนักงาน หรือ ID</label>
-                    <input type="text" id="searchName" placeholder="พิมพ์ชื่อเพื่อค้นหา..." oninput="filterStaff()">
-                </div>
-                <div>
-                    <label style="font-size: 13px; color: #aaa;">แผนก</label>
-                    <select id="searchDept" onchange="filterStaff()">
-                        <option value="ALL">ทุกแผนก</option>
-                        <option value="AMOL">AMOL</option>
-                        <option value="ODOL">ODOL</option>
-                    </select>
-                </div>
-                <div>
-                    <label style="font-size: 13px; color: #aaa;">กะทำงาน</label>
-                    <select id="searchShift" onchange="filterStaff()">
-                        <option value="ALL">ทุกกะ</option>
-                        <option value="morning">☀️ กะเช้า</option>
-                        <option value="noon">🕛 กะเที่ยง</option>
-                        <option value="night">🌙 กะดึก</option>
-                    </select>
-                </div>
+                <div style="flex: 2;"><label style="font-size: 13px; color: #aaa;">ชื่อพนักงาน หรือ ID</label><input type="text" id="searchName" placeholder="พิมพ์ชื่อเพื่อค้นหา..." oninput="filterStaff()"></div>
+                <div><label style="font-size: 13px; color: #aaa;">แผนก</label><select id="searchDept" onchange="filterStaff()"><option value="ALL">ทุกแผนก</option><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
+                <div><label style="font-size: 13px; color: #aaa;">กะทำงาน</label><select id="searchShift" onchange="filterStaff()"><option value="ALL">ทุกกะ</option><option value="morning">☀️ กะเช้า</option><option value="noon">🕛 กะเที่ยง</option><option value="night">🌙 กะดึก</option></select></div>
             </div>
         </div>
 
@@ -145,7 +131,6 @@
     </div>
 
     <script>
-        // ตัวแปรเก็บข้อมูลพนักงานทั้งหมดไว้ค้นหา
         let globalStaffData = null;
 
         function openTab(evt, menuName) {
@@ -156,23 +141,40 @@
             if(menuName === 'staffMenu') loadStaff();
         }
 
-        /* --- ระบบจัดการเวลารอบเช็คชื่อ --- */
-        let timeSlots = [{ time: "07:50", shift: "☀️ กะเช้า" }, { time: "11:50", shift: "🕛 กะเที่ยง" }, { time: "19:50", shift: "🌙 กะดึก" }];
+        /* --- ระบบจัดการเวลารอบเช็คชื่อ (ปรับให้มีตัวแปร Duration แยกแต่ละรอบ) --- */
+        let timeSlots = [
+            { time: "07:50", shift: "☀️ กะเช้า", duration: 30 }, 
+            { time: "11:50", shift: "🕛 กะเที่ยง", duration: 10 }, 
+            { time: "19:50", shift: "🌙 กะดึก", duration: 60 }
+        ];
+        
         function renderTimeSlots() {
             const container = document.getElementById('timeSlotsContainer'); container.innerHTML = '';
             timeSlots.forEach((slot, i) => {
-                container.innerHTML += `<div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;"><input type="time" value="${slot.time}" style="margin: 0; flex: 1;" onchange="updateTimeValue(${i}, this.value)"><input list="shiftOptions" value="${slot.shift}" style="margin: 0; flex: 1;" onchange="updateTimeShift(${i}, this.value)" placeholder="พิมพ์ชื่อกะ..."><button class="btn-red" style="width: auto; margin: 0; padding: 0 15px;" onclick="removeTimeSlot(${i})">🗑️ ลบ</button></div>`;
+                container.innerHTML += `
+                <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center;">
+                    <input type="time" value="${slot.time}" style="margin: 0; flex: 1.5;" onchange="updateTimeValue(${i}, this.value)">
+                    <input list="shiftOptions" value="${slot.shift}" style="margin: 0; flex: 2;" onchange="updateTimeShift(${i}, this.value)" placeholder="พิมพ์ชื่อกะ...">
+                    <input type="number" value="${slot.duration || 10}" style="margin: 0; flex: 1;" onchange="updateTimeDuration(${i}, this.value)" placeholder="นาที" title="เวลาเปิดรับ (นาที)">
+                    <button class="btn-red" style="width: auto; margin: 0; padding: 0 15px;" onclick="removeTimeSlot(${i})">🗑️</button>
+                </div>`;
             });
         }
         function updateTimeValue(index, val) { timeSlots[index].time = val; }
         function updateTimeShift(index, val) { timeSlots[index].shift = val; }
-        function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "☀️ กะเช้า" }); renderTimeSlots(); }
+        function updateTimeDuration(index, val) { timeSlots[index].duration = parseInt(val) || 10; }
+        function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "☀️ กะเช้า", duration: 10 }); renderTimeSlots(); }
         function removeTimeSlot(index) { timeSlots.splice(index, 1); renderTimeSlots(); }
 
         async function loadConfig() {
             try {
                 const res = await fetch('/api/getconfig'); const json = await res.json();
-                if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) { timeSlots = json.autoCheckinTimes; }
+                if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) { 
+                    timeSlots = json.autoCheckinTimes.map(slot => {
+                        if (!slot.duration) slot.duration = 10; // กำหนดค่าเริ่มต้นถ้าของเก่าไม่มี
+                        return slot;
+                    });
+                }
                 renderTimeSlots();
             } catch(e) { renderTimeSlots(); }
         }
@@ -199,10 +201,13 @@
         }
 
         async function startCheckin() {
-            const pin = document.getElementById('adminPin').value; const channelId = document.getElementById('channelId').value.trim(); const resDiv = document.getElementById('resCheckin');
+            const pin = document.getElementById('adminPin').value; 
+            const channelId = document.getElementById('channelId').value.trim(); 
+            const duration = document.getElementById('manualDuration').value;
+            const resDiv = document.getElementById('resCheckin');
             if (!pin || !channelId) return alert('ข้อมูลไม่ครบ'); resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
             try {
-                const res = await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId, pin }) });
+                const res = await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId, pin, duration: parseInt(duration) || 10 }) });
                 const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
             } catch (e) {}
         }
@@ -212,69 +217,41 @@
             const listArea = document.getElementById('staffListArea'); listArea.innerHTML = "<p style='color:yellow;'>⏳ กำลังโหลด...</p>";
             try {
                 const res = await fetch('/api/getstaff'); const json = await res.json();
-                if (json.success) {
-                    globalStaffData = json.data; // เก็บข้อมูลต้นฉบับไว้
-                    filterStaff(); // เรียกใช้ฟังก์ชันกรองข้อมูลเพื่อแสดงผล
-                } else { listArea.innerHTML = "❌ Error"; }
+                if (json.success) { globalStaffData = json.data; filterStaff(); } else { listArea.innerHTML = "❌ Error"; }
             } catch(e) {}
         }
-
-        // ฟังก์ชันกรองข้อมูล (ค้นหา)
         function filterStaff() {
             if (!globalStaffData) return;
-
-            const nameQuery = document.getElementById('searchName').value.toLowerCase();
-            const deptQuery = document.getElementById('searchDept').value;
-            const shiftQuery = document.getElementById('searchShift').value;
-
-            let filteredData = {};
-            const depts = ['AMOL', 'ODOL'];
-            const shifts = ['morning', 'noon', 'night'];
-
+            const nameQuery = document.getElementById('searchName').value.toLowerCase(); const deptQuery = document.getElementById('searchDept').value; const shiftQuery = document.getElementById('searchShift').value;
+            let filteredData = {}; const depts = ['AMOL', 'ODOL']; const shifts = ['morning', 'noon', 'night'];
             depts.forEach(dept => {
-                if (deptQuery !== 'ALL' && dept !== deptQuery) return; // ข้ามแผนกที่ไม่ตรง
-                
+                if (deptQuery !== 'ALL' && dept !== deptQuery) return;
                 if (globalStaffData[dept]) {
                     filteredData[dept] = {};
                     shifts.forEach(shift => {
-                        if (shiftQuery !== 'ALL' && shift !== shiftQuery) return; // ข้ามกะที่ไม่ตรง
-                        
+                        if (shiftQuery !== 'ALL' && shift !== shiftQuery) return;
                         const shiftData = globalStaffData[dept][shift];
                         if (shiftData) {
-                            let hasData = false;
-                            filteredData[dept][shift] = {};
-                            
+                            let hasData = false; filteredData[dept][shift] = {};
                             for (const [id, name] of Object.entries(shiftData)) {
-                                // เช็คว่าชื่อ หรือ ID ตรงกับที่ค้นหาไหม
-                                if (name.toLowerCase().includes(nameQuery) || id.includes(nameQuery)) {
-                                    filteredData[dept][shift][id] = name;
-                                    hasData = true;
-                                }
+                                if (name.toLowerCase().includes(nameQuery) || id.includes(nameQuery)) { filteredData[dept][shift][id] = name; hasData = true; }
                             }
-                            // ถ้ากะนี้ไม่มีข้อมูลที่ค้นเจอเลย ให้ลบทิ้ง
                             if (!hasData) delete filteredData[dept][shift];
                         }
                     });
-                    // ถ้าแผนกนี้ไม่มีกะไหนเหลือเลย ให้ลบทิ้ง
                     if (Object.keys(filteredData[dept]).length === 0) delete filteredData[dept];
                 }
             });
-
             renderStaffList(filteredData);
         }
-
         function renderStaffList(data) {
-            let html = ''; const depts = ['AMOL', 'ODOL']; 
-            const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'noon', label: '🕛 กะเที่ยง'}, {key: 'night', label: '🌙 กะดึก'}];
-            
+            let html = ''; const depts = ['AMOL', 'ODOL']; const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'noon', label: '🕛 กะเที่ยง'}, {key: 'night', label: '🌙 กะดึก'}];
             depts.forEach(dept => { if(data[dept]) {
                 html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px;">แผนก ${dept}</h4>`;
                 shifts.forEach(shift => { const shiftData = data[dept][shift.key];
                     if(shiftData && Object.keys(shiftData).length > 0) {
                         html += `<p style="color: #43b581; margin: 10px 0 5px 0;">${shift.label}</p><ul class="staff-list-ul">`;
-                        for(const [id, name] of Object.entries(shiftData)) {
-                            html += `<li class="staff-list-li"><div class="staff-info"><input type="text" value="${name}" class="staff-name-input" id="input-name-${id}"><span class="staff-id">ID: ${id}</span></div><div style="display: flex; gap: 5px;"><button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button><button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button></div></li>`;
-                        }
+                        for(const [id, name] of Object.entries(shiftData)) { html += `<li class="staff-list-li"><div class="staff-info"><input type="text" value="${name}" class="staff-name-input" id="input-name-${id}"><span class="staff-id">ID: ${id}</span></div><div style="display: flex; gap: 5px;"><button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button><button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button></div></li>`; }
                         html += `</ul>`;
                     }
                 });
@@ -282,7 +259,6 @@
             if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อพนักงานที่ค้นหา</p>';
             document.getElementById('staffListArea').innerHTML = html;
         }
-
         async function saveStaff() {
             const pin = document.getElementById('adminPin').value; const discordId = document.getElementById('staffId').value.trim(); const staffName = document.getElementById('staffName').value.trim(); const dept = document.getElementById('staffDept').value; const shift = document.getElementById('staffShift').value;
             if (!pin || !discordId || !staffName) return alert('ข้อมูลไม่ครบ'); const btn = document.getElementById('btnSaveStaff'); btn.innerText = "⏳...";

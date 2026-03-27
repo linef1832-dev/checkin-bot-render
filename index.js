@@ -41,7 +41,56 @@ app.post('/api/autocheckin', (req, res) => {
     saveData();
     res.json({ success: true, message: `✅ ระบบเปิดเช็คชื่ออัตโนมัติ: ${status === 'on' ? 'เปิด' : 'ปิด'} เรียบร้อยแล้ว` });
 });
+// --- 4. สร้าง API สำหรับคำสั่ง !startcheckin ---
+app.post('/api/startcheckin', async (req, res) => {
+    const { channelId, pin, duration } = req.body;
 
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+    if (!dataStore.checkinChannels.includes(channelId)) return res.status(400).json({ success: false, message: '❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (!addchannel ก่อน)' });
+
+    const localTime = getThaiTime(); 
+    const todayStr = getThaiDateStr(); 
+    const currentHour = localTime.getHours();
+    const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
+    const checkinKey = `${todayStr}-${shiftType}`;
+    // กำหนดเวลาที่ใช้เช็คชื่อ
+    const checkinDuration = parseInt(duration) || 10;
+
+    if (activeSessions.has(channelId)) return res.status(400).json({ success: false, message: '⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้ว' });
+    if (dataStore.lastCheckinDates[channelId] === checkinKey) return res.status(400).json({ success: false, message: '❌ ห้องนี้สรุปยอดของกะนี้ไปเรียบร้อยแล้ว' });
+
+    try {
+        const channel = await client.channels.fetch(channelId);
+        let sessionDept = "ALL";
+        const chName = channel.name.toUpperCase();
+        if (chName.includes('ODOL')) sessionDept = "ODOL";
+        else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
+
+        activeSessions.set(channelId, {
+            members: [],
+            startTime: localTime,
+            adminChannel: channel,
+            department: sessionDept, 
+            jsonError: null,
+            shiftType: shiftType,
+            duration: checkinDuration // 👈 เซฟระยะเวลาลงใน Session
+        });
+
+        dataStore.lastCheckinDates[channelId] = checkinKey;
+        saveData();
+
+        const startEmbed = new EmbedBuilder()
+            .setColor('#00FF00')
+            .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (สั่งจาก Web)`)
+            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง ${checkinDuration} นาทีเท่านั้น!**`)
+            .setTimestamp();
+
+        await channel.send({ embeds: [startEmbed] });
+        startSummaryTimer(channelId);
+
+        res.json({ success: true, message: `✅ สั่งเปิดระบบห้อง ${channel.name} เป็นเวลา ${checkinDuration} นาที สำเร็จ!` });
+    } catch (error) { res.status(500).json({ success: false, message: '❌ Error' }); }
+});
     // --- 5. API สำหรับดึงรายชื่อพนักงานมาแสดง ---
     app.get('/api/getstaff', (req, res) => {
         try {
@@ -664,7 +713,7 @@ client.on('messageCreate', async (message) => {
         }
     }
 
-    if (message.content === '!startcheckin') {
+    if (message.content.startsWith('!startcheckin')) {
         if (!dataStore.checkinChannels.includes(channelId)) {
             return message.reply('❌ ห้องนี้ยังไม่ได้เป็นห้องเช็คชื่อ (พิมพ์ `!addchannel`ในห้องนี้ก่อนค่ะ)');
         }
@@ -693,12 +742,17 @@ client.on('messageCreate', async (message) => {
             sessionDept = "AMOL";
         }
 
+        const args = message.content.split(' ');
+        const checkinDuration = parseInt(args[1]) || 10;
+
         activeSessions.set(channelId, {
             members: [],
             startTime: localTime,
             adminChannel: message.channel,
             department: sessionDept, 
-            jsonError: null
+            jsonError: null,
+            shiftType: shiftName,
+            duration: checkinDuration // 👈 เซฟลง session
         });
 
         dataStore.lastCheckinDates[channelId] = checkinKey;
@@ -707,7 +761,7 @@ client.on('messageCreate', async (message) => {
         const startEmbed = new EmbedBuilder()
             .setColor('#00FF00')
             .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? message.channel.name : sessionDept}`)
-            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง 10 นาทีเท่านั้น!**`)
+            .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง ${checkinDuration} นาทีเท่านั้น!**`)
             .setTimestamp();
 
         message.channel.send({ embeds: [startEmbed] });
@@ -935,7 +989,7 @@ function startSummaryTimer(channelId) {
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
             if (tChannel) tChannel.send(`🏁 **จบการสรุปผล แผนก: ${session.department} เรียบร้อยแล้วค่ะ**`);
         }
-    }, 600000); 
+    }, (session.duration || 10) * 60000);
 }
 
 // ====== วางทับส่วนนี้ไว้ด้านล่างสุดของไฟล์ index.js ======
@@ -993,13 +1047,16 @@ client.once('ready', () => {
                 else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
 
                 // เซฟข้อมูลกะลงใน Session เพื่อให้คำสั่ง !checkin ดึงไปใช้ต่อได้ถูกต้อง
+                const checkinDuration = currentSlot.duration ? parseInt(currentSlot.duration) : 10;
+
                 activeSessions.set(channelId, { 
                     members: [], 
                     startTime: localTime, 
                     adminChannel: channel, 
                     department: sessionDept, 
                     jsonError: null,
-                    shiftType: currentSlot.shift // ระบุว่าเป็น morning หรือ night
+                    shiftType: currentSlot.shift,
+                    duration: checkinDuration 
                 });
 
                 dataStore.lastCheckinDates[channelId] = checkinKey;
@@ -1008,7 +1065,7 @@ client.once('ready', () => {
                 const startEmbed = new EmbedBuilder()
                     .setColor('#00FF00')
                     .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (อัตโนมัติ)`)
-                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง 10 นาทีเท่านั้น!**`)
+                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **ระบบจะเปิดเพียง ${checkinDuration} นาทีเท่านั้น!**`)
                     .setTimestamp();
 
                 await channel.send({ embeds: [startEmbed] });
