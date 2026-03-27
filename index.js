@@ -336,7 +336,7 @@ function getLeavesToday(dateStr, department = 'ALL') {
 
 async function getLeavesFromSupabase(department = 'ALL') {
     const targetDate = getSupabaseDateStr();
-    let result = { morning: [], noon: [], night: [] }; // เพิ่ม noon
+    let result = { morning: [], noon: [], night: [] };
 
     if (!supabaseLeave) return result; 
 
@@ -355,13 +355,16 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 if (row.username) {
                     const leaveName = row.username.trim(); 
                     const action = row.action_type ? row.action_type.trim() : '';
-                    if (action.startsWith('จอง')) activeLeaves[leaveName] = true;
-                    else if (action === 'ยกเลิก') activeLeaves[leaveName] = false;
+                    if (action.startsWith('จอง')) {
+                        activeLeaves[leaveName] = action; // เก็บข้อความเต็มๆ เช่น "จอง [KL]"
+                    } else if (action === 'ยกเลิก') {
+                        delete activeLeaves[leaveName];
+                    }
                 }
             }
         }
 
-        const onLeaveUsers = Object.keys(activeLeaves).filter(username => activeLeaves[username]);
+        const onLeaveUsers = Object.keys(activeLeaves);
 
         let staffData = {};
         try { if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8')); } 
@@ -373,31 +376,22 @@ async function getLeavesFromSupabase(department = 'ALL') {
             const cleanLeaveName = leaveName.toUpperCase();
 
             for (const dept in staffData) {
-                // หาในกะเช้า
                 if (staffData[dept].morning) {
                     for (const id in staffData[dept].morning) {
                         const staffName = staffData[dept].morning[id].trim().toUpperCase();
-                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
-                            shiftFound = 'morning'; userDeptFound = dept; break;
-                        }
+                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) { shiftFound = 'morning'; userDeptFound = dept; break; }
                     }
                 }
-                // หาในกะเที่ยง
                 if (!shiftFound && staffData[dept].noon) {
                     for (const id in staffData[dept].noon) {
                         const staffName = staffData[dept].noon[id].trim().toUpperCase();
-                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
-                            shiftFound = 'noon'; userDeptFound = dept; break;
-                        }
+                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) { shiftFound = 'noon'; userDeptFound = dept; break; }
                     }
                 }
-                // หาในกะดึก
                 if (!shiftFound && staffData[dept].night) {
                     for (const id in staffData[dept].night) {
                         const staffName = staffData[dept].night[id].trim().toUpperCase();
-                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) {
-                            shiftFound = 'night'; userDeptFound = dept; break;
-                        }
+                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) { shiftFound = 'night'; userDeptFound = dept; break; }
                     }
                 }
                 if (shiftFound) break;
@@ -405,9 +399,17 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
             if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) return; 
 
-            if (shiftFound === 'morning') result.morning.push(leaveName);
-            else if (shiftFound === 'noon') result.noon.push(leaveName);
-            else if (shiftFound === 'night') result.night.push(leaveName);
+            // ตรวจสอบว่าเป็น ลากิจ [KL] หรือ วันหยุดธรรมดา
+            let leaveType = "วันหยุด";
+            const rawAction = activeLeaves[leaveName].toUpperCase();
+            if (rawAction.includes('[KL]')) leaveType = "ลากิจ";
+
+            // เก็บเป็น Object { ชื่อ, ประเภทการลา }
+            const leaveData = { name: leaveName, type: leaveType };
+
+            if (shiftFound === 'morning') result.morning.push(leaveData);
+            else if (shiftFound === 'noon') result.noon.push(leaveData);
+            else if (shiftFound === 'night') result.night.push(leaveData);
         });
 
         return result;
@@ -626,15 +628,15 @@ client.on('messageCreate', async (message) => {
         let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
-        if (leavesObj.morning.length > 0 || leavesObj.night.length > 0) {
-            if (leavesObj.morning.length > 0) {
-                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
-            }
-            if (leavesObj.night.length > 0) {
-                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((n, i) => `${i + 1}. ${n}`).join('\n') + `\n\n`;
-            }
-        } else {
-            msg += `⚠️ ไม่พบรายชื่อพนักงานหยุดของแผนกนี้ในวันนี้ค่ะ`;
+        if (leavesObj.morning.length > 0 || leavesObj.noon.length > 0 || leavesObj.night.length > 0) {
+        if (leavesObj.morning && leavesObj.morning.length > 0) {
+            msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+        }
+        if (leavesObj.noon && leavesObj.noon.length > 0) {
+            msg += `🕛 **กะเที่ยง (${leavesObj.noon.length} ท่าน):**\n` + leavesObj.noon.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+        }
+        if (leavesObj.night && leavesObj.night.length > 0) {
+            msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
         }
         return message.reply(msg);
     }
@@ -826,11 +828,19 @@ function startSummaryTimer(channelId) {
                     }
                 } else { summary += `- ไม่มี -\n`; }
 
-                summary += `\n😴 **รายชื่อที่หยุดงาน (${shiftIcon}):**\n`;
-                if (currentShiftLeaves.length > 0) {
-                    currentShiftLeaves.forEach((name, i) => summary += `   ${i + 1}. **${name}**\n`);
-                } else { 
-                    summary += `- ไม่มี -\n`; 
+                    // แยกหมวดหมู่
+                    const dayOffs = currentShiftLeaves.filter(l => l.type === "วันหยุด");
+                    const klLeaves = currentShiftLeaves.filter(l => l.type === "ลากิจ");
+
+                    summary += `\n😴 **รายชื่อวันหยุด (${shiftIcon}):**\n`;
+                    if (dayOffs.length > 0) {
+                        dayOffs.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
+                    } else { summary += `- ไม่มี -\n`; }
+
+                    summary += `\n📝 **รายชื่อลากิจ (${shiftIcon}):**\n`;
+                    if (klLeaves.length > 0) {
+                        klLeaves.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
+                    } else { summary += `- ไม่มี -\n`; }
                 }
 
                 let missingMembers = [];
@@ -848,8 +858,8 @@ function startSummaryTimer(channelId) {
                             const cleanName = staffName.trim().toUpperCase();
 
                             let isLeave = false;
-                            for (const lName of currentShiftLeaves) { 
-                                if (cleanName.includes(lName.toUpperCase())) {
+                            for (const lData of currentShiftLeaves) { 
+                                if (cleanName.includes(lData.name.toUpperCase())) { 
                                     isLeave = true;
                                     break;
                                 }
@@ -887,8 +897,8 @@ function startSummaryTimer(channelId) {
 
                             for (const [staffId, staffName] of Object.entries(expectedStaff)) {
                                 let isLeave = false;
-                                for (const lName of currentShiftLeaves) {
-                                    if (staffName.toUpperCase().includes(lName.toUpperCase())) {
+                                for (const lData of currentShiftLeaves) {
+                                    if (staffName.toUpperCase().includes(lData.name.toUpperCase())) { 
                                         isLeave = true;
                                         break;
                                     }
