@@ -1103,6 +1103,26 @@ client.once('ready', () => {
         }
     }, { scheduled: true, timezone: "Asia/Bangkok" });
 });
+// --- 7. API สำหรับตั้งเวลา Auto Checkin (อัปเดตรองรับระบบเลือกเวลา) ---
+app.post('/api/setautotime', (req, res) => {
+    const { pin, times } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
 
+    if (times) {
+        dataStore.autoCheckinTimes = times; 
+        saveData();
+        return res.json({ success: true, message: `✅ บันทึกตั้งค่าสำเร็จ! (อัปเดตระบบเวลาเรียบร้อย)` });
+    }
+    res.status(400).json({ success: false, message: '❌ ข้อมูลไม่ครบถ้วน' });
+});
+
+// --- 8. API สำหรับให้เว็บดึงการตั้งค่าปัจจุบันไปแสดง ---
+app.get('/api/getconfig', (req, res) => {
+    res.json({ 
+        success: true, 
+        autoCheckinEnabled: dataStore.autoCheckinEnabled, 
+        autoCheckinTimes: dataStore.autoCheckinTimes
+    });
+});
 app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
 client.login(TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
