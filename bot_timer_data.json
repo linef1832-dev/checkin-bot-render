@@ -9,7 +9,7 @@
     "1458195334063849657": "28/3/2569-Night-06:17",
     "1458807362826539150": "28/3/2569-Night-06:17"
   },
-  "autoCheckinEnabled": true,
+  "autoCheckinEnabled": false,
   "autoCheckinTimes": [
     {
       "time": "07:50",
