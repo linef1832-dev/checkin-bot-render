@@ -89,6 +89,9 @@
                 <button class="btn-red" onclick="toggleAuto('off')" style="flex: 1;">ปิดใช้งานชั่วคราว</button>
             </div>
             <div id="resAuto" class="response"></div>
+            <div id="botStatusDisplay" style="text-align: center; margin-top: 20px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 16px; background-color: #1e1e2f; border: 2px solid #333;">
+                ⏳ กำลังดึงสถานะบอท...
+            </div>
         </div>
 
         <div class="card">
@@ -206,7 +209,11 @@
         async function loadConfig() {
             try {
                 const res = await fetch('/api/getconfig'); const json = await res.json();
-                if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) { 
+
+                // 🟢 ให้มันอัปเดตป้ายไฟทันที! (ดึงสถานะสำเร็จปุ๊บ เปลี่ยนสีป้ายปั๊บ)
+                if (json.success) updateBotStatusUI(json.autoCheckinEnabled);
+
+                if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) {
                     timeSlots = json.autoCheckinTimes.map(slot => {
                         if (!slot.endTime) slot.endTime = slot.time; // กำหนดเวลาปิดรับเริ่มต้น
                         return slot;
@@ -225,7 +232,7 @@
                 const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
             } catch (e) { resDiv.innerText = "❌ Error"; resDiv.style.color = "#ED4245"; }
         }
-
+        
         /* --- โค้ดปุ่มควบคุมบอท --- */
         async function toggleAuto(status) {
             const pin = document.getElementById('adminPin').value; const resDiv = document.getElementById('resAuto');
@@ -233,7 +240,21 @@
             try {
                 const res = await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, pin }) });
                 const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
+                if (data.success) updateBotStatusUI(status === 'on'); // 👈 เพิ่มคำสั่งให้เปลี่ยนสีป้ายไฟตอนกดปุ่มสำเร็จ
             } catch (e) {}
+        }
+
+        // 🆕 ฟังก์ชันเปลี่ยนสีป้ายไฟสถานะ (วางคั่นตรงนี้ได้เลย)
+        function updateBotStatusUI(isOn) {
+            const statusDiv = document.getElementById('botStatusDisplay');
+            if (!statusDiv) return;
+            if (isOn) {
+                statusDiv.innerHTML = '✅ สถานะบอท: <span style="color: #4CAF50;">กำลังทำงาน (ออโต้ ON)</span>';
+                statusDiv.style.borderColor = '#4CAF50';
+            } else {
+                statusDiv.innerHTML = '🛑 สถานะบอท: <span style="color: #F44336;">หยุดชั่วคราว (ออโต้ OFF)</span>';
+                statusDiv.style.borderColor = '#F44336';
+            }
         }
 
         async function startCheckin() {
