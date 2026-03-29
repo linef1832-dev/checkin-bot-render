@@ -1332,6 +1332,32 @@ app.get('/api/getconfig', (req, res) => {
         autoCheckinEnabled: dataStore.autoCheckinEnabled, 
         autoCheckinTimes: dataStore.autoCheckinTimes
     });
+    // ==========================================
+    // 🧹 ระบบแม่บ้าน: เคลียร์ขยะ (ข้อมูลขยับเมาส์) ที่เก่าเกิน 7 วัน
+    // ==========================================
+    setInterval(async () => {
+        try {
+            console.log('🧹 [ระบบแม่บ้าน] เริ่มตรวจสอบและกวาดขยะในฐานข้อมูล...');
+
+            // คำนวณหาวันที่ย้อนหลังไป 7 วัน
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+            // สั่งลบข้อมูลเฉพาะในตาราง line_activity ที่เก่ากว่า 7 วัน
+            const { error } = await supabase
+                .from('line_activity')
+                .delete()
+                .lt('last_active', sevenDaysAgo.toISOString());
+
+            if (error) {
+                console.error("❌ [ระบบแม่บ้าน] กวาดขยะพลาด:", error);
+            } else {
+                console.log('✅ [ระบบแม่บ้าน] เคลียร์ข้อมูลขยับเมาส์ที่เก่ากว่า 7 วันเรียบร้อยแล้ว! คืนพื้นที่ให้เซิร์ฟเวอร์แล้วครับ');
+            }
+        } catch (e) {
+            console.error("❌ [ระบบแม่บ้าน] ระบบขัดข้อง:", e);
+        }
+    }, 24 * 60 * 60 * 1000); // ⏰ ตั้งเวลาให้ตื่นมาทำความสะอาด วันละ 1 ครั้ง (24 ชั่วโมง)
 });
 app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
 client.login(TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });

@@ -267,86 +267,91 @@
 
         function setFilter(status) {
             currentStatusFilter = status;
-
-            // เปลี่ยนสีปุ่มให้รู้ว่ากำลังกดอันไหนอยู่
             const btns = ['ALL', 'ONLINE', 'AFK', 'OFFLINE'];
             const colors = { 'ALL': '#5865F2', 'ONLINE': '#43b581', 'AFK': '#ED4245', 'OFFLINE': '#888' };
 
             btns.forEach(b => {
                 const el = document.getElementById('f_' + b);
-                if (b === status) {
-                    el.style.background = colors[b];
-                    el.style.color = 'white';
-                } else {
-                    el.style.background = '#2a2a40';
-                    el.style.color = '#aaa';
+                if (el) {
+                    if (b === status) {
+                        el.style.background = colors[b];
+                        el.style.color = 'white';
+                    } else {
+                        el.style.background = '#2a2a40';
+                        el.style.color = '#aaa';
+                    }
                 }
             });
-
-            renderTrackerTable(); // สั่งคัดกรองตารางใหม่ทันที
+            renderTrackerTable(); 
         }
 
-        // 🟢 2. สร้างตารางแสดงผล (อัปเกรดระบบปุ่มกรอง)
+        // 🟢 สร้างตารางแสดงผล (เวอร์ชันสมบูรณ์: ปุ่มกรอง + สีเหลือง Telegram + ตัดกะออโต้)
         function renderTrackerTable() {
             const tBody = document.getElementById('trackerTableBody');
-            const search = document.getElementById('searchTracker').value.toUpperCase();
+            const searchEl = document.getElementById('searchTracker');
+            const search = searchEl ? searchEl.value.toUpperCase() : '';
+
+            if (!tBody) return;
             tBody.innerHTML = '';
+
+            if (!currentTrackerData) return;
 
             const keys = Object.keys(currentTrackerData).filter(name => name.includes(search));
             if(keys.length === 0) {
-                tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa;">📭 ไม่พบรายชื่อพนักงาน</td></tr>';
+                tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่พบรายชื่อพนักงาน</td></tr>';
                 return;
             }
 
             const now = new Date();
             const currentMins = now.getHours() * 60 + now.getMinutes(); 
 
-            let displayCount = 0; // ตัวนับว่ามีคนโชว์บนจอไหม
+            let displayCount = 0; 
 
             keys.sort((a, b) => currentTrackerData[b].diffNow - currentTrackerData[a].diffNow).forEach(name => {
                 const d = currentTrackerData[name];
-                const staffShift = getStaffShift(name); 
+                const staffShift = typeof getStaffShift === 'function' ? getStaffShift(name) : 'unknown'; 
 
+                // ประกาศตัวแปรสถานะครบถ้วน (กัน Error)
                 let isOffDuty = false;
                 let offDutyReason = ""; 
+                let isPaused = false;
+                let pauseReason = "";
 
-                // --- 🛑 กฎข้อที่ 1: เช็คจากหมายเหตุ (แอดมินกดให้) ---
-                const hasOffDutyRemark = d.gaps.some(g => g.remark && (g.remark.includes('เลิกงาน') || g.remark.includes('หมดกะ')));
-                if (hasOffDutyRemark) {
-                    isOffDuty = true;
-                    offDutyReason = "แอดมินกดให้";
+                // --- 🛑 กฎข้อที่ 1: เช็คจากหมายเหตุ (แอดมินกดให้ หรือ Telegram) ---
+                const lastGap = d.gaps.length > 0 ? d.gaps[d.gaps.length - 1] : null;
+
+                if (lastGap && lastGap.remark) {
+                    if (lastGap.remark.includes('เลิกงาน') || lastGap.remark.includes('หมดกะ')) {
+                        isOffDuty = true;
+                        offDutyReason = "แอดมินกดให้";
+                    } 
+                    else if (lastGap.remark.includes('[พัก]')) {
+                        isPaused = true;
+                        pauseReason = lastGap.remark.replace('[พัก]', '').trim(); 
+                    }
                 }
 
                 // --- 🤖 กฎข้อที่ 2: ระบบตัดเลิกงานตามเวลาเป๊ะๆ (08:05 / 20:05) ---
-                if (!isOffDuty && staffShift !== 'unknown') {
+                if (!isOffDuty && !isPaused && staffShift !== 'unknown') {
                     if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
-                        isOffDuty = true; 
-                        offDutyReason = "หมดเวลากะเช้า";
+                        isOffDuty = true; offDutyReason = "หมดเวลากะเช้า";
                     }
                     else if (staffShift === 'night' && (currentMins >= 485 && currentMins < 1205)) {
-                        isOffDuty = true; 
-                        offDutyReason = "หมดเวลากะดึก";
+                        isOffDuty = true; offDutyReason = "หมดเวลากะดึก";
                     }
                 }
 
                 // --- 👻 กฎข้อที่ 3: หายไปนานเกิน 60 นาที ---
-                if (!isOffDuty && d.diffNow >= 60) {
-                    isOffDuty = true;
-                    offDutyReason = "หายไป 1 ชม.";
+                if (!isOffDuty && !isPaused && d.diffNow >= 60) {
+                    isOffDuty = true; offDutyReason = "หายไป 1 ชม.";
                 }
 
-                // 🎯 จัดหมวดหมู่สถานะของพนักงานคนนี้
+                // 🎯 จัดหมวดหมู่สถานะสำหรับปุ่มกรอง
                 let currentCategory = 'ONLINE';
-                if (isOffDuty) {
-                    currentCategory = 'OFFLINE';
-                } else if (d.diffNow >= 15) {
-                    currentCategory = 'AFK';
-                }
+                if (isOffDuty) { currentCategory = 'OFFLINE'; } 
+                else if (d.diffNow >= 15 && !isPaused) { currentCategory = 'AFK'; } 
 
-                // 🎛️ ฟิลเตอร์! ถ้าไม่ตรงกับปุ่มที่แอดมินกดไว้ ให้ "ข้าม (ซ่อน)" พนักงานคนนี้ไปเลย
-                if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) {
-                    return; 
-                }
+                if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) return; 
 
                 displayCount++; // นับว่ามีคนผ่านการกรอง
 
@@ -358,6 +363,10 @@
                     statusHtml = `<span style="color: #888;">⚪ ออฟไลน์ <br><span style="font-size:10px;">(${offDutyReason})</span></span>`;
                     rowStyle = `opacity: 0.4; background-color: #1e1e2f;`; 
                 } 
+                else if (isPaused) {
+                    statusHtml = `<span style="color: #f39c12; font-weight:bold;">🟡 พักเบรก <br><span style="font-size:10px; color:#f1c40f;">(${pauseReason})</span></span>`;
+                    rowStyle = `background-color: #3b3315; border-left: 4px solid #f39c12;`; 
+                }
                 else if (d.diffNow >= 15) {
                     statusHtml = `<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>`;
                 } 
@@ -370,12 +379,12 @@
                 tBody.innerHTML += `<tr style="${rowStyle}">
                     <td style="font-weight: bold;">${name}</td>
                     <td>${statusHtml}<br><span style="font-size:11px;color:#aaa;">ล่าสุด: ${d.lastActive.toLocaleTimeString('th-TH')}</span></td>
-                    <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 && !isOffDuty ? '#ED4245' : '#888'};">${afkCount}</td>
+                    <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 && !isOffDuty && !isPaused ? '#ED4245' : '#888'};">${afkCount}</td>
                     <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
                 </tr>`;
             });
 
-            // ถ้ากดกรองแล้วไม่เหลือพนักงานให้โชว์เลย
+            // ถ้ากรองแล้วไม่เจอใครเลย
             if (displayCount === 0) {
                  tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่มีพนักงานในสถานะนี้ครับ</td></tr>';
             }
