@@ -349,7 +349,7 @@
                 // 🎯 จัดหมวดหมู่สถานะสำหรับปุ่มกรอง
                 let currentCategory = 'ONLINE';
                 if (isOffDuty) { currentCategory = 'OFFLINE'; } 
-                else if (d.diffNow >= 15 && !isPaused) { currentCategory = 'AFK'; } 
+                else if (d.diffNow >= 10 && !isPaused) { currentCategory = 'AFK'; } 
 
                 if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) return; 
 
@@ -367,7 +367,7 @@
                     statusHtml = `<span style="color: #f39c12; font-weight:bold;">🟡 พักเบรก <br><span style="font-size:10px; color:#f1c40f;">(${pauseReason})</span></span>`;
                     rowStyle = `background-color: #3b3315; border-left: 4px solid #f39c12;`; 
                 }
-                else if (d.diffNow >= 15) {
+                else if (d.diffNow >= 10) {
                     statusHtml = `<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>`;
                 } 
                 else {
