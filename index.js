@@ -126,6 +126,40 @@ app.post('/api/startcheckin', async (req, res) => {
         });
     });
 
+// --- 9. API รับข้อมูลจับคนอู้จาก Chrome Extension (LINE OA Tracker) ---
+app.post('/api/ping-active', async (req, res) => {
+    const { sessionProfile } = req.body; 
+
+    if (!sessionProfile) {
+        return res.status(400).json({ success: false, message: 'ไม่พบชื่อพนักงาน' });
+    }
+
+    try {
+        const localTime = getThaiTime().toISOString();
+
+        const { error } = await supabase
+            .from('line_activity')
+            .insert([
+                { 
+                    staff_name: sessionProfile, 
+                    status: 'Online', 
+                    last_active: localTime 
+                }
+            ]);
+
+        if (error) {
+            console.error("❌ บันทึก Supabase พลาด:", error);
+            return res.status(500).json({ success: false });
+        }
+
+        console.log(`📡 [Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน!`);
+        res.json({ success: true });
+
+    } catch (err) {
+        console.error("❌ Tracker API Error:", err);
+        res.status(500).json({ success: false });
+    }
+});
 // --- 6. API สำหรับ เพิ่ม/ลบ/แก้ไขพนักงาน ---
 app.post('/api/updatestaff', async (req, res) => {
     // เพิ่ม newName มาจาก body ด้วย
@@ -796,9 +830,15 @@ client.on('messageCreate', async (message) => {
         const todayStr = getThaiDateStr(); 
         const currentHour = localTime.getHours();
 
-        // 👈 แก้ไขเงื่อนไขกะ: (06:00 ถึง 17:59 คือกะเช้า เพื่อให้เช็คตอน 07:50 ได้อย่างถูกต้อง)
-        const shiftType = (currentHour >= 6 && currentHour < 18) ? "Morning" : "Night";
-        const checkinKey = `${todayStr}-${shiftType}`;
+        // 👈 แยกช่วงเวลาให้ชัดเจน (เช้า, เที่ยง, ดึก)
+        let shiftType = "Night";
+        if (currentHour >= 6 && currentHour < 11) {
+            shiftType = "Morning"; // 06:00 - 10:59 กะเช้า
+        } else if (currentHour >= 11 && currentHour <= 13) {
+            shiftType = "Noon";    // 11:00 - 13:59 กะเที่ยง
+        } else if (currentHour > 13 && currentHour < 18) {
+            shiftType = "Afternoon"; // 14:00 - 17:59 กะบ่าย (กันเหนียว)
+        }
 
         if (activeSessions.has(channelId)) {
             return message.reply('⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้วค่ะ');
@@ -921,13 +961,23 @@ function startSummaryTimer(channelId) {
             const dateTh = getThaiDateStr(); 
             const checkedIds = new Set(session.members.map(m => m.id));
 
-            // 👈 แก้ไขเงื่อนไขกะตอนสรุปผล (หลัง 10 นาที)
-            const isMorningShift = (session.shiftType === 'morning');
-            const shiftIcon = isMorningShift ? "☀️ กะเช้า" : "🌙 กะดึก";
+            // 👈 แก้ไขเงื่อนไขกะตอนสรุปผลให้รองรับตัวพิมพ์เล็ก-ใหญ่ และกะเที่ยง
+            const shiftTypeLower = session.shiftType ? session.shiftType.toLowerCase() : '';
+            const leavesObj = await getLeavesFromSupabase(session.department);
 
-            const leavesObj = await getLeavesFromSupabase(session.department); 
+            let shiftIcon = "☀️ กะเช้า";
+            let currentShiftLeaves = leavesObj.morning || [];
 
-            const currentShiftLeaves = isMorningShift ? leavesObj.morning : leavesObj.night;
+            // ตรวจสอบว่าเป็นกะดึกหรือไม่
+            if (shiftTypeLower.includes('night') || shiftTypeLower.includes('ดึก')) {
+                shiftIcon = "🌙 กะดึก";
+                currentShiftLeaves = leavesObj.night || [];
+            } 
+            // ตรวจสอบว่าเป็นกะเที่ยง/บ่ายหรือไม่
+            else if (shiftTypeLower.includes('noon') || shiftTypeLower.includes('afternoon') || shiftTypeLower.includes('เที่ยง') || shiftTypeLower.includes('บ่าย')) {
+                shiftIcon = "🕛 กะเที่ยง";
+                currentShiftLeaves = leavesObj.noon || [];
+            }
 
             const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
@@ -1112,7 +1162,12 @@ client.once('ready', () => {
         for (let i = 0; i < scheduleTimes.length; i++) {
             if (typeof scheduleTimes[i] === 'string') {
                 if (scheduleTimes[i] === currentTimeStr) {
-                    currentSlot = { time: currentTimeStr, shift: (currentHour >= 6 && currentHour < 18) ? "morning" : "night" };
+                    let autoShift = "night";
+                    if (currentHour >= 6 && currentHour < 11) autoShift = "morning";
+                    else if (currentHour >= 11 && currentHour <= 13) autoShift = "noon";
+                    else if (currentHour > 13 && currentHour < 18) autoShift = "afternoon";
+
+                    currentSlot = { time: currentTimeStr, shift: autoShift };
                     break;
                 }
             } else if (scheduleTimes[i].time === currentTimeStr) {
@@ -1127,8 +1182,18 @@ client.once('ready', () => {
 
         const todayStr = getThaiDateStr();
         // เอาค่ากะที่ตั้งในเว็บไปใช้เช็คชื่อเลย (ไม่ต้องใช้เวลามาคำนวณแล้ว)
-        const shiftType = currentSlot.shift === 'morning' ? "Morning" : "Night";
-        const shiftLabel = currentSlot.shift === 'morning' ? "☀️ กะเช้า" : "🌙 กะดึก";
+        // ดึงค่ากะจากที่ตั้งค่ามาใช้ได้เลยตรงๆ (รองรับ noon)
+        const shiftTypeLower = currentSlot.shift ? currentSlot.shift.toLowerCase() : 'morning';
+        let shiftType = shiftTypeLower === 'morning' ? "Morning" : "Night";
+        let shiftLabel = "☀️ กะเช้า";
+
+        if (shiftTypeLower === 'night' || shiftTypeLower === 'ดึก') {
+            shiftType = "Night";
+            shiftLabel = "🌙 กะดึก";
+        } else if (shiftTypeLower === 'noon' || shiftTypeLower === 'afternoon' || shiftTypeLower === 'เที่ยง') {
+            shiftType = "Noon";
+            shiftLabel = "🕛 กะเที่ยง";
+        }
         const checkinKey = `${todayStr}-${shiftType}-${currentTimeStr}`;
 
         for (const channelId of dataStore.checkinChannels) {
