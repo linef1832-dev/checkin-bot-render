@@ -186,6 +186,47 @@ app.get('/api/get-tracker', async (req, res) => {
     }
 });
 
+// --- 11. API ดูประวัติการอู้และดึงหมายเหตุ ---
+app.post('/api/tracker-history', async (req, res) => {
+    const { date } = req.body;
+    try {
+        const startOfDay = new Date(`${date}T00:00:00+07:00`).toISOString();
+        const endOfDay = new Date(`${date}T23:59:59+07:00`).toISOString();
+
+        const { data: pings } = await supabase
+            .from('line_activity')
+            .select('*')
+            .gte('last_active', startOfDay)
+            .lte('last_active', endOfDay)
+            .order('last_active', { ascending: true });
+
+        const { data: remarks } = await supabase
+            .from('tracker_remarks')
+            .select('*')
+            .eq('afk_date', date);
+
+        res.json({ success: true, pings: pings || [], remarks: remarks || [] });
+    } catch (err) {
+        res.status(500).json({ success: false });
+    }
+});
+
+// --- 12. API บันทึกหมายเหตุการอู้ ---
+app.post('/api/save-remark', async (req, res) => {
+    const { staff_name, afk_date, start_time, end_time, remark, pin } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+
+    try {
+        await supabase.from('tracker_remarks').delete().match({ staff_name, start_time });
+        if (remark && remark.trim() !== '') {
+            await supabase.from('tracker_remarks').insert([{ staff_name, afk_date, start_time, end_time, remark }]);
+        }
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false });
+    }
+});
+
 // --- 6. API สำหรับ เพิ่ม/ลบ/แก้ไขพนักงาน ---
 app.post('/api/updatestaff', async (req, res) => {
     // เพิ่ม newName มาจาก body ด้วย

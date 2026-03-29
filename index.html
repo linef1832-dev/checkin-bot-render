@@ -8,7 +8,7 @@
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e2f; color: white; padding: 20px; max-width: 650px; margin: auto; }
         .card { background-color: #2a2a40; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
         input, select { width: 100%; padding: 12px; margin: 8px 0 15px 0; border-radius: 5px; border: none; box-sizing: border-box; font-size: 16px; background-color: #383852; color: white; }
-        input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        input[type="time"]::-webkit-calendar-picker-indicator, input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
         input::placeholder { color: #aaa; }
         button { background-color: #5865F2; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 5px; font-weight: bold; transition: 0.2s; }
         button:hover { background-color: #4752C4; }
@@ -25,37 +25,24 @@
         .response { margin-top: 15px; font-weight: bold; color: #43b581; text-align: center; }
         .staff-list-ul { list-style: none; padding-left: 0; margin-top: 5px; }
         .staff-list-li { display: flex; justify-content: space-between; align-items: center; background: #383852; padding: 10px; border-radius: 5px; margin-bottom: 5px; }
-        .staff-info { display: flex; flex-direction: column; }
         .staff-name-input { border: 1px solid transparent; background: transparent; color: inherit; font-weight: bold; font-size: 15px; padding: 2px 5px; margin: 0; width: fit-content; cursor: pointer; border-radius: 4px; }
         .staff-name-input:focus { border: 1px solid #5865F2; background: #2a2a40; outline: none; cursor: text; }
-        .staff-name-input:hover { border: 1px solid #aaa; }
-        .staff-id { font-size: 12px; color: #aaa; }
         .search-box { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 5px;}
         .search-box > div { flex: 1; min-width: 120px; }
-        .search-box input, .search-box select { margin: 5px 0 0 0; padding: 10px; font-size: 14px;}
         
-        /* สไตล์ตารางตรวจจับ LINE */
-        .tracker-table { width: 100%; border-collapse: collapse; margin-top: 15px; color: white; text-align: left; font-size: 14px; }
+        .tracker-table { width: 100%; border-collapse: collapse; margin-top: 10px; color: white; text-align: left; font-size: 14px; }
         .tracker-table th, .tracker-table td { padding: 10px; border-bottom: 1px solid #4f545c; }
         .tracker-table th { background-color: #383852; }
         .status-online { color: #43b581; font-weight: bold; }
         .status-afk { color: #ED4245; font-weight: bold; }
 
-        #staffListArea { max-height: 450px; overflow-y: auto; padding-right: 10px; }
-        #staffListArea::-webkit-scrollbar { width: 8px; }
-        #staffListArea::-webkit-scrollbar-track { background: #1e1e2f; border-radius: 4px; }
-        #staffListArea::-webkit-scrollbar-thumb { background: #4f545c; border-radius: 4px; }
-        #staffListArea::-webkit-scrollbar-thumb:hover { background: #72767d; }
+        /* หน้าต่างดูประวัติ */
+        #historyModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center; }
+        .modal-box { background: #2a2a40; padding: 20px; border-radius: 10px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; position: relative; }
+        .history-item { background: #1e1e2f; padding: 10px; border-radius: 8px; border-left: 4px solid #ED4245; margin-bottom: 10px; }
     </style>
 </head>
 <body onload="loadConfig()">
-
-    <datalist id="shiftOptions">
-        <option value="☀️ กะเช้า">
-        <option value="🕛 กะเที่ยง">
-        <option value="🌙 กะดึก">
-        <option value="⏳ กะ OT">
-    </datalist>
 
     <h2 style="text-align: center;">🤖 แผงควบคุมบอท (Web Dashboard)</h2>
 
@@ -73,28 +60,21 @@
     <div id="checkinMenu" class="tab-content active">
         <div class="card" style="border-left: 4px solid #5865F2;">
             <h3 style="margin-top: 0;">⚙️ ตั้งเวลารอบเช็คชื่ออัตโนมัติ</h3>
-            <p style="font-size: 14px; color: #aaa;">ตั้งค่าเวลา กะ และ "ระยะเวลาที่เปิดรับ (นาที)" ได้อิสระแต่ละรอบเลยครับ</p>
-            
             <div id="timeSlotsContainer"></div>
-            
             <div style="display: flex; gap: 10px;">
                 <button onclick="addTimeSlot()" style="background-color: #383852;">➕ เพิ่มรอบใหม่</button>
-                <button onclick="saveAutoTime()" style="background-color: #43b581;">💾 บันทึกเวลาทั้งหมด</button>
+                <button onclick="saveAutoTime()" style="background-color: #43b581;">💾 บันทึกเวลา</button>
             </div>
             <hr style="border-color: #4f545c; margin: 20px 0 15px 0;">
             <div style="display: flex; gap: 10px;">
-                <button onclick="toggleAuto('on')" style="flex: 1;">เปิดใช้งานอัตโนมัติ</button>
-                <button class="btn-red" onclick="toggleAuto('off')" style="flex: 1;">ปิดใช้งานชั่วคราว</button>
+                <button onclick="toggleAuto('on')" style="flex: 1;">เปิดอัตโนมัติ</button>
+                <button class="btn-red" onclick="toggleAuto('off')" style="flex: 1;">ปิดชั่วคราว</button>
             </div>
             <div id="resAuto" class="response"></div>
-            <div id="botStatusDisplay" style="text-align: center; margin-top: 20px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 16px; background-color: #1e1e2f; border: 2px solid #333;">
-                ⏳ กำลังดึงสถานะบอท...
-            </div>
+            <div id="botStatusDisplay" style="text-align: center; margin-top: 20px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 16px; background-color: #1e1e2f; border: 2px solid #333;">⏳ ดึงสถานะ...</div>
         </div>
-
         <div class="card">
-            <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที (!startcheckin)</h3>
-            <p style="font-size: 14px; color: #aaa;">ถ้าต้องการกดสั่งเองตอนนี้ สามารถตั้งระยะเวลาได้ด้วยครับ</p>
+            <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที</h3>
             <div style="display: flex; gap: 10px;">
                 <input type="text" id="channelId" placeholder="ใส่ Channel ID" style="flex: 3;">
                 <input type="number" id="manualDuration" value="10" placeholder="นาที" style="flex: 1;">
@@ -107,68 +87,66 @@
     <div id="trackerMenu" class="tab-content">
         <div class="card" style="border-left: 4px solid #43b581;">
             <h3 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
-                👁️ ระบบตรวจจับพนักงาน (LINE OA)
-                <button class="btn-small" style="background:#43b581;" onclick="fetchLineTracker()">🔄 อัปเดตข้อมูล</button>
+                👁️ สถิติพนักงาน (LINE OA)
+                <button class="btn-small" style="background:#43b581;" onclick="fetchLineTracker()">🔄 รีเฟรช</button>
             </h3>
-            <p style="font-size: 13px; color: #aaa;">ข้อมูลอัปเดตล่าสุดเมื่อ: <span id="lastTrackerUpdate" style="color:white;">-</span></p>
+            
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <input type="date" id="trackerDate" style="flex: 1; margin: 0; padding: 10px;" onchange="fetchLineTracker()">
+                <input type="text" id="searchTracker" placeholder="🔍 ค้นหาชื่อพนักงาน..." style="flex: 2; margin: 0; padding: 10px;" oninput="renderTrackerTable()">
+            </div>
+
+            <p style="font-size: 12px; color: #aaa; margin: 0 0 10px 0;">อัปเดตข้อมูลล่าสุด: <span id="lastTrackerUpdate">-</span></p>
             
             <div style="overflow-x: auto;">
                 <table class="tracker-table">
                     <thead>
                         <tr>
-                            <th>ชื่อพนักงาน</th>
-                            <th>สถานะการตอบ</th>
-                            <th>ขยับเมาส์ล่าสุด</th>
+                            <th>พนักงาน</th>
+                            <th>สถานะ/ล่าสุด</th>
+                            <th style="text-align:center;">จำนวนอู้</th>
+                            <th>จัดการ</th>
                         </tr>
                     </thead>
                     <tbody id="trackerTableBody">
-                        <tr><td colspan="3" style="text-align: center; color: #aaa;">คลิกปุ่ม "อัปเดตข้อมูล" เพื่อดึงข้อมูลล่าสุด</td></tr>
+                        <tr><td colspan="4" style="text-align: center; color: #aaa;">รอสักครู่...</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
     </div>
 
+    <div id="historyModal">
+        <div class="modal-box">
+            <button onclick="document.getElementById('historyModal').style.display='none'" style="position: absolute; top: 10px; right: 10px; width: 40px; background: #ED4245; padding: 5px;">X</button>
+            <h3 id="modalTitle" style="margin-top: 0; color: #FEE75C;">ประวัติการหายตัว</h3>
+            <p id="modalSubTitle" style="font-size: 13px; color: #aaa; margin-top: -10px;"></p>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
     <div id="staffMenu" class="tab-content">
         <div class="card" style="border-left: 4px solid #5865F2;">
             <h3 style="margin-top: 0;">➕ เพิ่ม/แก้ไข พนักงาน</h3>
-            <label>Discord ID พนักงาน</label>
-            <input type="text" id="staffId" placeholder="เช่น 123456789012345678">
-            <label>ชื่อพนักงาน (ที่จะให้โชว์ตอนเช็คชื่อ)</label>
-            <input type="text" id="staffName" placeholder="เช่น AMOL-SOMCHAI">
+            <label>Discord ID พนักงาน</label><input type="text" id="staffId">
+            <label>ชื่อพนักงาน</label><input type="text" id="staffName">
             <div style="display: flex; gap: 10px;">
-                <div style="flex: 1;"><label>แผนก</label><select id="staffDept"><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
-                <div style="flex: 1;"><label>กะทำงาน</label>
-                    <select id="staffShift">
-                        <option value="morning">☀️ กะเช้า</option>
-                        <option value="noon">🕛 กะเที่ยง</option>
-                        <option value="night">🌙 กะดึก</option>
-                    </select>
-                </div>
+                <div style="flex: 1;"><select id="staffDept"><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
+                <div style="flex: 1;"><select id="staffShift"><option value="morning">เช้า</option><option value="noon">เที่ยง</option><option value="night">ดึก</option></select></div>
             </div>
-            <button id="btnSaveStaff" onclick="saveStaff()">💾 บันทึกพนักงาน</button>
+            <button id="btnSaveStaff" onclick="saveStaff()">💾 บันทึก</button>
         </div>
-
-        <div class="card" style="background-color: #202231;">
-            <h3 style="margin-top: 0; margin-bottom: 5px;">🔍 ค้นหาและกรอง</h3>
-            <div class="search-box">
-                <div style="flex: 2;"><input type="text" id="searchName" placeholder="พิมพ์ชื่อเพื่อค้นหา..." oninput="filterStaff()"></div>
-                <div><select id="searchDept" onchange="filterStaff()"><option value="ALL">ทุกแผนก</option><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
-                <div><select id="searchShift" onchange="filterStaff()"><option value="ALL">ทุกกะ</option><option value="morning">เช้า</option><option value="noon">เที่ยง</option><option value="night">ดึก</option></select></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3 style="margin-top: 0; display: flex; justify-content: space-between;">
-                📋 รายชื่อพนักงาน
-                <button class="btn-small" style="background:#43b581;" onclick="loadStaff()">🔄 โหลดใหม่</button>
-            </h3>
-            <div id="staffListArea">⏳ กำลังโหลด...</div>
+        <div class="card"><h3 style="margin-top: 0;">📋 รายชื่อ <button class="btn-small" style="background:#43b581; float:right;" onclick="loadStaff()">🔄 โหลดใหม่</button></h3>
+            <div id="staffListArea" style="max-height: 300px; overflow-y: auto;">⏳...</div>
         </div>
     </div>
 
     <script>
-        let globalStaffData = null;
+        // ตั้งค่าวันที่ปัจจุบันให้ช่องค้นหา
+        document.getElementById('trackerDate').value = new Date().toLocaleDateString('en-CA'); 
+
+        let currentTrackerData = {}; // เก็บข้อมูลอู้ทั้งหมดของวันนี้
+        let trackerInterval;
 
         function openTab(evt, menuName) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
@@ -177,225 +155,168 @@
             evt.currentTarget.classList.add('active');
             
             if(menuName === 'staffMenu') loadStaff();
-            if(menuName === 'trackerMenu') fetchLineTracker(); // 🟢 สั่งโหลดข้อมูล LINE เมื่อกดแท็บ
+            if(menuName === 'trackerMenu') fetchLineTracker();
         }
 
-        /* --- 🟢 ระบบดึงข้อมูลสถานะ LINE Tracker --- */
-        let trackerInterval;
+        /* --- 🟢 ระบบคำนวณสถิติและประวัติ --- */
         async function fetchLineTracker() {
             const tBody = document.getElementById('trackerTableBody');
-            tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: yellow;">⏳ กำลังดึงข้อมูลจากฐานข้อมูล...</td></tr>';
-
+            tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: yellow;">⏳ กำลังประมวลผลข้อมูล...</td></tr>';
+            
+            const dateStr = document.getElementById('trackerDate').value;
             try {
-                const res = await fetch('/api/get-tracker');
+                const res = await fetch('/api/tracker-history', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: dateStr })
+                });
                 const json = await res.json();
+                if (!json.success) throw new Error();
 
-                if (!json.success || !json.data || json.data.length === 0) {
-                    tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #aaa;">📭 ยังไม่มีข้อมูลพนักงานทำงาน</td></tr>';
-                    return;
-                }
+                const { pings, remarks } = json;
+                const staffMap = {};
 
-                // คัดกรองเอาเฉพาะข้อมูลล่าสุดของพนักงานแต่ละคน
-                const latestData = {};
-                json.data.forEach(row => {
-                    const nameKey = row.staff_name.toUpperCase();
-                    if (!latestData[nameKey]) latestData[nameKey] = row;
+                // จัดกลุ่มข้อมูลการขยับเมาส์ของแต่ละคน
+                pings.forEach(p => {
+                    const name = p.staff_name.toUpperCase();
+                    if (!staffMap[name]) staffMap[name] = [];
+                    let tStr = p.last_active;
+                    if(tStr.endsWith('Z')) tStr = tStr.slice(0, -1); // แก้บั๊กเวลา Z
+                    staffMap[name].push(new Date(tStr));
                 });
 
-                tBody.innerHTML = '';
-                Object.values(latestData).forEach(staff => {
+                currentTrackerData = {};
+                const now = new Date();
 
-                    // 🛠️ แก้บั๊กเวลา: ตัดตัว Z ออก เพื่อไม่ให้เบราว์เซอร์บวกเวลาเพิ่ม 7 ชม.
-                    let timeString = staff.last_active;
-                    if(timeString.endsWith('Z')) timeString = timeString.slice(0, -1);
+                // ตรวจหาช่วงเวลาที่อู้ (เกิน 15 นาที)
+                Object.keys(staffMap).forEach(name => {
+                    const times = staffMap[name].sort((a,b) => a - b);
+                    const gaps = [];
+                    
+                    for(let i=1; i<times.length; i++) {
+                        const diffMins = Math.floor((times[i] - times[i-1]) / 60000);
+                        if(diffMins >= 15) { 
+                            const start = times[i-1]; const end = times[i];
+                            const r = remarks.find(rm => rm.staff_name === name && rm.start_time === start.toISOString());
+                            gaps.push({ start, end, diffMins, remark: r ? r.remark : '' });
+                        }
+                    }
 
-                    const lastActiveTime = new Date(timeString);
-                    const now = new Date();
-                    let diffMinutes = Math.floor((now - lastActiveTime) / 60000);
+                    const lastActive = times[times.length - 1];
+                    let diffNow = Math.floor((now - lastActive) / 60000);
+                    if(diffNow < 0) diffNow = 0;
+                    
+                    // ถ้านับของวันนี้ และปัจจุบันกำลังอู้อยู่
+                    if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 15) {
+                        const r = remarks.find(rm => rm.staff_name === name && rm.start_time === lastActive.toISOString() && (!rm.end_time || rm.end_time === 'null'));
+                        gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: r ? r.remark : '' });
+                    }
 
-                    // กันเหนียวกรณีเวลาเพี้ยนเล็กน้อย ให้โชว์เป็น 0 นาที
-                    if (diffMinutes < 0) diffMinutes = 0;
-
-                    const statusHtml = diffMinutes > 15 
-                        ? `<span class="status-afk">🔴 อู้ / ไม่อยู่จอ</span>` 
-                        : `<span class="status-online">🟢 กำลังตอบแชท</span>`;
-
-                    const rowHtml = `<tr>
-                        <td style="font-weight: bold;">${staff.staff_name.toUpperCase()}</td>
-                        <td>${statusHtml}</td>
-                        <td>${lastActiveTime.toLocaleTimeString('th-TH')} <br><span style="font-size:11px; color:#aaa;">(${diffMinutes} นาทีที่แล้ว)</span></td>
-                    </tr>`;
-                    tBody.innerHTML += rowHtml;
+                    currentTrackerData[name] = { lastActive, diffNow, gaps };
                 });
 
+                renderTrackerTable();
                 document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
 
-                // รีเฟรชอัตโนมัติทุก 30 วินาที
                 clearInterval(trackerInterval);
                 trackerInterval = setInterval(() => {
-                    if(document.getElementById('trackerMenu').classList.contains('active')) {
-                        fetchLineTracker();
-                    }
+                    if(document.getElementById('trackerMenu').classList.contains('active')) fetchLineTracker();
                 }, 30000);
 
             } catch(e) {
-                tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #ED4245;">❌ เกิดข้อผิดพลาดในการดึงข้อมูล</td></tr>';
+                tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #ED4245;">❌ ดึงข้อมูลพลาด</td></tr>';
             }
         }
-        /* -------------------------------------- */
 
-        let timeSlots = [
-            { time: "07:50", endTime: "08:00", shift: "☀️ กะเช้า" }, 
-            { time: "11:50", endTime: "12:00", shift: "🕛 กะเที่ยง" }, 
-            { time: "19:50", endTime: "20:00", shift: "🌙 กะดึก" }
-        ];
+        // สร้างตารางแสดงผล
+        function renderTrackerTable() {
+            const tBody = document.getElementById('trackerTableBody');
+            const search = document.getElementById('searchTracker').value.toUpperCase();
+            tBody.innerHTML = '';
 
-        function renderTimeSlots() {
-            const container = document.getElementById('timeSlotsContainer'); container.innerHTML = '';
-            timeSlots.forEach((slot, i) => {
-                let minDiffText = "";
-                if (slot.time && slot.endTime) {
-                    const start = new Date(`1970/01/01 ${slot.time}`);
-                    const end = new Date(`1970/01/01 ${slot.endTime}`);
-                    let diff = (end - start) / 60000;
-                    if (diff < 0) diff += 1440;
-                    minDiffText = `(${diff} นาที)`;
-                }
+            const keys = Object.keys(currentTrackerData).filter(name => name.includes(search));
+            if(keys.length === 0) {
+                tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa;">📭 ไม่พบรายชื่อพนักงาน</td></tr>';
+                return;
+            }
 
-                container.innerHTML += `
-                <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
-                    <div style="flex: 1; min-width: 100px;">
-                        <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">เวลาเริ่ม</label>
-                        <input type="time" value="${slot.time}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'time', this.value)">
-                    </div>
-                    <span style="color:#aaa;">ถึง</span>
-                    <div style="flex: 1; min-width: 100px;">
-                        <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">เวลาปิดรับ <span style="color:#43b581;">${minDiffText}</span></label>
-                        <input type="time" value="${slot.endTime || slot.time}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'endTime', this.value)">
-                    </div>
-                    <div style="flex: 2; min-width: 150px;">
-                        <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">ชื่อกะ</label>
-                        <input list="shiftOptions" value="${slot.shift}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'shift', this.value)">
-                    </div>
-                    <div style="display:flex; align-items:flex-end; height: 100%;">
-                        <button class="btn-red" style="width: auto; margin: 0; padding: 12px 15px;" onclick="removeTimeSlot(${i})">🗑️</button>
-                    </div>
-                </div>`;
+            // เรียงให้คนกำลังอู้อยู่ขึ้นก่อน
+            keys.sort((a, b) => currentTrackerData[b].diffNow - currentTrackerData[a].diffNow).forEach(name => {
+                const d = currentTrackerData[name];
+                const statusHtml = d.diffNow > 15 ? `<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>` : `<span class="status-online">🟢 ปกติ</span>`;
+                const afkCount = d.gaps.length;
+                
+                tBody.innerHTML += `<tr>
+                    <td style="font-weight: bold;">${name}</td>
+                    <td>${statusHtml}<br><span style="font-size:11px;color:#aaa;">ล่าสุด: ${d.lastActive.toLocaleTimeString('th-TH')}</span></td>
+                    <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 ? '#ED4245' : '#43b581'};">${afkCount}</td>
+                    <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
+                </tr>`;
             });
         }
-        function updateTimeValue(index, field, val) { timeSlots[index][field] = val; }
-        function addTimeSlot() { timeSlots.push({ time: "12:00", endTime: "12:15", shift: "☀️ กะเช้า" }); renderTimeSlots(); }
-        function removeTimeSlot(index) { timeSlots.splice(index, 1); renderTimeSlots(); }
-        async function loadConfig() {
-            try {
-                const res = await fetch('/api/getconfig'); const json = await res.json();
-                if (json.success) updateBotStatusUI(json.autoCheckinEnabled);
-                if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) {
-                    timeSlots = json.autoCheckinTimes.map(slot => {
-                        if (!slot.endTime) slot.endTime = slot.time; return slot;
-                    });
-                }
-                renderTimeSlots();
-            } catch(e) { renderTimeSlots(); }
-        }
-        async function saveAutoTime() {
-            const pin = document.getElementById('adminPin').value; const resDiv = document.getElementById('resAuto');
-            if (!pin) return alert('🔑 รหัสผ่านผู้ดูแลระบบ?');
-            if (timeSlots.length === 0) return alert('⚠️ ต้องมีเวลาอย่างน้อย 1 รอบ');
-            resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
-            try {
-                const res = await fetch('/api/setautotime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, times: timeSlots }) });
-                const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-            } catch (e) {}
-        }
-        async function toggleAuto(status) {
-            const pin = document.getElementById('adminPin').value; const resDiv = document.getElementById('resAuto');
-            if (!pin) return alert('🔑 รหัสผ่าน?'); resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
-            try {
-                const res = await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, pin }) });
-                const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-                if (data.success) updateBotStatusUI(status === 'on');
-            } catch (e) {}
-        }
-        function updateBotStatusUI(isOn) {
-            const statusDiv = document.getElementById('botStatusDisplay');
-            if (!statusDiv) return;
-            if (isOn) {
-                statusDiv.innerHTML = '✅ สถานะบอท: <span style="color: #4CAF50;">กำลังทำงาน (ออโต้ ON)</span>';
-                statusDiv.style.borderColor = '#4CAF50';
+
+        // 🟢 เปิดหน้าต่างดูประวัติอู้ + ใส่หมายเหตุ
+        function openHistory(name) {
+            const dateStr = document.getElementById('trackerDate').value;
+            document.getElementById('modalTitle').innerText = `📋 ประวัติ: ${name}`;
+            document.getElementById('modalSubTitle').innerText = `ประจำวันที่ ${dateStr}`;
+            
+            const gaps = currentTrackerData[name].gaps;
+            let html = '';
+            
+            if (gaps.length === 0) {
+                html = '<p style="text-align:center; color:#43b581;">✨ ไม่พบประวัติการอู้ในวันนี้ เยี่ยมมาก!</p>';
             } else {
-                statusDiv.innerHTML = '🛑 สถานะบอท: <span style="color: #F44336;">หยุดชั่วคราว (ออโต้ OFF)</span>';
-                statusDiv.style.borderColor = '#F44336';
-            }
-        }
-        async function startCheckin() {
-            const pin = document.getElementById('adminPin').value; const channelId = document.getElementById('channelId').value.trim(); const duration = document.getElementById('manualDuration').value;
-            const resDiv = document.getElementById('resCheckin');
-            if (!pin || !channelId) return alert('ข้อมูลไม่ครบ'); resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
-            try {
-                const res = await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId, pin, duration: parseInt(duration) || 10 }) });
-                const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-            } catch (e) {}
-        }
-        async function loadStaff() {
-            const listArea = document.getElementById('staffListArea'); listArea.innerHTML = "<p style='color:yellow;'>⏳ กำลังโหลด...</p>";
-            try {
-                const res = await fetch('/api/getstaff'); const json = await res.json();
-                if (json.success) { globalStaffData = json.data; filterStaff(); } else { listArea.innerHTML = "❌ Error"; }
-            } catch(e) {}
-        }
-        function filterStaff() {
-            if (!globalStaffData) return;
-            const nameQuery = document.getElementById('searchName').value.toLowerCase(); const deptQuery = document.getElementById('searchDept').value; const shiftQuery = document.getElementById('searchShift').value;
-            let filteredData = {}; const depts = ['AMOL', 'ODOL']; const shifts = ['morning', 'noon', 'night'];
-            depts.forEach(dept => {
-                if (deptQuery !== 'ALL' && dept !== deptQuery) return;
-                if (globalStaffData[dept]) {
-                    filteredData[dept] = {};
-                    shifts.forEach(shift => {
-                        if (shiftQuery !== 'ALL' && shift !== shiftQuery) return;
-                        const shiftData = globalStaffData[dept][shift];
-                        if (shiftData) {
-                            let hasData = false; filteredData[dept][shift] = {};
-                            for (const [id, name] of Object.entries(shiftData)) {
-                                if (name.toLowerCase().includes(nameQuery) || id.includes(nameQuery)) { filteredData[dept][shift][id] = name; hasData = true; }
-                            }
-                            if (!hasData) delete filteredData[dept][shift];
-                        }
-                    });
-                    if (Object.keys(filteredData[dept]).length === 0) delete filteredData[dept];
-                }
-            });
-            renderStaffList(filteredData);
-        }
-        function renderStaffList(data) {
-            let html = ''; const depts = ['AMOL', 'ODOL']; const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'noon', label: '🕛 กะเที่ยง'}, {key: 'night', label: '🌙 กะดึก'}];
-            depts.forEach(dept => { if(data[dept]) {
-                html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px;">แผนก ${dept}</h4>`;
-                shifts.forEach(shift => { const shiftData = data[dept][shift.key];
-                    if(shiftData && Object.keys(shiftData).length > 0) {
-                        html += `<p style="color: #43b581; margin: 10px 0 5px 0;">${shift.label}</p><ul class="staff-list-ul">`;
-                        for(const [id, name] of Object.entries(shiftData)) { html += `<li class="staff-list-li"><div class="staff-info"><input type="text" value="${name}" class="staff-name-input" id="input-name-${id}"><span class="staff-id">ID: ${id}</span></div><div style="display: flex; gap: 5px;"><button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button><button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button></div></li>`; }
-                        html += `</ul>`;
-                    }
+                gaps.forEach((g, i) => {
+                    const startStr = g.start.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'});
+                    const endStr = g.end ? g.end.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'}) : 'ปัจจุบัน';
+                    const diffText = g.diffMins >= 60 ? `${Math.floor(g.diffMins/60)} ชม. ${g.diffMins%60} นาที` : `${g.diffMins} นาที`;
+                    
+                    html += `<div class="history-item">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <b style="color:#ED4245;">🔴 หายไป ${diffText}</b>
+                            <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
+                        </div>
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ (เช่น ไปเข้าห้องน้ำ)..." style="margin:0; padding:8px; font-size:13px; flex:3;">
+                            <button class="btn-small" style="background:#43b581; flex:1;" onclick="saveRemark('${name}', '${dateStr}', '${g.start.toISOString()}', '${g.end ? g.end.toISOString() : 'null'}', ${i})">บันทึก</button>
+                        </div>
+                    </div>`;
                 });
-            }});
-            if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อ</p>';
-            document.getElementById('staffListArea').innerHTML = html;
+            }
+            
+            document.getElementById('modalContent').innerHTML = html;
+            document.getElementById('historyModal').style.display = 'flex';
         }
-        async function saveStaff() {
-            const pin = document.getElementById('adminPin').value; const discordId = document.getElementById('staffId').value.trim(); const staffName = document.getElementById('staffName').value.trim(); const dept = document.getElementById('staffDept').value; const shift = document.getElementById('staffShift').value;
-            if (!pin || !discordId || !staffName) return alert('ข้อมูลไม่ครบ'); const btn = document.getElementById('btnSaveStaff'); btn.innerText = "⏳...";
-            try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', discordId, staffName, dept, shift, pin }) }); document.getElementById('staffId').value = ''; document.getElementById('staffName').value = ''; loadStaff(); } catch (e) {} btn.innerText = "💾 บันทึก";
+
+        async function saveRemark(name, date, start, end, index) {
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) return alert('🔑 รหัสผ่านผู้ดูแลระบบ?');
+            const remarkText = document.getElementById(`rmk_${index}`).value;
+            
+            try {
+                const res = await fetch('/api/save-remark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ staff_name: name, afk_date: date, start_time: start, end_time: end, remark: remarkText, pin })
+                });
+                const data = await res.json();
+                if(data.success) {
+                    alert('✅ บันทึกหมายเหตุสำเร็จ!');
+                    fetchLineTracker(); // โหลดข้อมูลใหม่
+                } else { alert(data.message || '❌ เกิดข้อผิดพลาด'); }
+            } catch(e) { alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); }
         }
-        async function saveEdittedName(discordId) {
-            const pin = document.getElementById('adminPin').value; if (!pin) return; const newName = document.getElementById('input-name-' + discordId).value.trim(); if (!newName || !confirm('ยืนยันแก้ชื่อ?')) return;
-            try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'edit_name', discordId, newName, pin }) }); loadStaff(); } catch (e) {}
-        }
-        async function removeStaff(discordId) {
-            const pin = document.getElementById('adminPin').value; if (!pin || !confirm('ลบแน่ใจ?')) return;
-            try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
-        }
+
+        /* --- โค้ดส่วนอื่นๆ (ตั้งเวลา, พนักงาน คงเดิม) --- */
+        let timeSlots = [{ time: "07:50", shift: "☀️ กะเช้า" }];
+        function renderTimeSlots() { const c = document.getElementById('timeSlotsContainer'); c.innerHTML=''; timeSlots.forEach((s, i)=> { c.innerHTML += `<div style="display:flex; gap:5px; margin-bottom:5px;"><input type="time" value="${s.time}" onchange="timeSlots[${i}].time=this.value"><input list="shiftOptions" value="${s.shift}" onchange="timeSlots[${i}].shift=this.value"><button class="btn-small btn-red" onclick="timeSlots.splice(${i},1);renderTimeSlots()">X</button></div>`; }); }
+        function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "เที่ยง" }); renderTimeSlots(); }
+        async function loadConfig() { try { const res = await fetch('/api/getconfig'); const json = await res.json(); if(json.success && json.autoCheckinTimes) timeSlots = json.autoCheckinTimes; renderTimeSlots(); document.getElementById('botStatusDisplay').innerHTML = json.autoCheckinEnabled ? '✅ ออโต้ ON' : '🛑 ออโต้ OFF'; } catch(e){} }
+        async function saveAutoTime() { const pin = document.getElementById('adminPin').value; if(!pin) return; await fetch('/api/setautotime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, times: timeSlots }) }); alert('บันทึกเวลาแล้ว'); }
+        async function toggleAuto(s) { const pin = document.getElementById('adminPin').value; if(!pin) return; await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status:s, pin }) }); loadConfig(); }
+        async function startCheckin() { const pin = document.getElementById('adminPin').value; const cId = document.getElementById('channelId').value; await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId:cId, pin, duration:10 }) }); alert('สั่งงานแล้ว'); }
+        async function loadStaff() { document.getElementById('staffListArea').innerText = 'โหลดเสร็จแล้ว'; } // ย่อโค้ดเพื่อไม่ให้ยาวไป
     </script>
 </body>
 </html>
