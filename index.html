@@ -238,7 +238,24 @@
             }
         }
 
-        // สร้างตารางแสดงผล
+        // 🧠 1. ฟังก์ชันผู้ช่วยค้นหาว่าพนักงานคนนี้อยู่กะอะไร (ดึงจากฐานข้อมูลเมนูพนักงาน)
+        function getStaffShift(staffName) {
+            if (!globalStaffData) return 'unknown';
+            const cleanName = staffName.toUpperCase();
+            for (const dept in globalStaffData) {
+                for (const shift in globalStaffData[dept]) {
+                    for (const id in globalStaffData[dept][shift]) {
+                        const nameInDb = globalStaffData[dept][shift][id].toUpperCase();
+                        if (nameInDb.includes(cleanName) || cleanName.includes(nameInDb)) {
+                            return shift; // จะได้ค่ากลับมาเป็น 'morning', 'noon', หรือ 'night'
+                        }
+                    }
+                }
+            }
+            return 'unknown'; 
+        }
+
+        // 🟢 2. สร้างตารางแสดงผล (อัปเกรดระบบอัจฉริยะ 100% Auto-Cutoff)
         function renderTrackerTable() {
             const tBody = document.getElementById('trackerTableBody');
             const search = document.getElementById('searchTracker').value.toUpperCase();
@@ -250,16 +267,69 @@
                 return;
             }
 
-            // เรียงให้คนกำลังอู้อยู่ขึ้นก่อน
+            // ดึงเวลาปัจจุบันมาแปลงเป็น "นาที" เพื่อคำนวณกะง่ายๆ
+            const now = new Date();
+            const currentMins = now.getHours() * 60 + now.getMinutes(); 
+
             keys.sort((a, b) => currentTrackerData[b].diffNow - currentTrackerData[a].diffNow).forEach(name => {
                 const d = currentTrackerData[name];
-                const statusHtml = d.diffNow > 15 ? `<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>` : `<span class="status-online">🟢 ปกติ</span>`;
+                const staffShift = getStaffShift(name); // ดึงข้อมูลกะของคนนี้มาเช็ค
+
+                let isOffDuty = false;
+                let offDutyReason = ""; // เก็บเหตุผลไว้โชว์ให้แอดมินดู
+
+                // --- 🛑 กฎข้อที่ 1: เช็คว่าแอดมินเคยกดปุ่ม "เลิกงาน" ให้ไปก่อนแล้วหรือเปล่า ---
+                if (d.gaps.length > 0) {
+                    const lastGap = d.gaps[d.gaps.length - 1];
+                    if (lastGap.remark && (lastGap.remark.includes('เลิกงาน') || lastGap.remark.includes('หมดกะ'))) {
+                        isOffDuty = true;
+                        offDutyReason = "แอดมินกดให้";
+                    }
+                }
+
+                // --- 🤖 กฎข้อที่ 2: ระบบตัดเลิกงานตามเวลาเป๊ะๆ (08:05 / 20:05) ---
+                if (!isOffDuty && staffShift !== 'unknown') {
+                    // กะเช้า (08:05 - 20:05) -> ถ้าเวลาเกิน 20:05 (1205 นาที) หรือก่อน 08:05 (485 นาที)
+                    if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
+                        isOffDuty = true; 
+                        offDutyReason = "หมดเวลากะเช้า";
+                    }
+                    // กะดึก (20:05 - 08:05) -> ถ้าเวลาอยู่ช่วงระหว่าง 08:05 ถึง 20:05
+                    else if (staffShift === 'night' && (currentMins >= 485 && currentMins < 1205)) {
+                        isOffDuty = true; 
+                        offDutyReason = "หมดเวลากะดึก";
+                    }
+                }
+
+                // --- 👻 กฎข้อที่ 3: ระบบตัดเพราะหายไปนานเกิน 60 นาที (ลืมปิดคอม/กลับบ้านแล้ว) ---
+                if (!isOffDuty && d.diffNow >= 60) {
+                    isOffDuty = true;
+                    offDutyReason = "หายไปนานเกิน 1 ชม.";
+                }
+
+                // --------- ส่วนแสดงผลสีบนหน้าเว็บ ---------
+                let statusHtml = '';
+                let rowStyle = '';
+
+                if (isOffDuty) {
+                    // ถ้าเลิกงานแล้ว ให้หรี่แสงลง เปลี่ยนเป็นสีเทา และโชว์เหตุผลกำกับไว้
+                    statusHtml = `<span style="color: #888;">⚪ ออฟไลน์ <br><span style="font-size:10px;">(${offDutyReason})</span></span>`;
+                    rowStyle = `opacity: 0.4; background-color: #1e1e2f;`; 
+                } 
+                else if (d.diffNow >= 15) {
+                    // ถ้าเมาส์นิ่งเกิน 15 นาที ขึ้นตัวแดง
+                    statusHtml = `<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>`;
+                } 
+                else {
+                    statusHtml = `<span class="status-online">🟢 ปกติ</span>`;
+                }
+
                 const afkCount = d.gaps.length;
-                
-                tBody.innerHTML += `<tr>
+
+                tBody.innerHTML += `<tr style="${rowStyle}">
                     <td style="font-weight: bold;">${name}</td>
                     <td>${statusHtml}<br><span style="font-size:11px;color:#aaa;">ล่าสุด: ${d.lastActive.toLocaleTimeString('th-TH')}</span></td>
-                    <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 ? '#ED4245' : '#43b581'};">${afkCount}</td>
+                    <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 && !isOffDuty ? '#ED4245' : '#888'};">${afkCount}</td>
                     <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
                 </tr>`;
             });
