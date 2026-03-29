@@ -96,6 +96,13 @@
                 <input type="text" id="searchTracker" placeholder="🔍 ค้นหาชื่อพนักงาน..." style="flex: 2; margin: 0; padding: 10px;" oninput="renderTrackerTable()">
             </div>
 
+            <div style="display: flex; gap: 8px; margin-bottom: 15px; overflow-x: auto;">
+                <button id="f_ALL" class="btn-small" style="background: #5865F2; flex: 1;" onclick="setFilter('ALL')">📋 ทั้งหมด</button>
+                <button id="f_ONLINE" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #43b581;" onclick="setFilter('ONLINE')">🟢 ออนไลน์</button>
+                <button id="f_AFK" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #ED4245;" onclick="setFilter('AFK')">🔴 คนอู้</button>
+                <button id="f_OFFLINE" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #888;" onclick="setFilter('OFFLINE')">⚪ ออฟไลน์</button>
+            </div>
+
             <p style="font-size: 12px; color: #aaa; margin: 0 0 10px 0;">อัปเดตข้อมูลล่าสุด: <span id="lastTrackerUpdate">-</span></p>
             
             <div style="overflow-x: auto;">
@@ -255,7 +262,31 @@
             return 'unknown'; 
         }
 
-        // 🟢 2. สร้างตารางแสดงผล (อัปเกรดระบบอัจฉริยะ 100% Auto-Cutoff)
+        // 🎛️ ตัวแปรเก็บค่าว่าตอนนี้กดปุ่มกรองอะไรอยู่
+        let currentStatusFilter = 'ALL';
+
+        function setFilter(status) {
+            currentStatusFilter = status;
+
+            // เปลี่ยนสีปุ่มให้รู้ว่ากำลังกดอันไหนอยู่
+            const btns = ['ALL', 'ONLINE', 'AFK', 'OFFLINE'];
+            const colors = { 'ALL': '#5865F2', 'ONLINE': '#43b581', 'AFK': '#ED4245', 'OFFLINE': '#888' };
+
+            btns.forEach(b => {
+                const el = document.getElementById('f_' + b);
+                if (b === status) {
+                    el.style.background = colors[b];
+                    el.style.color = 'white';
+                } else {
+                    el.style.background = '#2a2a40';
+                    el.style.color = '#aaa';
+                }
+            });
+
+            renderTrackerTable(); // สั่งคัดกรองตารางใหม่ทันที
+        }
+
+        // 🟢 2. สร้างตารางแสดงผล (อัปเกรดระบบปุ่มกรอง)
         function renderTrackerTable() {
             const tBody = document.getElementById('trackerTableBody');
             const search = document.getElementById('searchTracker').value.toUpperCase();
@@ -267,19 +298,19 @@
                 return;
             }
 
-            // ดึงเวลาปัจจุบันมาแปลงเป็น "นาที" เพื่อคำนวณกะง่ายๆ
             const now = new Date();
             const currentMins = now.getHours() * 60 + now.getMinutes(); 
 
+            let displayCount = 0; // ตัวนับว่ามีคนโชว์บนจอไหม
+
             keys.sort((a, b) => currentTrackerData[b].diffNow - currentTrackerData[a].diffNow).forEach(name => {
                 const d = currentTrackerData[name];
-                const staffShift = getStaffShift(name); // ดึงข้อมูลกะของคนนี้มาเช็ค
+                const staffShift = getStaffShift(name); 
 
                 let isOffDuty = false;
-                let offDutyReason = ""; // เก็บเหตุผลไว้โชว์ให้แอดมินดู
+                let offDutyReason = ""; 
 
-                // --- 🛑 กฎข้อที่ 1: เช็คว่าแอดมินเคยกดปุ่ม "เลิกงาน" ให้ไปก่อนแล้วหรือเปล่า ---
-                // อัปเกรด: ค้นหาจากทุกประวัติการอู้ของวันนี้เลย (เผื่อแอดมินใส่ผิดช่อง)
+                // --- 🛑 กฎข้อที่ 1: เช็คจากหมายเหตุ (แอดมินกดให้) ---
                 const hasOffDutyRemark = d.gaps.some(g => g.remark && (g.remark.includes('เลิกงาน') || g.remark.includes('หมดกะ')));
                 if (hasOffDutyRemark) {
                     isOffDuty = true;
@@ -288,35 +319,46 @@
 
                 // --- 🤖 กฎข้อที่ 2: ระบบตัดเลิกงานตามเวลาเป๊ะๆ (08:05 / 20:05) ---
                 if (!isOffDuty && staffShift !== 'unknown') {
-                    // กะเช้า (08:05 - 20:05) -> ถ้าเวลาเกิน 20:05 (1205 นาที) หรือก่อน 08:05 (485 นาที)
                     if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
                         isOffDuty = true; 
                         offDutyReason = "หมดเวลากะเช้า";
                     }
-                    // กะดึก (20:05 - 08:05) -> ถ้าเวลาอยู่ช่วงระหว่าง 08:05 ถึง 20:05
                     else if (staffShift === 'night' && (currentMins >= 485 && currentMins < 1205)) {
                         isOffDuty = true; 
                         offDutyReason = "หมดเวลากะดึก";
                     }
                 }
 
-                // --- 👻 กฎข้อที่ 3: ระบบตัดเพราะหายไปนานเกิน 60 นาที (ลืมปิดคอม/กลับบ้านแล้ว) ---
+                // --- 👻 กฎข้อที่ 3: หายไปนานเกิน 60 นาที ---
                 if (!isOffDuty && d.diffNow >= 60) {
                     isOffDuty = true;
-                    offDutyReason = "หายไปนานเกิน 1 ชม.";
+                    offDutyReason = "หายไป 1 ชม.";
                 }
+
+                // 🎯 จัดหมวดหมู่สถานะของพนักงานคนนี้
+                let currentCategory = 'ONLINE';
+                if (isOffDuty) {
+                    currentCategory = 'OFFLINE';
+                } else if (d.diffNow >= 15) {
+                    currentCategory = 'AFK';
+                }
+
+                // 🎛️ ฟิลเตอร์! ถ้าไม่ตรงกับปุ่มที่แอดมินกดไว้ ให้ "ข้าม (ซ่อน)" พนักงานคนนี้ไปเลย
+                if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) {
+                    return; 
+                }
+
+                displayCount++; // นับว่ามีคนผ่านการกรอง
 
                 // --------- ส่วนแสดงผลสีบนหน้าเว็บ ---------
                 let statusHtml = '';
                 let rowStyle = '';
 
                 if (isOffDuty) {
-                    // ถ้าเลิกงานแล้ว ให้หรี่แสงลง เปลี่ยนเป็นสีเทา และโชว์เหตุผลกำกับไว้
                     statusHtml = `<span style="color: #888;">⚪ ออฟไลน์ <br><span style="font-size:10px;">(${offDutyReason})</span></span>`;
                     rowStyle = `opacity: 0.4; background-color: #1e1e2f;`; 
                 } 
                 else if (d.diffNow >= 15) {
-                    // ถ้าเมาส์นิ่งเกิน 15 นาที ขึ้นตัวแดง
                     statusHtml = `<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>`;
                 } 
                 else {
@@ -332,6 +374,11 @@
                     <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
                 </tr>`;
             });
+
+            // ถ้ากดกรองแล้วไม่เหลือพนักงานให้โชว์เลย
+            if (displayCount === 0) {
+                 tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่มีพนักงานในสถานะนี้ครับ</td></tr>';
+            }
         }
 
         // 🟢 เปิดหน้าต่างดูประวัติอู้ + ใส่หมายเหตุ
