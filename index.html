@@ -185,31 +185,37 @@
         async function fetchLineTracker() {
             const tBody = document.getElementById('trackerTableBody');
             tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: yellow;">⏳ กำลังดึงข้อมูลจากฐานข้อมูล...</td></tr>';
-            
+
             try {
                 const res = await fetch('/api/get-tracker');
                 const json = await res.json();
-                
+
                 if (!json.success || !json.data || json.data.length === 0) {
                     tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #aaa;">📭 ยังไม่มีข้อมูลพนักงานทำงาน</td></tr>';
                     return;
                 }
 
-                // คัดกรองเอาเฉพาะข้อมูลล่าสุดของพนักงานแต่ละคน (ไม่ให้ชื่อซ้ำกัน)
+                // คัดกรองเอาเฉพาะข้อมูลล่าสุดของพนักงานแต่ละคน
                 const latestData = {};
                 json.data.forEach(row => {
-                    // แปลงชื่อเป็นตัวพิมพ์ใหญ่ให้หมด กันความผิดพลาด
                     const nameKey = row.staff_name.toUpperCase();
                     if (!latestData[nameKey]) latestData[nameKey] = row;
                 });
 
                 tBody.innerHTML = '';
                 Object.values(latestData).forEach(staff => {
-                    const lastActiveTime = new Date(staff.last_active);
-                    const now = new Date();
-                    const diffMinutes = Math.floor((now - lastActiveTime) / 60000);
 
-                    // เงื่อนไข: ถ้าไม่ได้ขยับเมาส์เกิน 15 นาที ถือว่าอู้/ไม่อยู่จอ
+                    // 🛠️ แก้บั๊กเวลา: ตัดตัว Z ออก เพื่อไม่ให้เบราว์เซอร์บวกเวลาเพิ่ม 7 ชม.
+                    let timeString = staff.last_active;
+                    if(timeString.endsWith('Z')) timeString = timeString.slice(0, -1);
+
+                    const lastActiveTime = new Date(timeString);
+                    const now = new Date();
+                    let diffMinutes = Math.floor((now - lastActiveTime) / 60000);
+
+                    // กันเหนียวกรณีเวลาเพี้ยนเล็กน้อย ให้โชว์เป็น 0 นาที
+                    if (diffMinutes < 0) diffMinutes = 0;
+
                     const statusHtml = diffMinutes > 15 
                         ? `<span class="status-afk">🔴 อู้ / ไม่อยู่จอ</span>` 
                         : `<span class="status-online">🟢 กำลังตอบแชท</span>`;
@@ -224,7 +230,7 @@
 
                 document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
 
-                // ให้มันโหลดข้อมูลอัปเดตอัตโนมัติทุกๆ 30 วินาที เมื่อเปิดแท็บนี้ค้างไว้
+                // รีเฟรชอัตโนมัติทุก 30 วินาที
                 clearInterval(trackerInterval);
                 trackerInterval = setInterval(() => {
                     if(document.getElementById('trackerMenu').classList.contains('active')) {
