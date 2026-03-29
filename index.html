@@ -15,8 +15,8 @@
         button.btn-red { background-color: #ED4245; }
         button.btn-red:hover { background-color: #C13537; }
         button.btn-small { width: auto; padding: 5px 10px; font-size: 13px; margin: 0; }
-        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #2a2a40; }
-        .tab-btn { background: transparent; width: auto; color: #aaa; padding: 10px 20px; margin: 0; border-radius: 0; border-bottom: 3px solid transparent; }
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #2a2a40; flex-wrap: wrap; }
+        .tab-btn { background: transparent; width: auto; color: #aaa; padding: 10px 15px; margin: 0; border-radius: 0; border-bottom: 3px solid transparent; flex-grow: 1; }
         .tab-btn:hover { background: rgba(255,255,255,0.05); color: white; }
         .tab-btn.active { color: #5865F2; border-bottom: 3px solid #5865F2; }
         .tab-content { display: none; }
@@ -33,21 +33,19 @@
         .search-box { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 5px;}
         .search-box > div { flex: 1; min-width: 120px; }
         .search-box input, .search-box select { margin: 5px 0 0 0; padding: 10px; font-size: 14px;}
-        .search-box input, .search-box select { margin: 5px 0 0 0; padding: 10px; font-size: 14px;}
+        
+        /* สไตล์ตารางตรวจจับ LINE */
+        .tracker-table { width: 100%; border-collapse: collapse; margin-top: 15px; color: white; text-align: left; font-size: 14px; }
+        .tracker-table th, .tracker-table td { padding: 10px; border-bottom: 1px solid #4f545c; }
+        .tracker-table th { background-color: #383852; }
+        .status-online { color: #43b581; font-weight: bold; }
+        .status-afk { color: #ED4245; font-weight: bold; }
 
-                /* --- ทำให้กล่องรายชื่อพนักงานมีแถบเลื่อน (Scrollbar) --- */
-                #staffListArea {
-                    max-height: 450px; 
-                    overflow-y: auto;  
-                    padding-right: 10px;
-                }
-                #staffListArea::-webkit-scrollbar { width: 8px; }
-                #staffListArea::-webkit-scrollbar-track { background: #1e1e2f; border-radius: 4px; }
-                #staffListArea::-webkit-scrollbar-thumb { background: #4f545c; border-radius: 4px; }
-                #staffListArea::-webkit-scrollbar-thumb:hover { background: #72767d; }
-
-            </style>
-        </head>
+        #staffListArea { max-height: 450px; overflow-y: auto; padding-right: 10px; }
+        #staffListArea::-webkit-scrollbar { width: 8px; }
+        #staffListArea::-webkit-scrollbar-track { background: #1e1e2f; border-radius: 4px; }
+        #staffListArea::-webkit-scrollbar-thumb { background: #4f545c; border-radius: 4px; }
+        #staffListArea::-webkit-scrollbar-thumb:hover { background: #72767d; }
     </style>
 </head>
 <body onload="loadConfig()">
@@ -67,9 +65,9 @@
     </div>
 
     <div class="tabs">
-        <button class="tab-btn active" onclick="openTab(event, 'checkinMenu')">🕒 ระบบเช็คชื่อ</button>
-        <button class="tab-btn" onclick="openTab(event, 'staffMenu')">👥 จัดการพนักงาน</button>
-        <button class="tab-btn" onclick="openTab(event, 'otherMenu')">⚙️ ตั้งค่าอื่นๆ</button>
+        <button class="tab-btn active" onclick="openTab(event, 'checkinMenu')">🕒 เช็คชื่อ</button>
+        <button class="tab-btn" onclick="openTab(event, 'trackerMenu')">🟢 แชท LINE</button>
+        <button class="tab-btn" onclick="openTab(event, 'staffMenu')">👥 พนักงาน</button>
     </div>
 
     <div id="checkinMenu" class="tab-content active">
@@ -98,11 +96,36 @@
             <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที (!startcheckin)</h3>
             <p style="font-size: 14px; color: #aaa;">ถ้าต้องการกดสั่งเองตอนนี้ สามารถตั้งระยะเวลาได้ด้วยครับ</p>
             <div style="display: flex; gap: 10px;">
-                <input type="text" id="channelId" placeholder="ใส่ Channel ID (เช่น 144246...)" style="flex: 3;">
-                <input type="number" id="manualDuration" value="10" placeholder="นาที" style="flex: 1;" title="ระยะเวลาเปิดรับ (นาที)">
+                <input type="text" id="channelId" placeholder="ใส่ Channel ID" style="flex: 3;">
+                <input type="number" id="manualDuration" value="10" placeholder="นาที" style="flex: 1;">
             </div>
             <button onclick="startCheckin()">เริ่มเช็คชื่อ</button>
             <div id="resCheckin" class="response"></div>
+        </div>
+    </div>
+
+    <div id="trackerMenu" class="tab-content">
+        <div class="card" style="border-left: 4px solid #43b581;">
+            <h3 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+                👁️ ระบบตรวจจับพนักงาน (LINE OA)
+                <button class="btn-small" style="background:#43b581;" onclick="fetchLineTracker()">🔄 อัปเดตข้อมูล</button>
+            </h3>
+            <p style="font-size: 13px; color: #aaa;">ข้อมูลอัปเดตล่าสุดเมื่อ: <span id="lastTrackerUpdate" style="color:white;">-</span></p>
+            
+            <div style="overflow-x: auto;">
+                <table class="tracker-table">
+                    <thead>
+                        <tr>
+                            <th>ชื่อพนักงาน</th>
+                            <th>สถานะการตอบ</th>
+                            <th>ขยับเมาส์ล่าสุด</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trackerTableBody">
+                        <tr><td colspan="3" style="text-align: center; color: #aaa;">คลิกปุ่ม "อัปเดตข้อมูล" เพื่อดึงข้อมูลล่าสุด</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -115,7 +138,7 @@
             <input type="text" id="staffName" placeholder="เช่น AMOL-SOMCHAI">
             <div style="display: flex; gap: 10px;">
                 <div style="flex: 1;"><label>แผนก</label><select id="staffDept"><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
-                <div style="flex: 1;"><label>กะการทำงานหลัก</label>
+                <div style="flex: 1;"><label>กะทำงาน</label>
                     <select id="staffShift">
                         <option value="morning">☀️ กะเช้า</option>
                         <option value="noon">🕛 กะเที่ยง</option>
@@ -127,25 +150,21 @@
         </div>
 
         <div class="card" style="background-color: #202231;">
-            <h3 style="margin-top: 0; margin-bottom: 5px;">🔍 ค้นหาและกรองพนักงาน</h3>
+            <h3 style="margin-top: 0; margin-bottom: 5px;">🔍 ค้นหาและกรอง</h3>
             <div class="search-box">
-                <div style="flex: 2;"><label style="font-size: 13px; color: #aaa;">ชื่อพนักงาน หรือ ID</label><input type="text" id="searchName" placeholder="พิมพ์ชื่อเพื่อค้นหา..." oninput="filterStaff()"></div>
-                <div><label style="font-size: 13px; color: #aaa;">แผนก</label><select id="searchDept" onchange="filterStaff()"><option value="ALL">ทุกแผนก</option><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
-                <div><label style="font-size: 13px; color: #aaa;">กะทำงาน</label><select id="searchShift" onchange="filterStaff()"><option value="ALL">ทุกกะ</option><option value="morning">☀️ กะเช้า</option><option value="noon">🕛 กะเที่ยง</option><option value="night">🌙 กะดึก</option></select></div>
+                <div style="flex: 2;"><input type="text" id="searchName" placeholder="พิมพ์ชื่อเพื่อค้นหา..." oninput="filterStaff()"></div>
+                <div><select id="searchDept" onchange="filterStaff()"><option value="ALL">ทุกแผนก</option><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
+                <div><select id="searchShift" onchange="filterStaff()"><option value="ALL">ทุกกะ</option><option value="morning">เช้า</option><option value="noon">เที่ยง</option><option value="night">ดึก</option></select></div>
             </div>
         </div>
 
         <div class="card">
             <h3 style="margin-top: 0; display: flex; justify-content: space-between;">
-                📋 รายชื่อพนักงานในระบบ
+                📋 รายชื่อพนักงาน
                 <button class="btn-small" style="background:#43b581;" onclick="loadStaff()">🔄 โหลดใหม่</button>
             </h3>
-            <div id="staffListArea">⏳ กำลังโหลดข้อมูล...</div>
+            <div id="staffListArea">⏳ กำลังโหลด...</div>
         </div>
-    </div>
-
-    <div id="otherMenu" class="tab-content">
-        <div class="card"><h3 style="margin-top: 0; color: #FEE75C;">🚧 ส่วนนี้อยู่ระหว่างการพัฒนา</h3></div>
     </div>
 
     <script>
@@ -156,10 +175,69 @@
             document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
             document.getElementById(menuName).classList.add('active');
             evt.currentTarget.classList.add('active');
+            
             if(menuName === 'staffMenu') loadStaff();
+            if(menuName === 'trackerMenu') fetchLineTracker(); // 🟢 สั่งโหลดข้อมูล LINE เมื่อกดแท็บ
         }
 
-        /* --- ระบบจัดการเวลารอบเช็คชื่อ (เปลี่ยนเป็นแบบ เวลาเริ่ม - เวลาสิ้นสุด) --- */
+        /* --- 🟢 ระบบดึงข้อมูลสถานะ LINE Tracker --- */
+        let trackerInterval;
+        async function fetchLineTracker() {
+            const tBody = document.getElementById('trackerTableBody');
+            tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: yellow;">⏳ กำลังดึงข้อมูลจากฐานข้อมูล...</td></tr>';
+            
+            try {
+                const res = await fetch('/api/get-tracker');
+                const json = await res.json();
+                
+                if (!json.success || !json.data || json.data.length === 0) {
+                    tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #aaa;">📭 ยังไม่มีข้อมูลพนักงานทำงาน</td></tr>';
+                    return;
+                }
+
+                // คัดกรองเอาเฉพาะข้อมูลล่าสุดของพนักงานแต่ละคน (ไม่ให้ชื่อซ้ำกัน)
+                const latestData = {};
+                json.data.forEach(row => {
+                    // แปลงชื่อเป็นตัวพิมพ์ใหญ่ให้หมด กันความผิดพลาด
+                    const nameKey = row.staff_name.toUpperCase();
+                    if (!latestData[nameKey]) latestData[nameKey] = row;
+                });
+
+                tBody.innerHTML = '';
+                Object.values(latestData).forEach(staff => {
+                    const lastActiveTime = new Date(staff.last_active);
+                    const now = new Date();
+                    const diffMinutes = Math.floor((now - lastActiveTime) / 60000);
+
+                    // เงื่อนไข: ถ้าไม่ได้ขยับเมาส์เกิน 15 นาที ถือว่าอู้/ไม่อยู่จอ
+                    const statusHtml = diffMinutes > 15 
+                        ? `<span class="status-afk">🔴 อู้ / ไม่อยู่จอ</span>` 
+                        : `<span class="status-online">🟢 กำลังตอบแชท</span>`;
+
+                    const rowHtml = `<tr>
+                        <td style="font-weight: bold;">${staff.staff_name.toUpperCase()}</td>
+                        <td>${statusHtml}</td>
+                        <td>${lastActiveTime.toLocaleTimeString('th-TH')} <br><span style="font-size:11px; color:#aaa;">(${diffMinutes} นาทีที่แล้ว)</span></td>
+                    </tr>`;
+                    tBody.innerHTML += rowHtml;
+                });
+
+                document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
+
+                // ให้มันโหลดข้อมูลอัปเดตอัตโนมัติทุกๆ 30 วินาที เมื่อเปิดแท็บนี้ค้างไว้
+                clearInterval(trackerInterval);
+                trackerInterval = setInterval(() => {
+                    if(document.getElementById('trackerMenu').classList.contains('active')) {
+                        fetchLineTracker();
+                    }
+                }, 30000);
+
+            } catch(e) {
+                tBody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: #ED4245;">❌ เกิดข้อผิดพลาดในการดึงข้อมูล</td></tr>';
+            }
+        }
+        /* -------------------------------------- */
+
         let timeSlots = [
             { time: "07:50", endTime: "08:00", shift: "☀️ กะเช้า" }, 
             { time: "11:50", endTime: "12:00", shift: "🕛 กะเที่ยง" }, 
@@ -169,13 +247,12 @@
         function renderTimeSlots() {
             const container = document.getElementById('timeSlotsContainer'); container.innerHTML = '';
             timeSlots.forEach((slot, i) => {
-                // คำนวณระยะเวลา (นาที) เพื่อแสดงให้เห็นง่ายๆ
                 let minDiffText = "";
                 if (slot.time && slot.endTime) {
                     const start = new Date(`1970/01/01 ${slot.time}`);
                     const end = new Date(`1970/01/01 ${slot.endTime}`);
                     let diff = (end - start) / 60000;
-                    if (diff < 0) diff += 1440; // กรณีข้ามคืน
+                    if (diff < 0) diff += 1440;
                     minDiffText = `(${diff} นาที)`;
                 }
 
@@ -192,31 +269,24 @@
                     </div>
                     <div style="flex: 2; min-width: 150px;">
                         <label style="font-size: 11px; color:#aaa; display:block; margin-bottom:2px;">ชื่อกะ</label>
-                        <input list="shiftOptions" value="${slot.shift}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'shift', this.value)" placeholder="พิมพ์ชื่อกะ...">
+                        <input list="shiftOptions" value="${slot.shift}" style="margin: 0; width: 100%;" onchange="updateTimeValue(${i}, 'shift', this.value)">
                     </div>
                     <div style="display:flex; align-items:flex-end; height: 100%;">
-                        <button class="btn-red" style="width: auto; margin: 0; padding: 12px 15px;" onclick="removeTimeSlot(${i})" title="ลบรอบนี้">🗑️</button>
+                        <button class="btn-red" style="width: auto; margin: 0; padding: 12px 15px;" onclick="removeTimeSlot(${i})">🗑️</button>
                     </div>
                 </div>`;
             });
         }
-        function updateTimeValue(index, field, val) {
-            timeSlots[index][field] = val;
-            // ลบคำสั่ง renderTimeSlots() ออก เพื่อไม่ให้กล่องเด้งหลุดตอนกำลังพิมพ์
-        }
+        function updateTimeValue(index, field, val) { timeSlots[index][field] = val; }
         function addTimeSlot() { timeSlots.push({ time: "12:00", endTime: "12:15", shift: "☀️ กะเช้า" }); renderTimeSlots(); }
         function removeTimeSlot(index) { timeSlots.splice(index, 1); renderTimeSlots(); }
         async function loadConfig() {
             try {
                 const res = await fetch('/api/getconfig'); const json = await res.json();
-
-                // 🟢 ให้มันอัปเดตป้ายไฟทันที! (ดึงสถานะสำเร็จปุ๊บ เปลี่ยนสีป้ายปั๊บ)
                 if (json.success) updateBotStatusUI(json.autoCheckinEnabled);
-
                 if (json.success && json.autoCheckinTimes && Array.isArray(json.autoCheckinTimes)) {
                     timeSlots = json.autoCheckinTimes.map(slot => {
-                        if (!slot.endTime) slot.endTime = slot.time; // กำหนดเวลาปิดรับเริ่มต้น
-                        return slot;
+                        if (!slot.endTime) slot.endTime = slot.time; return slot;
                     });
                 }
                 renderTimeSlots();
@@ -224,27 +294,23 @@
         }
         async function saveAutoTime() {
             const pin = document.getElementById('adminPin').value; const resDiv = document.getElementById('resAuto');
-            if (!pin) return alert('🔑 กรุณาใส่รหัสผ่านผู้ดูแลระบบ (ด้านบนสุด) ก่อนครับ');
-            if (timeSlots.length === 0) return alert('⚠️ ต้องมีเวลาอย่างน้อย 1 รอบครับ');
+            if (!pin) return alert('🔑 รหัสผ่านผู้ดูแลระบบ?');
+            if (timeSlots.length === 0) return alert('⚠️ ต้องมีเวลาอย่างน้อย 1 รอบ');
             resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
             try {
                 const res = await fetch('/api/setautotime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, times: timeSlots }) });
                 const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-            } catch (e) { resDiv.innerText = "❌ Error"; resDiv.style.color = "#ED4245"; }
+            } catch (e) {}
         }
-        
-        /* --- โค้ดปุ่มควบคุมบอท --- */
         async function toggleAuto(status) {
             const pin = document.getElementById('adminPin').value; const resDiv = document.getElementById('resAuto');
-            if (!pin) return alert('รหัสผ่าน?'); resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
+            if (!pin) return alert('🔑 รหัสผ่าน?'); resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
             try {
                 const res = await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, pin }) });
                 const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
-                if (data.success) updateBotStatusUI(status === 'on'); // 👈 เพิ่มคำสั่งให้เปลี่ยนสีป้ายไฟตอนกดปุ่มสำเร็จ
+                if (data.success) updateBotStatusUI(status === 'on');
             } catch (e) {}
         }
-
-        // 🆕 ฟังก์ชันเปลี่ยนสีป้ายไฟสถานะ (วางคั่นตรงนี้ได้เลย)
         function updateBotStatusUI(isOn) {
             const statusDiv = document.getElementById('botStatusDisplay');
             if (!statusDiv) return;
@@ -256,11 +322,8 @@
                 statusDiv.style.borderColor = '#F44336';
             }
         }
-
         async function startCheckin() {
-            const pin = document.getElementById('adminPin').value; 
-            const channelId = document.getElementById('channelId').value.trim(); 
-            const duration = document.getElementById('manualDuration').value;
+            const pin = document.getElementById('adminPin').value; const channelId = document.getElementById('channelId').value.trim(); const duration = document.getElementById('manualDuration').value;
             const resDiv = document.getElementById('resCheckin');
             if (!pin || !channelId) return alert('ข้อมูลไม่ครบ'); resDiv.innerText = "⏳..."; resDiv.style.color = "yellow";
             try {
@@ -268,8 +331,6 @@
                 const data = await res.json(); resDiv.innerText = data.message; resDiv.style.color = data.success ? "#43b581" : "#ED4245";
             } catch (e) {}
         }
-
-        /* --- โค้ดพนักงานและระบบค้นหา --- */
         async function loadStaff() {
             const listArea = document.getElementById('staffListArea'); listArea.innerHTML = "<p style='color:yellow;'>⏳ กำลังโหลด...</p>";
             try {
@@ -313,7 +374,7 @@
                     }
                 });
             }});
-            if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อพนักงานที่ค้นหา</p>';
+            if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อ</p>';
             document.getElementById('staffListArea').innerHTML = html;
         }
         async function saveStaff() {

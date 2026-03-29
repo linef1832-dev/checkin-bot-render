@@ -169,6 +169,23 @@ app.post('/api/ping-active', async (req, res) => {
         res.status(500).json({ success: false });
     }
 });
+
+// --- 10. API ดึงข้อมูลสายลับ LINE OA มาโชว์ที่หน้าแผงควบคุม ---
+app.get('/api/get-tracker', async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('line_activity')
+            .select('*')
+            .order('last_active', { ascending: false }); // เรียงจากคลิกล่าสุดขึ้นก่อน
+
+        if (error) throw error;
+        res.json({ success: true, data: data });
+    } catch (err) {
+        console.error("❌ ดึงข้อมูล Tracker พลาด:", err);
+        res.status(500).json({ success: false });
+    }
+});
+
 // --- 6. API สำหรับ เพิ่ม/ลบ/แก้ไขพนักงาน ---
 app.post('/api/updatestaff', async (req, res) => {
     // เพิ่ม newName มาจาก body ด้วย
