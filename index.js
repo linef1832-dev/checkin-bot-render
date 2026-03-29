@@ -136,57 +136,40 @@ app.post('/api/startcheckin', async (req, res) => {
     });
 
 // --- 9. API รับข้อมูลจับคนอู้จาก Chrome Extension (LINE OA Tracker) ---
-        // --- 9. API รับข้อมูลจับคนอู้จาก Chrome Extension (LINE OA Tracker) ---
-        app.post('/api/ping-active', async (req, res) => {
-            // 🟢 1. รับค่า msgCount ที่สายลับส่งมาให้
-            const { sessionProfile, msgCount } = req.body;
+app.post('/api/ping-active', async (req, res) => {
+    const { sessionProfile, msgCount } = req.body;
 
-            if (!sessionProfile) {
-                return res.status(400).json({ success: false, message: 'ไม่พบชื่อพนักงาน' });
-            }
+    if (!sessionProfile) {
+        return res.status(400).json({ success: false, message: 'ไม่พบชื่อพนักงาน' });
+    }
 
-            // 🟢 2. เช็คยอดแชท (ถ้าไม่มีข้อมูลส่งมา ให้ตีเป็น 0 ไปเลย)
-            const chats = msgCount || 0;
+    const chats = msgCount || 0;
 
-            try {
-                const localTime = getThaiTime().toISOString();
+    try {
+        const localTime = getThaiTime().toISOString();
 
-                // 🟢 3. สั่งให้โชว์สรุปหล่อๆ ในหน้า Deploy Logs ของ Railway
-                console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
+        console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
-                const { error } = await supabase
-                    .from('line_activity')
-                    .insert([
-                        {
-                            staff_name: sessionProfile,
-                            status: 'Online',
-                            last_active: localTime,
-                            message_count: chats // 🟢 4. บันทึกยอดแชทลงฐานข้อมูล Supabase
-                        }
-                    ]);
-
-                if (error) {
-                    console.error('[Tracker] Error inserting data:', error);
-                    return res.status(500).json({ success: false, error: error.message });
+        const { error } = await supabase
+            .from('line_activity')
+            .insert([
+                {
+                    staff_name: sessionProfile,
+                    status: 'Online',
+                    last_active: localTime,
+                    message_count: chats 
                 }
+            ]);
 
-                return res.status(200).json({ success: true });
-            } catch (err) {
-                console.error('[Tracker] Server error:', err);
-                return res.status(500).json({ success: false, error: 'Internal Server Error' });
-            }
-        });
         if (error) {
-            console.error("❌ บันทึก Supabase พลาด:", error);
-            return res.status(500).json({ success: false });
+            console.error('[Tracker] Error inserting data:', error);
+            return res.status(500).json({ success: false, error: error.message });
         }
 
-        console.log(`📡 [Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน!`);
-        res.json({ success: true });
-
+        return res.status(200).json({ success: true });
     } catch (err) {
-        console.error("❌ Tracker API Error:", err);
-        res.status(500).json({ success: false });
+        console.error('[Tracker] Server error:', err);
+        return res.status(500).json({ success: false, error: 'Internal Server Error' });
     }
 });
 
