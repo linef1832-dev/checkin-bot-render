@@ -132,12 +132,22 @@
             <label>ชื่อพนักงาน</label><input type="text" id="staffName">
             <div style="display: flex; gap: 10px;">
                 <div style="flex: 1;"><select id="staffDept"><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
-                <div style="flex: 1;"><select id="staffShift"><option value="morning">เช้า</option><option value="noon">เที่ยง</option><option value="night">ดึก</option></select></div>
+                <div style="flex: 1;"><select id="staffShift"><option value="morning">กะเช้า</option><option value="noon">กะเที่ยง</option><option value="night">กะดึก</option></select></div>
             </div>
             <button id="btnSaveStaff" onclick="saveStaff()">💾 บันทึก</button>
         </div>
+
+        <div class="card" style="background-color: #202231;">
+            <h3 style="margin-top: 0; margin-bottom: 5px;">🔍 ค้นหาและกรองพนักงาน</h3>
+            <div class="search-box">
+                <div style="flex: 2;"><input type="text" id="searchName" placeholder="พิมพ์ชื่อค้นหา..." oninput="filterStaff()"></div>
+                <div><select id="searchDept" onchange="filterStaff()"><option value="ALL">ทุกแผนก</option><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select></div>
+                <div><select id="searchShift" onchange="filterStaff()"><option value="ALL">ทุกกะ</option><option value="morning">เช้า</option><option value="noon">เที่ยง</option><option value="night">ดึก</option></select></div>
+            </div>
+        </div>
+
         <div class="card"><h3 style="margin-top: 0;">📋 รายชื่อ <button class="btn-small" style="background:#43b581; float:right;" onclick="loadStaff()">🔄 โหลดใหม่</button></h3>
-            <div id="staffListArea" style="max-height: 300px; overflow-y: auto;">⏳...</div>
+            <div id="staffListArea" style="max-height: 400px; overflow-y: auto;">⏳ กำลังโหลดข้อมูล...</div>
         </div>
     </div>
 
@@ -316,7 +326,69 @@
         async function saveAutoTime() { const pin = document.getElementById('adminPin').value; if(!pin) return; await fetch('/api/setautotime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, times: timeSlots }) }); alert('บันทึกเวลาแล้ว'); }
         async function toggleAuto(s) { const pin = document.getElementById('adminPin').value; if(!pin) return; await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status:s, pin }) }); loadConfig(); }
         async function startCheckin() { const pin = document.getElementById('adminPin').value; const cId = document.getElementById('channelId').value; await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId:cId, pin, duration:10 }) }); alert('สั่งงานแล้ว'); }
-        async function loadStaff() { document.getElementById('staffListArea').innerText = 'โหลดเสร็จแล้ว'; } // ย่อโค้ดเพื่อไม่ให้ยาวไป
+        /* --- 👥 โค้ดระบบจัดการพนักงานของจริง (กู้คืนมาแล้ว!) --- */
+        async function loadStaff() {
+            const listArea = document.getElementById('staffListArea'); listArea.innerHTML = "<p style='color:yellow; text-align:center;'>⏳ กำลังโหลดข้อมูล...</p>";
+            try {
+                const res = await fetch('/api/getstaff'); const json = await res.json();
+                if (json.success) { globalStaffData = json.data; filterStaff(); } else { listArea.innerHTML = "❌ Error"; }
+            } catch(e) { listArea.innerHTML = "❌ Server Error"; }
+        }
+        function filterStaff() {
+            if (!globalStaffData) return;
+            const searchName = document.getElementById('searchName') ? document.getElementById('searchName').value.toLowerCase() : '';
+            const searchDept = document.getElementById('searchDept') ? document.getElementById('searchDept').value : 'ALL';
+            const searchShift = document.getElementById('searchShift') ? document.getElementById('searchShift').value : 'ALL';
+
+            let filteredData = {}; const depts = ['AMOL', 'ODOL']; const shifts = ['morning', 'noon', 'night'];
+            depts.forEach(dept => {
+                if (searchDept !== 'ALL' && dept !== searchDept) return;
+                if (globalStaffData[dept]) {
+                    filteredData[dept] = {};
+                    shifts.forEach(shift => {
+                        if (searchShift !== 'ALL' && shift !== searchShift) return;
+                        const shiftData = globalStaffData[dept][shift];
+                        if (shiftData) {
+                            let hasData = false; filteredData[dept][shift] = {};
+                            for (const [id, name] of Object.entries(shiftData)) {
+                                if (name.toLowerCase().includes(searchName) || id.includes(searchName)) { filteredData[dept][shift][id] = name; hasData = true; }
+                            }
+                            if (!hasData) delete filteredData[dept][shift];
+                        }
+                    });
+                    if (Object.keys(filteredData[dept]).length === 0) delete filteredData[dept];
+                }
+            });
+            renderStaffList(filteredData);
+        }
+        function renderStaffList(data) {
+            let html = ''; const depts = ['AMOL', 'ODOL']; const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'noon', label: '🕛 กะเที่ยง'}, {key: 'night', label: '🌙 กะดึก'}];
+            depts.forEach(dept => { if(data[dept]) {
+                html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px;">แผนก ${dept}</h4>`;
+                shifts.forEach(shift => { const shiftData = data[dept][shift.key];
+                    if(shiftData && Object.keys(shiftData).length > 0) {
+                        html += `<p style="color: #43b581; margin: 10px 0 5px 0;">${shift.label}</p><ul class="staff-list-ul">`;
+                        for(const [id, name] of Object.entries(shiftData)) { html += `<li class="staff-list-li"><div class="staff-info"><input type="text" value="${name}" class="staff-name-input" id="input-name-${id}"><span class="staff-id">ID: ${id}</span></div><div style="display: flex; gap: 5px;"><button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button><button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button></div></li>`; }
+                        html += `</ul>`;
+                    }
+                });
+            }});
+            if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อ</p>';
+            document.getElementById('staffListArea').innerHTML = html;
+        }
+        async function saveStaff() {
+            const pin = document.getElementById('adminPin').value; const discordId = document.getElementById('staffId').value.trim(); const staffName = document.getElementById('staffName').value.trim(); const dept = document.getElementById('staffDept').value; const shift = document.getElementById('staffShift').value;
+            if (!pin || !discordId || !staffName) return alert('ข้อมูลไม่ครบ'); const btn = document.getElementById('btnSaveStaff'); btn.innerText = "⏳...";
+            try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'add', discordId, staffName, dept, shift, pin }) }); document.getElementById('staffId').value = ''; document.getElementById('staffName').value = ''; loadStaff(); } catch (e) {} btn.innerText = "💾 บันทึก";
+        }
+        async function saveEdittedName(discordId) {
+            const pin = document.getElementById('adminPin').value; if (!pin) return; const newName = document.getElementById('input-name-' + discordId).value.trim(); if (!newName || !confirm('ยืนยันแก้ชื่อ?')) return;
+            try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'edit_name', discordId, newName, pin }) }); loadStaff(); } catch (e) {}
+        }
+        async function removeStaff(discordId) {
+            const pin = document.getElementById('adminPin').value; if (!pin || !confirm('ลบแน่ใจ?')) return;
+            try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
+        }
     </script>
 </body>
 </html>
