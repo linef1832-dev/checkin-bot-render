@@ -136,17 +136,25 @@ app.post('/api/startcheckin', async (req, res) => {
     });
 
 // --- 9. API รับข้อมูลจับคนอู้จาก Chrome Extension (LINE OA Tracker) ---
+const userCooldowns = {};
+
 app.post('/api/ping-active', async (req, res) => {
     const { sessionProfile, msgCount } = req.body;
 
     if (!sessionProfile) {
-        return res.status(400).json({ success: false, message: 'ไม่พบชื่อพนักงาน' });
+        return res.status(400).json({ success: false });
     }
 
     const chats = msgCount || 0;
+    const now = Date.now();
+
+    if (chats === 0 && userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 45000)) {
+        return res.status(200).json({ success: true, status: 'ignored_spam' });
+    }
+
+    userCooldowns[sessionProfile] = now;
 
     try {
-        // 🟢 แก้บัคไทม์แมชชีน: ใช้เวลาสากล (UTC) แท้ๆ ส่งให้ฐานข้อมูล
         const localTime = new Date().toISOString(); 
 
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
@@ -163,14 +171,14 @@ app.post('/api/ping-active', async (req, res) => {
             ]);
 
         if (error) {
-            console.error('[Tracker] Error inserting data:', error);
-            return res.status(500).json({ success: false, error: error.message });
+            console.error('[Tracker] Error:', error);
+            return res.status(500).json({ success: false });
         }
 
         return res.status(200).json({ success: true });
     } catch (err) {
         console.error('[Tracker] Server error:', err);
-        return res.status(500).json({ success: false, error: 'Internal Server Error' });
+        return res.status(500).json({ success: false });
     }
 });
 
