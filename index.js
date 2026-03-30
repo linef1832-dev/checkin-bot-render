@@ -1060,4 +1060,8 @@ setInterval(async () => {
     } catch (e) {
         console.error("❌ [Housekeeper] System error:", e);
     }
-}, 24 * 60 * 60 * 1000);
+}, 24 * 60 * 60 * 1000); 
+
+// --- สั่งเริ่มเซิร์ฟเวอร์ (ห้ามลบ 2 บรรทัดนี้นะครับบอส!) ---
+app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
+client.login(process.env.TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
