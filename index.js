@@ -1044,20 +1044,20 @@ client.once('ready', () => {
 });
 
 // ==========================================
-// 🧹 ระบบแม่บ้าน: เคลียร์ขยะ (จัดวางในตำแหน่งที่ถูกต้อง ไม่ชอร์ตเซิร์ฟเวอร์)
+// 🧹 ระบบแม่บ้าน: ยุบรวมยอดแชท (1 วัน/แถว) และลบขยะ
 // ==========================================
 setInterval(async () => {
     try {
-        console.log('🧹 [ระบบแม่บ้าน] เริ่มตรวจสอบและกวาดขยะในฐานข้อมูล...');
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        console.log('🧹 [Housekeeper] Compressing old chats and clearing database...');
 
-        const { error } = await supabase.from('line_activity').delete().lt('last_active', sevenDaysAgo.toISOString());
-        if (error) console.error("❌ [ระบบแม่บ้าน] กวาดขยะพลาด:", error);
-        else console.log('✅ [ระบบแม่บ้าน] เคลียร์ข้อมูลขยับเมาส์ที่เก่ากว่า 7 วันเรียบร้อยแล้ว!');
-    } catch (e) { console.error("❌ [ระบบแม่บ้าน] ระบบขัดข้อง:", e); }
+        const { error } = await supabase.rpc('compress_old_activity');
+
+        if (error) {
+            console.error("❌ [Housekeeper] Compression failed:", error);
+        } else {
+            console.log('✅ [Housekeeper] Chat history compressed to 1 row/day. Database cleaned!');
+        }
+    } catch (e) {
+        console.error("❌ [Housekeeper] System error:", e);
+    }
 }, 24 * 60 * 60 * 1000);
-
-// --- สั่งเริ่มเซิร์ฟเวอร์ ---
-app.listen(process.env.PORT || PORT, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
-client.login(TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
