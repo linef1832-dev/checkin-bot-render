@@ -146,7 +146,8 @@ app.post('/api/ping-active', async (req, res) => {
     const chats = msgCount || 0;
 
     try {
-        const localTime = getThaiTime().toISOString();
+        // 🟢 แก้บัคไทม์แมชชีน: ใช้เวลาสากล (UTC) แท้ๆ ส่งให้ฐานข้อมูล
+        const localTime = new Date().toISOString(); 
 
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
