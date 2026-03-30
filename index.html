@@ -111,12 +111,12 @@
                         <tr>
                             <th>พนักงาน</th>
                             <th>สถานะ/ล่าสุด</th>
-                            <th style="text-align:center;">จำนวนอู้</th>
+                            <th style="text-align:center;">ยอดแชท 💬</th> <th style="text-align:center;">จำนวนอู้</th>
                             <th>จัดการ</th>
                         </tr>
                     </thead>
                     <tbody id="trackerTableBody">
-                        <tr><td colspan="4" style="text-align: center; color: #aaa;">รอสักครู่...</td></tr>
+                        <tr><td colspan="5" style="text-align: center; color: #aaa;">รอสักครู่...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -159,11 +159,11 @@
     </div>
 
     <script>
-        // ตั้งค่าวันที่ปัจจุบันให้ช่องค้นหา
         document.getElementById('trackerDate').value = new Date().toLocaleDateString('en-CA'); 
 
-        let currentTrackerData = {}; // เก็บข้อมูลอู้ทั้งหมดของวันนี้
+        let currentTrackerData = {}; 
         let trackerInterval;
+        let globalStaffData = null; // ป้องกัน Error หากพนักงานยังไม่โหลด
 
         function openTab(evt, menuName) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
@@ -175,10 +175,10 @@
             if(menuName === 'trackerMenu') fetchLineTracker();
         }
 
-        /* --- 🟢 ระบบคำนวณสถิติและประวัติ --- */
+        /* --- 🟢 ระบบคำนวณสถิติและประวัติ (อัปเกรดยอดแชท + กัน Error) --- */
         async function fetchLineTracker() {
             const tBody = document.getElementById('trackerTableBody');
-            tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: yellow;">⏳ กำลังประมวลผลข้อมูล...</td></tr>';
+            tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: yellow;">⏳ กำลังประมวลผลข้อมูล...</td></tr>';
             
             const dateStr = document.getElementById('trackerDate').value;
             try {
@@ -193,21 +193,27 @@
                 const { pings, remarks } = json;
                 const staffMap = {};
 
-                // จัดกลุ่มข้อมูลการขยับเมาส์ของแต่ละคน
+                // 🟢 เพิ่มการดักจับยอดแชท (รวมยอดของแต่ละคนทั้งวัน)
                 pings.forEach(p => {
                     const name = p.staff_name.toUpperCase();
-                    if (!staffMap[name]) staffMap[name] = [];
+                    if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0 };
+                    
                     let tStr = p.last_active;
-                    if(tStr.endsWith('Z')) tStr = tStr.slice(0, -1); // แก้บั๊กเวลา Z
-                    staffMap[name].push(new Date(tStr));
+                    if(tStr.endsWith('Z')) tStr = tStr.slice(0, -1); 
+                    staffMap[name].times.push(new Date(tStr));
+
+                    // 🟢 ถ้าคอลัมน์ message_count มีค่าเป็นตัวเลข (ไม่ใช่ Null) ให้เอามารวมกัน
+                    if (p.message_count && !isNaN(p.message_count)) {
+                        staffMap[name].totalChats += parseInt(p.message_count);
+                    }
                 });
 
                 currentTrackerData = {};
                 const now = new Date();
 
-                // ตรวจหาช่วงเวลาที่อู้ (เกิน 15 นาที)
                 Object.keys(staffMap).forEach(name => {
-                    const times = staffMap[name].sort((a,b) => a - b);
+                    const times = staffMap[name].times.sort((a,b) => a - b);
+                    const totalChats = staffMap[name].totalChats; // ยอดแชทรวม
                     const gaps = [];
                     
                     for(let i=1; i<times.length; i++) {
@@ -221,15 +227,16 @@
 
                     const lastActive = times[times.length - 1];
                     let diffNow = Math.floor((now - lastActive) / 60000);
-                    if(diffNow < 0) diffNow = 0;
+                    // 🟢 ดักจับ Error ค่าติดลบ (ป้องกันการเอาไปลบกันแล้วเพี้ยน)
+                    if(isNaN(diffNow) || diffNow < 0) diffNow = 0; 
                     
-                    // ถ้านับของวันนี้ และปัจจุบันกำลังอู้อยู่
                     if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 15) {
                         const r = remarks.find(rm => rm.staff_name === name && rm.start_time === lastActive.toISOString() && (!rm.end_time || rm.end_time === 'null'));
                         gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: r ? r.remark : '' });
                     }
 
-                    currentTrackerData[name] = { lastActive, diffNow, gaps };
+                    // 🟢 ส่งยอดแชทไปแสดงผลด้วย
+                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats }; 
                 });
 
                 renderTrackerTable();
@@ -241,11 +248,11 @@
                 }, 30000);
 
             } catch(e) {
-                tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #ED4245;">❌ ดึงข้อมูลพลาด</td></tr>';
+                console.error("Dashboard Error:", e); // พ่น Error ใส่คอนโซลให้เห็นชัดๆ
+                tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ED4245;">❌ ดึงข้อมูลพลาด (หรือยังไม่มีข้อมูลของวันนี้)</td></tr>';
             }
         }
 
-        // 🧠 1. ฟังก์ชันผู้ช่วยค้นหาว่าพนักงานคนนี้อยู่กะอะไร (ดึงจากฐานข้อมูลเมนูพนักงาน)
         function getStaffShift(staffName) {
             if (!globalStaffData) return 'unknown';
             const cleanName = staffName.toUpperCase();
@@ -254,7 +261,7 @@
                     for (const id in globalStaffData[dept][shift]) {
                         const nameInDb = globalStaffData[dept][shift][id].toUpperCase();
                         if (nameInDb.includes(cleanName) || cleanName.includes(nameInDb)) {
-                            return shift; // จะได้ค่ากลับมาเป็น 'morning', 'noon', หรือ 'night'
+                            return shift; 
                         }
                     }
                 }
@@ -262,7 +269,6 @@
             return 'unknown'; 
         }
 
-        // 🎛️ ตัวแปรเก็บค่าว่าตอนนี้กดปุ่มกรองอะไรอยู่
         let currentStatusFilter = 'ALL';
 
         function setFilter(status) {
@@ -285,7 +291,6 @@
             renderTrackerTable(); 
         }
 
-        // 🟢 สร้างตารางแสดงผล (เวอร์ชันสมบูรณ์: ปุ่มกรอง + สีเหลือง Telegram + ตัดกะออโต้)
         function renderTrackerTable() {
             const tBody = document.getElementById('trackerTableBody');
             const searchEl = document.getElementById('searchTracker');
@@ -298,7 +303,7 @@
 
             const keys = Object.keys(currentTrackerData).filter(name => name.includes(search));
             if(keys.length === 0) {
-                tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่พบรายชื่อพนักงาน</td></tr>';
+                tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่พบรายชื่อพนักงาน</td></tr>';
                 return;
             }
 
@@ -307,17 +312,20 @@
 
             let displayCount = 0; 
 
-            keys.sort((a, b) => currentTrackerData[b].diffNow - currentTrackerData[a].diffNow).forEach(name => {
+            // 🟢 ดักจับบัค Sort: ถ้า diffNow เป็นค่าแปลกๆ ให้ตีเป็น 0 ไปเลย (ป้องกันหน้าเว็บช็อก)
+            keys.sort((a, b) => {
+                let diffA = isNaN(currentTrackerData[a].diffNow) ? 0 : currentTrackerData[a].diffNow;
+                let diffB = isNaN(currentTrackerData[b].diffNow) ? 0 : currentTrackerData[b].diffNow;
+                return diffB - diffA;
+            }).forEach(name => {
                 const d = currentTrackerData[name];
                 const staffShift = typeof getStaffShift === 'function' ? getStaffShift(name) : 'unknown'; 
 
-                // ประกาศตัวแปรสถานะครบถ้วน (กัน Error)
                 let isOffDuty = false;
                 let offDutyReason = ""; 
                 let isPaused = false;
                 let pauseReason = "";
 
-                // --- 🛑 กฎข้อที่ 1: เช็คจากหมายเหตุ (แอดมินกดให้ หรือ Telegram) ---
                 const lastGap = d.gaps.length > 0 ? d.gaps[d.gaps.length - 1] : null;
 
                 if (lastGap && lastGap.remark) {
@@ -331,7 +339,6 @@
                     }
                 }
 
-                // --- 🤖 กฎข้อที่ 2: ระบบตัดเลิกงานตามเวลาเป๊ะๆ (08:05 / 20:05) ---
                 if (!isOffDuty && !isPaused && staffShift !== 'unknown') {
                     if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
                         isOffDuty = true; offDutyReason = "หมดเวลากะเช้า";
@@ -341,21 +348,18 @@
                     }
                 }
 
-                // --- 👻 กฎข้อที่ 3: หายไปนานเกิน 60 นาที ---
                 if (!isOffDuty && !isPaused && d.diffNow >= 60) {
                     isOffDuty = true; offDutyReason = "หายไป 1 ชม.";
                 }
 
-                // 🎯 จัดหมวดหมู่สถานะสำหรับปุ่มกรอง
                 let currentCategory = 'ONLINE';
                 if (isOffDuty) { currentCategory = 'OFFLINE'; } 
                 else if (d.diffNow >= 10 && !isPaused) { currentCategory = 'AFK'; } 
 
                 if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) return; 
 
-                displayCount++; // นับว่ามีคนผ่านการกรอง
+                displayCount++; 
 
-                // --------- ส่วนแสดงผลสีบนหน้าเว็บ ---------
                 let statusHtml = '';
                 let rowStyle = '';
 
@@ -379,18 +383,16 @@
                 tBody.innerHTML += `<tr style="${rowStyle}">
                     <td style="font-weight: bold;">${name}</td>
                     <td>${statusHtml}<br><span style="font-size:11px;color:#aaa;">ล่าสุด: ${d.lastActive.toLocaleTimeString('th-TH')}</span></td>
-                    <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 && !isOffDuty && !isPaused ? '#ED4245' : '#888'};">${afkCount}</td>
+                    <td style="text-align:center; font-weight:bold; color:#FEE75C; font-size:16px;">${d.totalChats || 0}</td> <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 && !isOffDuty && !isPaused ? '#ED4245' : '#888'};">${afkCount}</td>
                     <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
                 </tr>`;
             });
 
-            // ถ้ากรองแล้วไม่เจอใครเลย
             if (displayCount === 0) {
-                 tBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่มีพนักงานในสถานะนี้ครับ</td></tr>';
+                 tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่มีพนักงานในสถานะนี้ครับ</td></tr>';
             }
         }
 
-        // 🟢 เปิดหน้าต่างดูประวัติอู้ + ใส่หมายเหตุ
         function openHistory(name) {
             const dateStr = document.getElementById('trackerDate').value;
             document.getElementById('modalTitle').innerText = `📋 ประวัติ: ${name}`;
@@ -438,7 +440,7 @@
                 const data = await res.json();
                 if(data.success) {
                     alert('✅ บันทึกหมายเหตุสำเร็จ!');
-                    fetchLineTracker(); // โหลดข้อมูลใหม่
+                    fetchLineTracker(); 
                 } else { alert(data.message || '❌ เกิดข้อผิดพลาด'); }
             } catch(e) { alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); }
         }
@@ -447,11 +449,12 @@
         let timeSlots = [{ time: "07:50", shift: "☀️ กะเช้า" }];
         function renderTimeSlots() { const c = document.getElementById('timeSlotsContainer'); c.innerHTML=''; timeSlots.forEach((s, i)=> { c.innerHTML += `<div style="display:flex; gap:5px; margin-bottom:5px;"><input type="time" value="${s.time}" onchange="timeSlots[${i}].time=this.value"><input list="shiftOptions" value="${s.shift}" onchange="timeSlots[${i}].shift=this.value"><button class="btn-small btn-red" onclick="timeSlots.splice(${i},1);renderTimeSlots()">X</button></div>`; }); }
         function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "เที่ยง" }); renderTimeSlots(); }
-        async function loadConfig() { try { const res = await fetch('/api/getconfig'); const json = await res.json(); if(json.success && json.autoCheckinTimes) timeSlots = json.autoCheckinTimes; renderTimeSlots(); document.getElementById('botStatusDisplay').innerHTML = json.autoCheckinEnabled ? '✅ ออโต้ ON' : '🛑 ออโต้ OFF'; } catch(e){} }
+        async function loadConfig() { try { const res = await fetch('/api/getconfig'); const json = await res.json(); if(json.success && json.autoCheckinTimes) timeSlots = json.autoCheckinTimes; renderTimeSlots(); document.getElementById('botStatusDisplay').innerHTML = json.autoCheckinEnabled ? '✅ ออโต้ ON' : '🛑 ออโต้ OFF'; } catch(e){} loadStaff(); /* 🟢 โหลดพนักงานตอนเริ่มระบบ */ }
         async function saveAutoTime() { const pin = document.getElementById('adminPin').value; if(!pin) return; await fetch('/api/setautotime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, times: timeSlots }) }); alert('บันทึกเวลาแล้ว'); }
         async function toggleAuto(s) { const pin = document.getElementById('adminPin').value; if(!pin) return; await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status:s, pin }) }); loadConfig(); }
         async function startCheckin() { const pin = document.getElementById('adminPin').value; const cId = document.getElementById('channelId').value; await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId:cId, pin, duration:10 }) }); alert('สั่งงานแล้ว'); }
-        /* --- 👥 โค้ดระบบจัดการพนักงานของจริง (กู้คืนมาแล้ว!) --- */
+        
+        /* --- 👥 โค้ดระบบจัดการพนักงานของจริง --- */
         async function loadStaff() {
             const listArea = document.getElementById('staffListArea'); listArea.innerHTML = "<p style='color:yellow; text-align:center;'>⏳ กำลังโหลดข้อมูล...</p>";
             try {
