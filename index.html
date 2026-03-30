@@ -324,7 +324,11 @@
 
                 const lastGap = d.gaps.length > 0 ? d.gaps[d.gaps.length - 1] : null;
 
-                if (lastGap && lastGap.remark) {
+                // 🟢 ลอจิกใหม่: เช็คก่อนว่า "น้องเพิ่งพิมพ์ (diffNow < 10)" หรือเปล่า?
+                // ถ้าเพิ่งพิมพ์ แปลว่ายังมีชีวิตอยู่หน้าจอ! ข้ามการอ่านหมายเหตุ "เลิกงาน" และ "พัก" ไปเลย
+                const isRecentlyActive = d.diffNow < 10; 
+
+                if (lastGap && lastGap.remark && !isRecentlyActive) {
                     if (lastGap.remark.includes('เลิกงาน') || lastGap.remark.includes('หมดกะ')) {
                         isOffDuty = true;
                         offDutyReason = "แอดมินกดให้";
@@ -335,7 +339,8 @@
                     }
                 }
 
-                if (!isOffDuty && !isPaused && staffShift !== 'unknown') {
+                // (เงื่อนไขหมดกะอัตโนมัติตามเวลายังเหมือนเดิม แต่ให้ทำงานก็ต่อเมื่อน้องไม่ได้เพิ่งพิมพ์)
+                if (!isOffDuty && !isPaused && staffShift !== 'unknown' && !isRecentlyActive) {
                     if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
                         isOffDuty = true; offDutyReason = "หมดเวลากะเช้า";
                     }
