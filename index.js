@@ -636,8 +636,8 @@ function startSummaryTimer(channelId) {
                     const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
                     let shiftKey = 'morning';
                     const sType = session.shiftType ? session.shiftType.toLowerCase() : '';
-                    if (sType.includes('ดึก') || sType.includes('night') || sType.includes('กะดึก')) shiftKey = 'night';
-                    else if (sType.includes('เที่ยง') || sType.includes('บ่าย') || sType.includes('กะเที่ยง')) shiftKey = 'afternoon';
+                    if (sType.includes('ดึก') || sType.includes('night')) shiftKey = 'night';
+                    else if (sType.includes('เที่ยง') || sType.includes('noon')) shiftKey = 'noon'; // 🟢 ดึงข้อมูลพนักงานจากกะ noon
 
                     let shiftStaff = {};
                     const targetDept = session.department.toUpperCase(); 
@@ -777,7 +777,8 @@ client.on('messageCreate', async (message) => {
         let shift = '';
         if (shiftInput === 'เช้า' || shiftInput.toLowerCase() === 'morning') shift = 'morning';
         else if (shiftInput === 'ดึก' || shiftInput.toLowerCase() === 'night') shift = 'night';
-        else return message.reply('❌ กะต้องระบุเป็น `เช้า` หรือ `ดึก` เท่านั้นค่ะ');
+        else if (shiftInput === 'เที่ยง' || shiftInput.toLowerCase() === 'noon') shift = 'noon'; // 🟢 เพิ่มกะเที่ยง
+        else return message.reply('❌ กะต้องระบุเป็น `เช้า`, `เที่ยง` หรือ `ดึก` เท่านั้นค่ะ');
 
         const staffName = args.slice(4).join(' '); 
         const staffId = targetUser.id;
@@ -887,9 +888,9 @@ client.on('messageCreate', async (message) => {
         const currentHour = localTime.getHours();
 
         let shiftType = "Night";
-        if (currentHour >= 6 && currentHour < 11) shiftType = "Morning"; 
-        else if (currentHour >= 11 && currentHour <= 13) shiftType = "Noon"; 
-        else if (currentHour > 13 && currentHour < 18) shiftType = "Afternoon";
+        if (currentHour >= 6 && currentHour < 10) shiftType = "Morning";
+        else if (currentHour >= 10 && currentHour < 14) shiftType = "Noon";
+        else if (currentHour >= 14 && currentHour < 18) shiftType = "Afternoon";
 
         if (activeSessions.has(channelId)) return message.reply('⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้วค่ะ');
 
@@ -975,9 +976,9 @@ client.once('ready', () => {
             if (typeof scheduleTimes[i] === 'string') {
                 if (scheduleTimes[i] === currentTimeStr) {
                     let autoShift = "night";
-                    if (currentHour >= 6 && currentHour < 11) autoShift = "morning";
-                    else if (currentHour >= 11 && currentHour <= 13) autoShift = "noon";
-                    else if (currentHour > 13 && currentHour < 18) autoShift = "afternoon";
+                    if (currentHour >= 6 && currentHour < 10) autoShift = "morning";
+                    else if (currentHour >= 10 && currentHour < 14) autoShift = "noon";
+                    else if (currentHour >= 14 && currentHour < 18) autoShift = "afternoon";
 
                     currentSlot = { time: currentTimeStr, shift: autoShift }; break;
                 }
