@@ -178,8 +178,8 @@
         /* --- 🟢 ระบบคำนวณสถิติและประวัติ (อัปเกรดยอดแชท + กัน Error) --- */
         async function fetchLineTracker() {
             const tBody = document.getElementById('trackerTableBody');
-            tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: yellow;">⏳ กำลังประมวลผลข้อมูล...</td></tr>';
-            
+            tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: yellow;">Loading...</td></tr>';
+
             const dateStr = document.getElementById('trackerDate').value;
             try {
                 const res = await fetch('/api/tracker-history', {
@@ -193,16 +193,15 @@
                 const { pings, remarks } = json;
                 const staffMap = {};
 
-                // 🟢 เพิ่มการดักจับยอดแชท (รวมยอดของแต่ละคนทั้งวัน)
                 pings.forEach(p => {
                     const name = p.staff_name.toUpperCase();
                     if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0 };
-                    
+
                     let tStr = p.last_active;
-                    if(tStr.endsWith('Z')) tStr = tStr.slice(0, -1); 
+                    if (!tStr.endsWith('Z') && !tStr.includes('+')) tStr += 'Z'; 
+
                     staffMap[name].times.push(new Date(tStr));
 
-                    // 🟢 ถ้าคอลัมน์ message_count มีค่าเป็นตัวเลข (ไม่ใช่ Null) ให้เอามารวมกัน
                     if (p.message_count && !isNaN(p.message_count)) {
                         staffMap[name].totalChats += parseInt(p.message_count);
                     }
@@ -213,9 +212,9 @@
 
                 Object.keys(staffMap).forEach(name => {
                     const times = staffMap[name].times.sort((a,b) => a - b);
-                    const totalChats = staffMap[name].totalChats; // ยอดแชทรวม
+                    const totalChats = staffMap[name].totalChats; 
                     const gaps = [];
-                    
+
                     for(let i=1; i<times.length; i++) {
                         const diffMins = Math.floor((times[i] - times[i-1]) / 60000);
                         if(diffMins >= 15) { 
@@ -227,15 +226,13 @@
 
                     const lastActive = times[times.length - 1];
                     let diffNow = Math.floor((now - lastActive) / 60000);
-                    // 🟢 ดักจับ Error ค่าติดลบ (ป้องกันการเอาไปลบกันแล้วเพี้ยน)
                     if(isNaN(diffNow) || diffNow < 0) diffNow = 0; 
-                    
+
                     if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 15) {
                         const r = remarks.find(rm => rm.staff_name === name && rm.start_time === lastActive.toISOString() && (!rm.end_time || rm.end_time === 'null'));
                         gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: r ? r.remark : '' });
                     }
 
-                    // 🟢 ส่งยอดแชทไปแสดงผลด้วย
                     currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats }; 
                 });
 
@@ -248,8 +245,7 @@
                 }, 30000);
 
             } catch(e) {
-                console.error("Dashboard Error:", e); // พ่น Error ใส่คอนโซลให้เห็นชัดๆ
-                tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ED4245;">❌ ดึงข้อมูลพลาด (หรือยังไม่มีข้อมูลของวันนี้)</td></tr>';
+                tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ED4245;">Error</td></tr>';
             }
         }
 
