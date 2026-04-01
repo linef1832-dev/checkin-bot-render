@@ -415,28 +415,33 @@ async function processAutoShiftSwaps() {
     try {
         console.log("🔄 [AutoSwap] กำลังกวาดตารางย้ายกะ (กวาดทั้งหมดที่เป็น completed)...");
 
-        // 🚨 ปลดล็อคเวลา: ดึงข้อมูลทั้งหมดที่สถานะ completed ไม่ว่าจะเก่าแค่ไหน
-        const { data: tasks, error } = await supabase
+        // 🚨 แก้ไขจุดสำคัญ: เปลี่ยนจาก supabase เป็น supabaseLeave 
+        if (!supabaseLeave) {
+            return console.error("❌ [AutoSwap] ตัวแปร SUPABASE_LEAVE_URL ยังไม่ได้ตั้งค่า");
+        }
+
+        const { data: tasks, error } = await supabaseLeave
             .from('scheduled_tasks')
             .select('*')
-            .eq('status', 'completed'); // <--- ลบตัวกรองเวลาทิ้งไปแล้วครับ!
+            .eq('status', 'completed'); 
 
         if (error) return console.error("❌ [AutoSwap] ดึงข้อมูลพลาด:", error);
-        if (!tasks || tasks.length === 0) return;
+        if (!tasks || tasks.length === 0) {
+            console.log("ℹ️ [AutoSwap] ไม่พบใบสั่งงานที่รออัปเดต");
+            return;
+        }
 
         let staffData = {};
         if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
         let isUpdated = false;
 
         for (const task of tasks) {
-            // ถ้าบอทจำได้ว่าเพิ่งทำไปในรอบนี้ ให้ข้ามไป
             if (processedTasks.has(task.id)) continue;
 
             let p = task.payload;
             if (typeof p === 'string') { try { p = JSON.parse(p); } catch(e){ p = {}; } }
 
             if (task.task_type === 'individual_shift_update') {
-                // รองรับ Key ได้หลายแบบ เผื่อระบบส่งมาชื่อไม่ตรงกัน
                 const targetName = (p.user_name || p.name || p.staff_name || '').trim();
                 const targetShiftTh = (p.target_shift || p.shift || p.new_shift || '').trim();
 
@@ -449,7 +454,6 @@ async function processAutoShiftSwaps() {
 
                     let foundUserId = null; let foundDept = null; let foundName = null;
 
-                    // ค้นหาพนักงานจากทุกกะ/ทุกแผนก
                     for (const dept in staffData) {
                         for (const shift in staffData[dept]) {
                             for (const uid in staffData[dept][shift]) {
@@ -464,7 +468,6 @@ async function processAutoShiftSwaps() {
                         }
                     }
 
-                    // ย้ายเข้ากะใหม่
                     if (foundUserId && foundDept) {
                         if (!staffData[foundDept][newShiftKey]) staffData[foundDept][newShiftKey] = {};
                         staffData[foundDept][newShiftKey][foundUserId] = foundName; 
@@ -473,7 +476,6 @@ async function processAutoShiftSwaps() {
                     }
                 }
             }
-            // จดจำ ID งานนี้ไว้ บอทจะได้ไม่ทำซ้ำซ้อน
             processedTasks.add(task.id);
         }
 
@@ -481,6 +483,8 @@ async function processAutoShiftSwaps() {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
             await syncToGitHub(staffData); 
             console.log("💾 [AutoSwap] กวาดข้อมูลและอัปเดตกะทั้งหมดลงระบบเรียบร้อย!");
+        } else {
+            console.log("ℹ️ [AutoSwap] ระบบเช็คแล้ว ไม่มีใครย้ายกะเพิ่มในรอบนี้");
         }
     } catch (err) { 
         console.error("❌ [AutoSwap] Error:", err); 
