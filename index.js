@@ -413,11 +413,19 @@ function getSupabaseDateStr() {
 
 async function processAutoShiftSwaps() {
     try {
+        console.log("🔄 [AutoSwap] กำลังตรวจสอบตารางย้ายกะ...");
         const now = new Date();
-        const yesterday = new Date(now.getTime() - (24 * 60 * 60 * 1000)).toISOString();
-        const { data: tasks, error } = await supabase.from('scheduled_tasks').select('*').eq('status', 'completed').gte('scheduled_for', yesterday); 
+        // เผื่อเวลาเป็น 48 ชม. ป้องกันเคสเซิร์ฟเวอร์หลับแล้วข้ามวัน
+        const yesterday = new Date(now.getTime() - (48 * 60 * 60 * 1000)).toISOString(); 
 
-        if (error || !tasks || tasks.length === 0) return;
+        const { data: tasks, error } = await supabase
+            .from('scheduled_tasks')
+            .select('*')
+            .eq('status', 'completed')
+            .gte('scheduled_for', yesterday);
+
+        if (error) return console.error("❌ [AutoSwap] ดึงข้อมูลพลาด:", error);
+        if (!tasks || tasks.length === 0) return;
 
         let staffData = {};
         if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
@@ -425,43 +433,63 @@ async function processAutoShiftSwaps() {
 
         for (const task of tasks) {
             if (processedTasks.has(task.id)) continue;
+
             let p = task.payload;
             if (typeof p === 'string') { try { p = JSON.parse(p); } catch(e){ p = {}; } }
 
             if (task.task_type === 'individual_shift_update') {
-                const targetName = p.user_name;
-                const targetShiftTh = p.target_shift; 
+                // ตัดช่องว่างซ้ายขวาทิ้ง (กันบั๊กพิมพ์ spacebar เกิน) และดักจับ Key หลายรูปแบบ
+                const targetName = (p.user_name || p.name || '').trim();
+                const targetShiftTh = (p.target_shift || p.shift || p.new_shift || '').trim();
 
                 if (targetName && targetShiftTh && targetShiftTh !== 'คงเดิม') {
-                    const newShiftKey = targetShiftTh.includes('เช้า') ? 'morning' : 'night';
+
+                    // 🟢 อัปเกรด: รองรับ กะเช้า, กะเที่ยง, กะดึก สมบูรณ์แบบ
+                    let newShiftKey = 'night';
+                    const checkShift = targetShiftTh.toLowerCase();
+                    if (checkShift.includes('เช้า') || checkShift.includes('morning')) newShiftKey = 'morning';
+                    else if (checkShift.includes('เที่ยง') || checkShift.includes('noon')) newShiftKey = 'noon';
+
                     let foundUserId = null; let foundDept = null; let foundName = null;
 
+                    // ค้นหาพนักงานจากทุกแผนก/ทุกกะ
                     for (const dept in staffData) {
                         for (const shift in staffData[dept]) {
                             for (const uid in staffData[dept][shift]) {
-                                if (staffData[dept][shift][uid].toUpperCase().includes(targetName.toUpperCase())) {
-                                    foundUserId = uid; foundDept = dept; foundName = staffData[dept][shift][uid];
-                                    delete staffData[dept][shift][uid]; 
+                                const dbName = staffData[dept][shift][uid].toUpperCase();
+                                if (dbName.includes(targetName.toUpperCase())) {
+                                    foundUserId = uid; 
+                                    foundDept = dept; 
+                                    foundName = staffData[dept][shift][uid];
+                                    delete staffData[dept][shift][uid]; // ลบออกจากกะเดิมทันที
                                 }
                             }
                         }
                     }
 
+                    // ย้ายเข้ากะใหม่
                     if (foundUserId && foundDept) {
                         if (!staffData[foundDept][newShiftKey]) staffData[foundDept][newShiftKey] = {};
-                        staffData[foundDept][newShiftKey][foundUserId] = foundName;
+                        staffData[foundDept][newShiftKey][foundUserId] = foundName; 
                         isUpdated = true;
+                        console.log(`✅ [AutoSwap] ย้าย ${foundName} ไป ${newShiftKey} สำเร็จ!`);
+                    } else {
+                        console.log(`⚠️ [AutoSwap] หาชื่อ ${targetName} ไม่เจอในระบบ! (อาจจะไม่มีชื่อนี้ หรือย้ายไปแล้ว)`);
                     }
                 }
             }
             processedTasks.add(task.id);
         }
 
+        // บันทึกและส่งขึ้น GitHub ทันที
         if (isUpdated) {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
             await syncToGitHub(staffData); 
+            console.log("💾 [AutoSwap] บันทึกไฟล์ staff.json อัปเดตเข้าระบบเรียบร้อย!");
         }
-    } catch (err) { }
+    } catch (err) { 
+        console.error("❌ [AutoSwap] Error:", err); 
+    }
 }
 
 function getLeavesToday(dateStr, department = 'ALL') {
