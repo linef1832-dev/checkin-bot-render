@@ -413,16 +413,13 @@ function getSupabaseDateStr() {
 
 async function processAutoShiftSwaps() {
     try {
-        console.log("🔄 [AutoSwap] กำลังตรวจสอบตารางย้ายกะ...");
-        const now = new Date();
-        // เผื่อเวลาเป็น 48 ชม. ป้องกันเคสเซิร์ฟเวอร์หลับแล้วข้ามวัน
-        const yesterday = new Date(now.getTime() - (48 * 60 * 60 * 1000)).toISOString(); 
+        console.log("🔄 [AutoSwap] กำลังกวาดตารางย้ายกะ (กวาดทั้งหมดที่เป็น completed)...");
 
+        // 🚨 ปลดล็อคเวลา: ดึงข้อมูลทั้งหมดที่สถานะ completed ไม่ว่าจะเก่าแค่ไหน
         const { data: tasks, error } = await supabase
             .from('scheduled_tasks')
             .select('*')
-            .eq('status', 'completed')
-            .gte('scheduled_for', yesterday);
+            .eq('status', 'completed'); // <--- ลบตัวกรองเวลาทิ้งไปแล้วครับ!
 
         if (error) return console.error("❌ [AutoSwap] ดึงข้อมูลพลาด:", error);
         if (!tasks || tasks.length === 0) return;
@@ -432,19 +429,19 @@ async function processAutoShiftSwaps() {
         let isUpdated = false;
 
         for (const task of tasks) {
+            // ถ้าบอทจำได้ว่าเพิ่งทำไปในรอบนี้ ให้ข้ามไป
             if (processedTasks.has(task.id)) continue;
 
             let p = task.payload;
             if (typeof p === 'string') { try { p = JSON.parse(p); } catch(e){ p = {}; } }
 
             if (task.task_type === 'individual_shift_update') {
-                // ตัดช่องว่างซ้ายขวาทิ้ง (กันบั๊กพิมพ์ spacebar เกิน) และดักจับ Key หลายรูปแบบ
-                const targetName = (p.user_name || p.name || '').trim();
+                // รองรับ Key ได้หลายแบบ เผื่อระบบส่งมาชื่อไม่ตรงกัน
+                const targetName = (p.user_name || p.name || p.staff_name || '').trim();
                 const targetShiftTh = (p.target_shift || p.shift || p.new_shift || '').trim();
 
                 if (targetName && targetShiftTh && targetShiftTh !== 'คงเดิม') {
 
-                    // 🟢 อัปเกรด: รองรับ กะเช้า, กะเที่ยง, กะดึก สมบูรณ์แบบ
                     let newShiftKey = 'night';
                     const checkShift = targetShiftTh.toLowerCase();
                     if (checkShift.includes('เช้า') || checkShift.includes('morning')) newShiftKey = 'morning';
@@ -452,7 +449,7 @@ async function processAutoShiftSwaps() {
 
                     let foundUserId = null; let foundDept = null; let foundName = null;
 
-                    // ค้นหาพนักงานจากทุกแผนก/ทุกกะ
+                    // ค้นหาพนักงานจากทุกกะ/ทุกแผนก
                     for (const dept in staffData) {
                         for (const shift in staffData[dept]) {
                             for (const uid in staffData[dept][shift]) {
@@ -461,7 +458,7 @@ async function processAutoShiftSwaps() {
                                     foundUserId = uid; 
                                     foundDept = dept; 
                                     foundName = staffData[dept][shift][uid];
-                                    delete staffData[dept][shift][uid]; // ลบออกจากกะเดิมทันที
+                                    delete staffData[dept][shift][uid]; 
                                 }
                             }
                         }
@@ -473,19 +470,17 @@ async function processAutoShiftSwaps() {
                         staffData[foundDept][newShiftKey][foundUserId] = foundName; 
                         isUpdated = true;
                         console.log(`✅ [AutoSwap] ย้าย ${foundName} ไป ${newShiftKey} สำเร็จ!`);
-                    } else {
-                        console.log(`⚠️ [AutoSwap] หาชื่อ ${targetName} ไม่เจอในระบบ! (อาจจะไม่มีชื่อนี้ หรือย้ายไปแล้ว)`);
                     }
                 }
             }
+            // จดจำ ID งานนี้ไว้ บอทจะได้ไม่ทำซ้ำซ้อน
             processedTasks.add(task.id);
         }
 
-        // บันทึกและส่งขึ้น GitHub ทันที
         if (isUpdated) {
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
             await syncToGitHub(staffData); 
-            console.log("💾 [AutoSwap] บันทึกไฟล์ staff.json อัปเดตเข้าระบบเรียบร้อย!");
+            console.log("💾 [AutoSwap] กวาดข้อมูลและอัปเดตกะทั้งหมดลงระบบเรียบร้อย!");
         }
     } catch (err) { 
         console.error("❌ [AutoSwap] Error:", err); 
