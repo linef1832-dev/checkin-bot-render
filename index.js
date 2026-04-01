@@ -195,6 +195,16 @@ app.post('/api/ping-active', async (req, res) => {
             // 🚨 ถ้าหายไปเกิน 15 นาที แล้วกลับมาขยับเมาส์ ให้บวกอู้ 1 ครั้ง (เปลี่ยนเลข 15 ได้ตามต้องการครับ)
             if (diffMinutes >= 10) { 
                 afkIncrement = 1;
+
+                // 🟢 โค้ดที่ให้เพิ่ม: แอบจดเวลาที่หายไป ลงฐานข้อมูลอัตโนมัติ
+                    await supabase.from('tracker_remarks').insert([{
+                        staff_name: sessionProfile,
+                        afk_date: todayYYYYMMDD,
+                        start_time: new Date(lastPing).toISOString(),
+                        end_time: new Date(currentPing).toISOString(),
+                        remark: '' // เว้นว่างไว้ให้บอสมากรอกทีหลัง
+                    }]);
+                }
             }
 
             const { error: updateError } = await supabase
