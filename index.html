@@ -500,18 +500,61 @@
             renderStaffList(filteredData);
         }
         function renderStaffList(data) {
-            let html = ''; const depts = ['AMOL', 'ODOL']; const shifts = [{key: 'morning', label: '☀️ กะเช้า'}, {key: 'noon', label: '🕛 กะเที่ยง'}, {key: 'night', label: '🌙 กะดึก'}];
-            depts.forEach(dept => { if(data[dept]) {
-                html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px;">แผนก ${dept}</h4>`;
-                shifts.forEach(shift => { const shiftData = data[dept][shift.key];
-                    if(shiftData && Object.keys(shiftData).length > 0) {
-                        html += `<p style="color: #43b581; margin: 10px 0 5px 0;">${shift.label}</p><ul class="staff-list-ul">`;
-                        for(const [id, name] of Object.entries(shiftData)) { html += `<li class="staff-list-li"><div class="staff-info"><input type="text" value="${name}" class="staff-name-input" id="input-name-${id}"><span class="staff-id">ID: ${id}</span></div><div style="display: flex; gap: 5px;"><button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button><button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button></div></li>`; }
-                        html += `</ul>`;
+            let html = ''; 
+            const depts = ['AMOL', 'ODOL']; 
+            const shifts = [
+                {key: 'morning', label: '☀️ กะเช้า'}, 
+                {key: 'noon', label: '🕛 กะเที่ยง'}, 
+                {key: 'night', label: '🌙 กะดึก'}
+            ];
+
+            depts.forEach(dept => { 
+                if(data[dept]) {
+                    // คำนวณหายอดรวมพนักงานทั้งแผนก
+                    let totalInDept = 0;
+                    shifts.forEach(s => {
+                        if (data[dept][s.key]) {
+                            totalInDept += Object.keys(data[dept][s.key]).length;
+                        }
+                    });
+
+                    // ถ้าแผนกนี้มีคนอยู่ ถึงจะโชว์หัวข้อ
+                    if (totalInDept > 0) {
+                        html += `<h4 style="color: #FEE75C; border-bottom: 1px solid #4f545c; padding-bottom: 5px; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
+                                    <span>แผนก ${dept}</span>
+                                    <span style="font-size: 12px; background: #2a2a40; padding: 3px 8px; border-radius: 12px; color: #aaa;">รวมทั้งหมด ${totalInDept} คน</span>
+                                 </h4>`;
+
+                        shifts.forEach(shift => { 
+                            const shiftData = data[dept][shift.key];
+                            if(shiftData && Object.keys(shiftData).length > 0) {
+                                const shiftCount = Object.keys(shiftData).length; // นับคนในกะ
+
+                                html += `<p style="color: #43b581; margin: 10px 0 5px 0; font-weight: bold;">
+                                            ${shift.label} <span style="color: #aaa; font-size: 13px; font-weight: normal;">(${shiftCount} คน)</span>
+                                         </p>
+                                         <ul class="staff-list-ul">`;
+
+                                for(const [id, name] of Object.entries(shiftData)) { 
+                                    html += `<li class="staff-list-li">
+                                                <div class="staff-info">
+                                                    <input type="text" value="${name}" class="staff-name-input" id="input-name-${id}">
+                                                    <br><span class="staff-id" style="font-size: 11px; color: #888;">ID: ${id}</span>
+                                                </div>
+                                                <div style="display: flex; gap: 5px;">
+                                                    <button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button>
+                                                    <button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button>
+                                                </div>
+                                             </li>`; 
+                                }
+                                html += `</ul>`;
+                            }
+                        });
                     }
-                });
-            }});
-            if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อ</p>';
+                }
+            });
+
+            if(html === '') html = '<p style="color:#aaa; text-align:center; padding: 20px;">📭 ไม่พบรายชื่อพนักงานในระบบ</p>';
             document.getElementById('staffListArea').innerHTML = html;
         }
         async function saveStaff() {
