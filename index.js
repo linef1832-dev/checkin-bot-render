@@ -168,14 +168,11 @@ app.post('/api/ping-active', async (req, res) => {
         const localTime = new Date().toISOString(); 
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
-        // --- เริ่มต้นโค้ดอัปเกรด V2 (อัปเดตบรรทัดเดิม + เวลาไทย) ---
-        // ดึงเวลาปัจจุบันบวก 7 ชั่วโมงให้เป็นเวลาไทย (UTC+7)
+        // --- เริ่มต้นโค้ดอัปเกรด V3 (เพิ่มระบบนับอู้อัตโนมัติ) ---
         const nowThai = new Date(new Date().getTime() + (7 * 60 * 60 * 1000));
         const todayYYYYMMDD = nowThai.toISOString().split('T')[0]; 
-        // เริ่มต้นวันใหม่ตอน เที่ยงคืนตรงของประเทศไทย
         const startOfDayThai = `${todayYYYYMMDD}T00:00:00+07:00`; 
 
-        // ใช้ .limit(1) แทน .maybeSingle() ระบบจะไม่ Error แม้มีข้อมูลซ้ำ
         const { data: existingDataArray } = await supabase
             .from('line_activity')
             .select('*')
@@ -187,29 +184,43 @@ app.post('/api/ping-active', async (req, res) => {
         let error; 
 
         if (existingDataArray && existingDataArray.length > 0) {
-            const existingData = existingDataArray[0]; // หยิบบรรทัดล่าสุดมาอัปเดต
+            const existingData = existingDataArray[0]; 
+
+            // 🧠 ระบบสมองกลนับจำนวนอู้ (เช็คว่าหายไปนานเกินกำหนดไหม)
+            let afkIncrement = 0;
+            const lastPing = new Date(existingData.last_active).getTime();
+            const currentPing = new Date(localTime).getTime();
+            const diffMinutes = (currentPing - lastPing) / 60000;
+
+            // 🚨 ถ้าหายไปเกิน 15 นาที แล้วกลับมาขยับเมาส์ ให้บวกอู้ 1 ครั้ง (เปลี่ยนเลข 15 ได้ตามต้องการครับ)
+            if (diffMinutes >= 15) { 
+                afkIncrement = 1;
+            }
+
             const { error: updateError } = await supabase
                 .from('line_activity')
                 .update({
                     status: 'Online',
                     last_active: localTime,
-                    message_count: existingData.message_count + chats 
+                    message_count: existingData.message_count + chats,
+                    afk_count: (existingData.afk_count || 0) + afkIncrement // อัปเดตยอดอู้
                 })
                 .eq('id', existingData.id);
             error = updateError;
         } else {
-            // ถ้ายังไม่มีเลยจริงๆ ถึงจะสร้างใหม่
+            // แชทแรกของวัน เซ็ตจำนวนอู้เป็น 0
             const { error: insertError } = await supabase
                 .from('line_activity')
                 .insert([{
                     staff_name: sessionProfile, 
                     status: 'Online',
                     last_active: localTime, 
-                    message_count: chats 
+                    message_count: chats,
+                    afk_count: 0 
                 }]);
             error = insertError;
         }
-        // --- จบโค้ดอัปเกรด V2 ---
+        // --- จบโค้ดอัปเกรด V3 ---
         
 
         if (error) {
