@@ -168,21 +168,26 @@ app.post('/api/ping-active', async (req, res) => {
         const localTime = new Date().toISOString(); 
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
-        // --- เริ่มต้นโค้ดอัปเกรด (อัปเดตบรรทัดเดิม) ---
-        const todayStr = new Date().toISOString().split('T')[0]; 
-        const startOfDay = `${todayStr}T00:00:00.000Z`;
+        // --- เริ่มต้นโค้ดอัปเกรด V2 (อัปเดตบรรทัดเดิม + เวลาไทย) ---
+        // ดึงเวลาปัจจุบันบวก 7 ชั่วโมงให้เป็นเวลาไทย (UTC+7)
+        const nowThai = new Date(new Date().getTime() + (7 * 60 * 60 * 1000));
+        const todayYYYYMMDD = nowThai.toISOString().split('T')[0]; 
+        // เริ่มต้นวันใหม่ตอน เที่ยงคืนตรงของประเทศไทย
+        const startOfDayThai = `${todayYYYYMMDD}T00:00:00+07:00`; 
 
-        const { data: existingData } = await supabase
+        // ใช้ .limit(1) แทน .maybeSingle() ระบบจะไม่ Error แม้มีข้อมูลซ้ำ
+        const { data: existingDataArray } = await supabase
             .from('line_activity')
             .select('*')
             .eq('staff_name', sessionProfile)
-            .gte('created_at', startOfDay)
-            .maybeSingle();
+            .gte('created_at', startOfDayThai)
+            .order('created_at', { ascending: false })
+            .limit(1);
 
-        let error; // ประกาศตัวแปรดัก error ไว้ส่งให้โค้ดด้านล่างเช็ค
+        let error; 
 
-        if (existingData) {
-            // ถ้ามีบัตรตอกของวันนี้แล้ว -> อัปเดตบรรทัดเดิม
+        if (existingDataArray && existingDataArray.length > 0) {
+            const existingData = existingDataArray[0]; // หยิบบรรทัดล่าสุดมาอัปเดต
             const { error: updateError } = await supabase
                 .from('line_activity')
                 .update({
@@ -193,7 +198,7 @@ app.post('/api/ping-active', async (req, res) => {
                 .eq('id', existingData.id);
             error = updateError;
         } else {
-            // ถ้ายังไม่มี (แชทแรกของวัน) -> สร้างบรรทัดใหม่ 1 บรรทัด
+            // ถ้ายังไม่มีเลยจริงๆ ถึงจะสร้างใหม่
             const { error: insertError } = await supabase
                 .from('line_activity')
                 .insert([{
@@ -204,7 +209,8 @@ app.post('/api/ping-active', async (req, res) => {
                 }]);
             error = insertError;
         }
-        // --- จบโค้ดอัปเกรด ---
+        // --- จบโค้ดอัปเกรด V2 ---
+        
 
         if (error) {
             console.error('[Tracker] Error:', error);
