@@ -168,10 +168,43 @@ app.post('/api/ping-active', async (req, res) => {
         const localTime = new Date().toISOString(); 
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
-        const { error } = await supabase.from('line_activity').insert([{
-            staff_name: sessionProfile, status: 'Online',
-            last_active: localTime, message_count: chats 
-        }]);
+        // --- เริ่มต้นโค้ดอัปเกรด (อัปเดตบรรทัดเดิม) ---
+        const todayStr = new Date().toISOString().split('T')[0]; 
+        const startOfDay = `${todayStr}T00:00:00.000Z`;
+
+        const { data: existingData } = await supabase
+            .from('line_activity')
+            .select('*')
+            .eq('staff_name', sessionProfile)
+            .gte('created_at', startOfDay)
+            .maybeSingle();
+
+        let error; // ประกาศตัวแปรดัก error ไว้ส่งให้โค้ดด้านล่างเช็ค
+
+        if (existingData) {
+            // ถ้ามีบัตรตอกของวันนี้แล้ว -> อัปเดตบรรทัดเดิม
+            const { error: updateError } = await supabase
+                .from('line_activity')
+                .update({
+                    status: 'Online',
+                    last_active: localTime,
+                    message_count: existingData.message_count + chats 
+                })
+                .eq('id', existingData.id);
+            error = updateError;
+        } else {
+            // ถ้ายังไม่มี (แชทแรกของวัน) -> สร้างบรรทัดใหม่ 1 บรรทัด
+            const { error: insertError } = await supabase
+                .from('line_activity')
+                .insert([{
+                    staff_name: sessionProfile, 
+                    status: 'Online',
+                    last_active: localTime, 
+                    message_count: chats 
+                }]);
+            error = insertError;
+        }
+        // --- จบโค้ดอัปเกรด ---
 
         if (error) {
             console.error('[Tracker] Error:', error);
