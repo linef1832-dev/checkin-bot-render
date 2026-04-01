@@ -193,7 +193,7 @@ app.post('/api/ping-active', async (req, res) => {
             const diffMinutes = (currentPing - lastPing) / 60000;
 
             // 🚨 ถ้าหายไปเกิน 15 นาที แล้วกลับมาขยับเมาส์ ให้บวกอู้ 1 ครั้ง (เปลี่ยนเลข 15 ได้ตามต้องการครับ)
-            if (diffMinutes >= 15) { 
+            if (diffMinutes >= 10) { 
                 afkIncrement = 1;
             }
 

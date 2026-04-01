@@ -195,7 +195,7 @@
 
                 pings.forEach(p => {
                     const name = p.staff_name.toUpperCase();
-                    if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0 };
+                    if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0, totalAfk: 0 };
 
                     let tStr = p.last_active;
                     if (!tStr.endsWith('Z') && !tStr.includes('+')) tStr += 'Z'; 
@@ -204,6 +204,10 @@
 
                     if (p.message_count && !isNaN(p.message_count)) {
                         staffMap[name].totalChats += parseInt(p.message_count);
+                    }
+                    // 🟢 โค้ดที่ให้เพิ่ม: ดึงยอดอู้จากฐานข้อมูล
+                    if (p.afk_count && !isNaN(p.afk_count)) {
+                    staffMap[name].totalAfk += parseInt(p.afk_count);
                     }
                 });
 
@@ -217,7 +221,7 @@
 
                     for(let i=1; i<times.length; i++) {
                         const diffMins = Math.floor((times[i] - times[i-1]) / 60000);
-                        if(diffMins >= 15) { 
+                        if(diffMins >= 10) { 
                             const start = times[i-1]; const end = times[i];
                             const r = remarks.find(rm => rm.staff_name === name && rm.start_time === start.toISOString());
                             gaps.push({ start, end, diffMins, remark: r ? r.remark : '' });
@@ -228,12 +232,12 @@
                     let diffNow = Math.floor((now - lastActive) / 60000);
                     if(isNaN(diffNow) || diffNow < 0) diffNow = 0; 
 
-                    if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 15) {
+                    if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 10) {
                         const r = remarks.find(rm => rm.staff_name === name && rm.start_time === lastActive.toISOString() && (!rm.end_time || rm.end_time === 'null'));
                         gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: r ? r.remark : '' });
                     }
 
-                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats }; 
+                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: staffMap[name].totalAfk };
                 });
 
                 renderTrackerTable();
@@ -379,7 +383,7 @@
                     statusHtml = `<span class="status-online">🟢 ปกติ</span>`;
                 }
 
-                const afkCount = d.gaps.length;
+                const afkCount = d.totalAfk || 0;
 
                 tBody.innerHTML += `<tr style="${rowStyle}">
                     <td style="font-weight: bold;">${name}</td>
