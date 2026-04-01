@@ -413,23 +413,27 @@ function getSupabaseDateStr() {
 
 async function processAutoShiftSwaps() {
     try {
-        console.log("🔄 [AutoSwap] กำลังกวาดตารางย้ายกะ (กวาดทั้งหมดที่เป็น completed)...");
+        console.log("🔄 [AutoSwap] กำลังตรวจสอบตารางย้ายกะ...");
 
-        if (!supabaseLeave) {
-            return console.error("❌ [AutoSwap] ตัวแปร SUPABASE_LEAVE_URL ยังไม่ได้ตั้งค่า");
-        }
+        if (!supabaseLeave) return;
+
+        // ดึงข้อมูลย้อนหลังแค่ 3 วันพอครับ (ไม่กวาดหมดแล้ว ป้องกันฐานข้อมูลทำงานหนัก)
+        const now = new Date();
+        const pastDays = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000)).toISOString(); 
 
         const { data: tasks, error } = await supabaseLeave
             .from('scheduled_tasks')
             .select('*')
-            .eq('status', 'completed'); 
+            .eq('status', 'completed')
+            .gte('scheduled_for', pastDays); // กลับมาใส่ตัวกรองเวลา
 
-        if (error) return console.error("❌ [AutoSwap] ดึงข้อมูลพลาด:", error);
-        if (!tasks || tasks.length === 0) return;
+        if (error || !tasks || tasks.length === 0) return;
 
         let staffData = {};
         if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-        let isUpdated = false;
+
+        // 📸 ถ่ายรูปข้อมูลก่อนทำ เพื่อเอาไว้เทียบตอนจบ!
+        const originalDataStr = JSON.stringify(staffData);
 
         for (const task of tasks) {
             if (processedTasks.has(task.id)) continue;
@@ -442,52 +446,44 @@ async function processAutoShiftSwaps() {
                 const targetShiftTh = (p.target_shift || p.shift || p.new_shift || '').trim();
 
                 if (targetName && targetShiftTh && targetShiftTh !== 'คงเดิม') {
-
                     let newShiftKey = 'night';
                     const checkShift = targetShiftTh.toLowerCase();
                     if (checkShift.includes('เช้า') || checkShift.includes('morning')) newShiftKey = 'morning';
                     else if (checkShift.includes('เที่ยง') || checkShift.includes('noon')) newShiftKey = 'noon';
 
-                    let foundUserId = null; let foundDept = null; let foundName = null; let currentShift = null;
+                    let foundUserId = null; let foundDept = null; let foundName = null;
 
                     // ค้นหาพนักงานจากทุกกะ
                     for (const dept in staffData) {
                         for (const shift in staffData[dept]) {
                             for (const uid in staffData[dept][shift]) {
-                                const dbName = staffData[dept][shift][uid].toUpperCase();
-                                if (dbName.includes(targetName.toUpperCase())) {
-                                    foundUserId = uid; 
-                                    foundDept = dept; 
-                                    foundName = staffData[dept][shift][uid];
-                                    currentShift = shift; // 🟢 จำกะปัจจุบันของน้องไว้
+                                if (staffData[dept][shift][uid].toUpperCase().includes(targetName.toUpperCase())) {
+                                    foundUserId = uid; foundDept = dept; foundName = staffData[dept][shift][uid];
+                                    delete staffData[dept][shift][uid]; // ลบออกจากกะเดิม
                                 }
                             }
                         }
                     }
 
+                    // ใส่เข้ากะเป้าหมาย
                     if (foundUserId && foundDept) {
-                        // 🟢 ด่านป้องกันลูป: เช็คก่อนว่า "อยู่กะที่ต้องการจะย้ายไปอยู่แล้วหรือเปล่า?"
-                        // ถ้าอยู่คนละกะกัน ถึงจะลงมือย้ายครับ!
-                        if (currentShift !== newShiftKey) {
-                            delete staffData[foundDept][currentShift][foundUserId]; 
-                            if (!staffData[foundDept][newShiftKey]) staffData[foundDept][newShiftKey] = {};
-                            staffData[foundDept][newShiftKey][foundUserId] = foundName; 
-                            isUpdated = true;
-                            console.log(`✅ [AutoSwap] ย้าย ${foundName} จาก ${currentShift} ไป ${newShiftKey} สำเร็จ!`);
-                        }
+                        if (!staffData[foundDept][newShiftKey]) staffData[foundDept][newShiftKey] = {};
+                        staffData[foundDept][newShiftKey][foundUserId] = foundName; 
                     }
                 }
             }
             processedTasks.add(task.id);
         }
 
-        // 🟢 เซฟและส่งขึ้น GitHub "เฉพาะตอนที่มีการย้ายกะจริงๆ" เท่านั้น
-        if (isUpdated) {
+        // 🛑 ด่านอรหันต์หยุดลูปนรก: เทียบรูปก่อนทำ vs หลังทำ
+        if (JSON.stringify(staffData) !== originalDataStr) {
+            // ถ้าข้อมูลไม่เหมือนเดิม (มีการย้ายกะจริงๆ) ถึงจะอนุญาตให้เซฟ!
             fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
             await syncToGitHub(staffData); 
             console.log("💾 [AutoSwap] อัปเดตกะลงระบบเรียบร้อย!");
         } else {
-            console.log("ℹ️ [AutoSwap] ตรวจสอบแล้ว ทุกคนอยู่กะที่ถูกต้องอยู่แล้ว ไม่ส่งอัปเดตไฟล์ (ป้องกัน Railway รีสตาร์ทรัวๆ)");
+            // ถ้าหน้าตาเหมือนเดิมเป๊ะ ให้ข้ามไปเลย
+            console.log("ℹ️ [AutoSwap] ตารางกะเหมือนเดิมเป๊ะ หยุดลูปการอัปเดตไฟล์!");
         }
     } catch (err) { 
         console.error("❌ [AutoSwap] Error:", err); 
