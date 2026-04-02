@@ -194,7 +194,10 @@
                 const staffMap = {};
 
                 pings.forEach(p => {
-                    const name = p.staff_name.toUpperCase();
+                    // 🟢 โค้ดพระเอก: ตัดตัวเลขด้านหลังออกเพื่อ "รวมร่าง" โคลนทั้งหมด
+                    // เช่น "VINZO 1" และ "VINZO 2" จะถูกรวมเป็น "VINZO" คำเดียว
+                    const name = p.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
+
                     if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0, totalAfk: 0 };
 
                     let tStr = p.last_active;
@@ -205,9 +208,8 @@
                     if (p.message_count && !isNaN(p.message_count)) {
                         staffMap[name].totalChats += parseInt(p.message_count);
                     }
-                    // 🟢 โค้ดที่ให้เพิ่ม: ดึงยอดอู้จากฐานข้อมูล
                     if (p.afk_count && !isNaN(p.afk_count)) {
-                    staffMap[name].totalAfk += parseInt(p.afk_count);
+                        staffMap[name].totalAfk += parseInt(p.afk_count);
                     }
                 });
 
@@ -215,26 +217,29 @@
                 const now = new Date();
 
                 Object.keys(staffMap).forEach(name => {
+                    // จัดเรียงเวลาทั้งหมดจากทุกโคลน
                     const times = staffMap[name].times.sort((a,b) => a - b);
-                    const totalChats = staffMap[name].totalChats;
+                    const totalChats = staffMap[name].totalChats; 
                     const gaps = [];
 
-                    // 🟢 ดึงข้อมูลประวัติการอู้จากที่บอทแอบจดไว้ มาโชว์ตรงๆ
-                    remarks.filter(rm => rm.staff_name === name).forEach(rm => {
+                    // 🟢 ดึงข้อมูลประวัติอู้มาจับคู่กับชื่อที่ถูกรวมร่างแล้ว
+                    remarks.filter(rm => {
+                        const rName = rm.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
+                        return rName === name;
+                    }).forEach(rm => {
                         const start = new Date(rm.start_time);
                         const end = (rm.end_time && rm.end_time !== 'null') ? new Date(rm.end_time) : null;
                         let diffMins = end ? Math.floor((end - start) / 60000) : Math.floor((now - start) / 60000);
 
-                        if (diffMins >= 10) { // กรองมาโชว์เฉพาะที่อู้จริง 10 นาทีขึ้นไป
+                        if (diffMins >= 10) { 
                             gaps.push({ start, end, diffMins, remark: rm.remark || '' });
                         }
                     });
 
                     const lastActive = times[times.length - 1];
                     let diffNow = Math.floor((now - lastActive) / 60000);
-                    if(isNaN(diffNow) || diffNow < 0) diffNow = 0;
+                    if(isNaN(diffNow) || diffNow < 0) diffNow = 0; 
 
-                    // ดักจับคนกำลังอู้อยู่ ณ ปัจจุบัน (ป้ายแดง แต่ยังไม่กลับมาที่โต๊ะ)
                     if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 10) {
                         const exists = gaps.find(g => g.start.getTime() === lastActive.getTime());
                         if (!exists) {
