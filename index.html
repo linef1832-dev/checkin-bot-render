@@ -242,13 +242,16 @@
 
                     if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 10) {
                         const exists = gaps.find(g => g.start.getTime() === lastActive.getTime());
-                        if (!exists) {
-                            gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: '' });
-                        }
-                    }
+                                if (!exists) {
+                                    gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: '' });
+                                }
+                            }
 
-                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: staffMap[name].totalAfk };
-                });
+                            // เรียงเวลาจากเช้าไปดึก
+                            gaps.sort((a, b) => a.start - b.start);
+
+                            currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: staffMap[name].totalAfk };
+                        });
 
                 renderTrackerTable();
                 document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
