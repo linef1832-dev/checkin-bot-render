@@ -282,7 +282,7 @@
                 }, 60000);
 
             } catch(e) {
-                tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ED4245;">Error</td></tr>';
+                tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #ED4245;">Error: ' + e.message + '</td></tr>';
             }
         }
 
