@@ -271,8 +271,9 @@
 
                     // 🟢 4. ส่งยอดอู้ที่หักลบแล้วไปโชว์บนหน้าเว็บ!
                         currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount, pings: staffMap[name].pings };
-
+                        });
                 renderTrackerTable();
+                renderChart(); // 🔴 2. เติมบรรทัดนี้เข้าไป "ใต้" renderTrackerTable() ครับ (สั่งวาดกราฟ!)
                 document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
 
                 clearInterval(trackerInterval);
