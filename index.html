@@ -131,14 +131,90 @@
             <div id="modalContent"></div>
         </div>
     </div>
-    <div id="chartModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center;">
-        <div class="modal-box" style="width: 95%; max-width: 600px; background: #2a2a40; padding: 20px; border-radius: 10px; position: relative;">
-            <button onclick="document.getElementById('chartModal').style.display='none'" style="position: absolute; top: 10px; right: 10px; width: 40px; background: #ED4245; padding: 5px; color: white; font-weight: bold; border: none; border-radius: 5px; cursor: pointer;">X</button>
-            <h3 id="chartModalTitle" style="margin-top: 0; color: #FEE75C;">📊 สถิติการตอบแชท</h3>
-            <p style="font-size: 13px; color: #aaa; margin-top: -10px;">ยอดแชทรายชั่วโมง (ใครพีคช่วงไหน ดูได้เลย!)</p>
-            <canvas id="personalChart" height="200"></canvas>
-        </div>
-    </div>
+    let personalChartInstance = null;
+    let currentChartStaff = ''; // จำชื่อพนักงานที่กำลังดู
+
+    function openChartModal(name) {
+        currentChartStaff = name;
+        document.getElementById('chartModalTitle').innerText = `📊 สถิติการตอบแชท: ${name}`;
+        document.getElementById('chartModal').style.display = 'flex';
+
+        // เปิดมาปุ๊บ ให้โชว์กราฟรายชั่วโมงเป็นค่าเริ่มต้น
+        renderPersonalChart('1h'); 
+    }
+
+    // 🟢 ฟังก์ชันวาดกราฟ (สลับโหมดได้)
+    function renderPersonalChart(mode) {
+        const d = currentTrackerData[currentChartStaff];
+        const ctx = document.getElementById('personalChart');
+        const noDataText = document.getElementById('noDataText');
+
+        // เปลี่ยนสีปุ่มให้รู้ว่ากำลังกดโหมดไหนอยู่
+        document.getElementById('btnMode1h').style.background = mode === '1h' ? '#5865F2' : '#2a2a40';
+        document.getElementById('btnMode1h').style.color = mode === '1h' ? '#fff' : '#aaa';
+        document.getElementById('btnMode10m').style.background = mode === '10m' ? '#5865F2' : '#2a2a40';
+        document.getElementById('btnMode10m').style.color = mode === '10m' ? '#fff' : '#aaa';
+
+        // ถ้าไม่มีข้อมูล ให้ซ่อนกราฟแล้วโชว์ข้อความแจ้งเตือน
+        if (!d || !d.pings || d.pings.length === 0) {
+            if (personalChartInstance) personalChartInstance.destroy();
+            ctx.style.display = 'none';
+            noDataText.style.display = 'block';
+            return;
+        }
+
+        ctx.style.display = 'block';
+        noDataText.style.display = 'none';
+
+        const timeData = {};
+
+        // 🟢 คำนวณยอดแชท เอามาบวกรวมกันตามช่วงเวลา
+        d.pings.forEach(p => {
+            const h = p.time.getHours();
+            const m = p.time.getMinutes();
+            let timeKey = '';
+
+            if (mode === '1h') {
+                // ปัดเศษให้เป็นรายชั่วโมง เช่น 10:00
+                timeKey = `${String(h).padStart(2, '0')}:00`;
+            } else if (mode === '10m') {
+                // ปัดเศษทุกๆ 10 นาที เช่น 10:10, 10:20
+                const minGroup = Math.floor(m / 10) * 10;
+                timeKey = `${String(h).padStart(2, '0')}:${String(minGroup).padStart(2, '0')}`;
+            }
+
+            if (!timeData[timeKey]) timeData[timeKey] = 0;
+            timeData[timeKey] += p.chats; // เอายอดแชทมาบวกสะสม
+        });
+
+        // เรียงเวลาจากเช้าไปดึก
+        const labels = Object.keys(timeData).sort();
+        const chatData = labels.map(key => timeData[key]);
+
+        if (personalChartInstance) personalChartInstance.destroy();
+
+        // วาดกราฟแท่ง
+        personalChartInstance = new Chart(ctx.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: `ยอดตอบลูกค้า (${mode === '1h' ? 'รายชั่วโมง' : 'ทุก 10 นาที'})`,
+                    data: chatData,
+                    backgroundColor: '#43b581',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: true, labels: { color: '#aaa' } } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa', stepSize: 1 } },
+                    x: { grid: { display: false }, ticks: { color: '#aaa' } }
+                }
+            }
+        });
+    }
 
     <div id="staffMenu" class="tab-content">
         <div class="card" style="border-left: 4px solid #5865F2;">
