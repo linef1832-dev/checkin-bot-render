@@ -450,28 +450,28 @@
             if (gaps.length === 0) {
                 html = '<p style="text-align:center; color:#43b581;">✨ ไม่พบประวัติการอู้ในวันนี้ เยี่ยมมาก!</p>';
             } else {
-            gaps.forEach((g, i) => {
-                const startStr = g.start.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'});
-                const endStr = g.end ? g.end.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'}) : 'ปัจจุบัน';
-                const diffText = g.diffMins >= 60 ? `${Math.floor(g.diffMins/60)} ชม. ${g.diffMins%60} นาที` : `${g.diffMins} นาที`;
+                gaps.forEach((g, i) => {
+                    const startStr = g.start.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'});
+                    const endStr = g.end ? g.end.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'}) : 'ปัจจุบัน';
+                    const diffText = g.diffMins >= 60 ? `${Math.floor(g.diffMins/60)} ชม. ${g.diffMins%60} นาที` : `${g.diffMins} นาที`;
 
-                const hasRemark = g.remark && g.remark.trim() !== '';
-                const borderColor = hasRemark ? '#555555' : '#ED4245'; 
-                const titleColor = hasRemark ? '#888888' : '#ED4245'; 
-                const icon = hasRemark ? '⚪' : '🔴';
-                const bgStyle = hasRemark ? 'background: #222; opacity: 0.6;' : 'background: #1e1e2f;';
+                    const hasRemark = g.remark && g.remark.trim() !== '';
+                    const borderColor = hasRemark ? '#555555' : '#ED4245'; 
+                    const titleColor = hasRemark ? '#888888' : '#ED4245'; 
+                    const icon = hasRemark ? '⚪' : '🔴';
+                    const bgStyle = hasRemark ? 'background: #222; opacity: 0.6;' : 'background: #1e1e2f;';
 
-                html += `<div class="history-item" style="border-left: 4px solid ${borderColor}; ${bgStyle}">
-                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                        <b style="color:${titleColor};">${icon} หายไป ${diffText}</b>
-                        <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
-                    </div>
-                    <div style="display:flex; gap:5px;">
-                        <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ (เช่น ไปเข้าห้องน้ำ)..." style="margin:0; padding:8px; font-size:13px; flex:3; ${hasRemark ? 'color:#888;' : ''}">
-                        <button class="btn-small" style="background:${hasRemark ? '#555' : '#43b581'}; flex:1;" onclick="saveRemark('${name}', '${dateStr}', '${g.start.toISOString()}', '${g.end ? g.end.toISOString() : 'null'}', ${i})">${hasRemark ? 'แก้ไข' : 'บันทึก'}</button>
-                    </div>
-                </div>`;
-            });
+                    html += `<div class="history-item" style="border-left: 4px solid ${borderColor}; ${bgStyle}">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <b style="color:${titleColor};">${icon} หายไป ${diffText}</b>
+                            <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
+                        </div>
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ (เช่น ไปเข้าห้องน้ำ)..." style="margin:0; padding:8px; font-size:13px; flex:3; ${hasRemark ? 'color:#888;' : ''}">
+                            <button class="btn-small" style="background:${hasRemark ? '#555' : '#43b581'}; flex:1;" onclick="saveRemark('${name}', '${dateStr}', '${g.start.toISOString()}', '${g.end ? g.end.toISOString() : 'null'}', ${i})">${hasRemark ? 'แก้ไข' : 'บันทึก'}</button>
+                        </div>
+                    </div>`;
+                });
             } 
 
             document.getElementById('modalContent').innerHTML = html;
@@ -497,7 +497,6 @@
             } catch(e) { alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); }
         }
 
-        /* --- โค้ดส่วนอื่นๆ คงเดิม --- */
         let timeSlots = [{ time: "07:50", shift: "☀️ กะเช้า" }];
         function renderTimeSlots() { const c = document.getElementById('timeSlotsContainer'); c.innerHTML=''; timeSlots.forEach((s, i)=> { c.innerHTML += `<div style="display:flex; gap:5px; margin-bottom:5px;"><input type="time" value="${s.time}" onchange="timeSlots[${i}].time=this.value"><input list="shiftOptions" value="${s.shift}" onchange="timeSlots[${i}].shift=this.value"><button class="btn-small btn-red" onclick="timeSlots.splice(${i},1);renderTimeSlots()">X</button></div>`; }); }
         function addTimeSlot() { timeSlots.push({ time: "12:00", shift: "เที่ยง" }); renderTimeSlots(); }
@@ -610,7 +609,7 @@
             try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
         }
 
-        // 🟢 ฟังก์ชันวาดกราฟรายบุคคล
+        // 🟢 ฟังก์ชันวาดกราฟรายบุคคล (อัปเกรดไทม์ไลน์ต่อเนื่อง 100%)
         let personalChartInstance = null;
         let currentChartStaff = ''; 
 
@@ -641,29 +640,27 @@
             ctx.style.display = 'block';
             noDataText.style.display = 'none';
 
-            // 🟢 อัปเกรดใหม่: สร้างไทม์ไลน์เวลาแบบ "ต่อเนื่อง" ไม่ให้กระโดดข้าม
             const sortedPings = d.pings.slice().sort((a,b) => a.time - b.time);
             const startTime = sortedPings[0].time;
-            const endTime = sortedPings[sortedPings.length - 1].time; // เอาเวลาล่าสุดที่บอทจับได้
-
+            const endTime = sortedPings[sortedPings.length - 1].time;
+            
             const allLabels = [];
             let curr = new Date(startTime);
-
+            
             if (mode === '1h') {
-                curr.setMinutes(0, 0, 0); // เริ่มต้นที่ต้นชั่วโมง
+                curr.setMinutes(0, 0, 0); 
                 while(curr <= endTime) {
                     allLabels.push(`${String(curr.getHours()).padStart(2, '0')}:00`);
                     curr.setHours(curr.getHours() + 1);
                 }
             } else {
-                curr.setMinutes(Math.floor(curr.getMinutes() / 10) * 10, 0, 0); // เริ่มต้นที่รอบ 10 นาที
+                curr.setMinutes(Math.floor(curr.getMinutes() / 10) * 10, 0, 0); 
                 while(curr <= endTime) {
                     allLabels.push(`${String(curr.getHours()).padStart(2, '0')}:${String(curr.getMinutes()).padStart(2, '0')}`);
                     curr.setMinutes(curr.getMinutes() + 10);
                 }
             }
 
-            // เตรียมตะกร้าใส่ยอดแชทตามเวลา
             const bucketData = {};
             allLabels.forEach(lbl => bucketData[lbl] = []);
 
@@ -685,12 +682,10 @@
             const chatData = [];
             let prevMax = 0;
 
-            // คำนวณยอดแชทที่เพิ่มขึ้นในแต่ละตะกร้า
             allLabels.forEach((key, index) => {
                 const bucketArr = bucketData[key];
-
+                
                 if (bucketArr.length === 0) {
-                    // ถ้าช่วงเวลานี้ไม่มีข้อมูล (บอทหลับ) ให้ใส่เป็น 0
                     chatData.push(0);
                 } else {
                     const maxInBucket = Math.max(...bucketArr); 
@@ -698,13 +693,13 @@
 
                     if (index === 0) {
                         const minInBucket = Math.min(...bucketArr);
-                        chatsAdded = maxInBucket - minInBucket; // แท่งแรกกันกราฟพุ่ง
+                        chatsAdded = maxInBucket - minInBucket; 
                     } else {
-                        chatsAdded = maxInBucket - prevMax; // หาผลต่าง
+                        chatsAdded = maxInBucket - prevMax; 
                     }
 
                     chatData.push(chatsAdded > 0 ? chatsAdded : 0);
-                    prevMax = maxInBucket; // เก็บยอดไว้ลบกับรอบถัดไป
+                    prevMax = maxInBucket; 
                 }
             });
 
@@ -731,6 +726,55 @@
                 }
             });
         }
+
+        // 🟢 ฟังก์ชันวาดกราฟรวม (Leaderboard) จัดเต็ม!
+        let myChart = null; 
+        function renderChart() {
+            const ctx = document.getElementById('chatChart');
+            if (!ctx) return; 
+
+            const labels = [];
+            const data = [];
+            const bgColors = [];
+
+            const sortedStaff = Object.keys(currentTrackerData).sort((a, b) => {
+                return (currentTrackerData[b].totalChats || 0) - (currentTrackerData[a].totalChats || 0);
+            });
+
+            sortedStaff.forEach((name, index) => {
+                const chats = currentTrackerData[name].totalChats || 0;
+                labels.push(name);
+                data.push(chats);
+
+                if (index === 0) bgColors.push('#FEE75C'); 
+                else if (index === 1) bgColors.push('#C0C0C0'); 
+                else if (index === 2) bgColors.push('#CD7F32'); 
+                else bgColors.push('#5865F2'); 
+            });
+
+            if (myChart) myChart.destroy(); 
+
+            myChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ยอดตอบแชท',
+                        data: data,
+                        backgroundColor: bgColors,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa' } },
+                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        }
     </script>
 </body>
-<!-- </html> -->
+</html>
