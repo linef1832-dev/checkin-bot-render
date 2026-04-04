@@ -641,9 +641,10 @@
             ctx.style.display = 'block';
             noDataText.style.display = 'none';
 
-            const timeData = {};
+            // 1. จัดกลุ่มยอดแชทสะสมในแต่ละช่องเวลา
+            const bucketData = {};
 
-            d.pings.forEach(p => {
+            d.pings.sort((a,b) => a.time - b.time).forEach(p => {
                 const h = p.time.getHours();
                 const m = p.time.getMinutes();
                 let timeKey = '';
@@ -655,12 +656,31 @@
                     timeKey = `${String(h).padStart(2, '0')}:${String(minGroup).padStart(2, '0')}`;
                 }
 
-                if (!timeData[timeKey]) timeData[timeKey] = 0;
-                timeData[timeKey] += p.chats;
+                if (!bucketData[timeKey]) bucketData[timeKey] = [];
+                bucketData[timeKey].push(p.chats); 
             });
 
-            const labels = Object.keys(timeData).sort();
-            const chatData = labels.map(key => timeData[key]);
+            const labels = Object.keys(bucketData).sort();
+            const chatData = [];
+            let prevMax = 0;
+
+            // 2. 🟢 โค้ดพระเอก: หา "ผลต่าง" เพื่อดูยอดแชทที่กดตอบไปจริงๆ ในช่วงนั้น
+            labels.forEach((key, index) => {
+                const maxInBucket = Math.max(...bucketData[key]); 
+                let chatsAdded = 0;
+
+                if (index === 0) {
+                    // แท่งแรกสุดของวัน หาผลต่างภายในช่องเวลานั้นเอง (กันกราฟแท่งแรกพุ่งทะลุจอ)
+                    const minInBucket = Math.min(...bucketData[key]);
+                    chatsAdded = maxInBucket - minInBucket;
+                } else {
+                    // แท่งต่อๆ ไป เอาค่ายอดสะสมสูงสุดของรอบนี้ ลบกับค่ายอดสะสมของรอบก่อนหน้า
+                    chatsAdded = maxInBucket - prevMax;
+                }
+
+                chatData.push(chatsAdded > 0 ? chatsAdded : 0);
+                prevMax = maxInBucket; // เก็บยอดไว้ลบกับรอบถัดไป
+            });
 
             if (personalChartInstance) personalChartInstance.destroy();
 
