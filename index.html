@@ -223,7 +223,7 @@
                         staffMap[name].totalChats = parseInt(p.message_count);
                     }
                     if (p.afk_count && !isNaN(p.afk_count)) {
-                        staffMap[name].totalAfk += parseInt(p.afk_count);
+                        staffMap[name].totalAfk = parseInt(p.afk_count);
                     }
                 });
 
