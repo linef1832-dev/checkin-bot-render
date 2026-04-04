@@ -157,7 +157,13 @@ app.post('/api/ping-active', async (req, res) => {
     const chats = msgCount || 0;
     const now = Date.now();
 
-    // ตัวกันสแปมที่ทำงานถูกต้องสมบูรณ์
+    // 🟢 โล่ป้องกัน Race Condition (แย่งกันเข้าประตู)
+    // ถ้ายิงสัญญาณมารัวๆ ภายใน 2 วินาที ให้ปัดตกไปเลย ป้องกันการสร้างบรรทัดเบิ้ล!
+    if (userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 2000)) {
+        return res.status(200).json({ success: true, status: 'ignored_race_condition' });
+    }
+
+    // ตัวกันสแปม (ถ้าไม่ได้ตอบแชทเลย ให้ส่งข้อมูลแค่ทุกๆ 45 วินาทีพอ)
     if (chats === 0 && userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 45000)) {
         return res.status(200).json({ success: true, status: 'ignored_spam' });
     }
@@ -166,6 +172,7 @@ app.post('/api/ping-active', async (req, res) => {
 
     try {
         const localTime = new Date().toISOString(); 
+// ... (โค้ดด้านล่างยาวไปเหมือนเดิมครับ)
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
         // --- เริ่มต้นโค้ดอัปเกรด V3 (เพิ่มระบบนับอู้อัตโนมัติ + จดประวัติ) ---
