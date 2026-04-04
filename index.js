@@ -205,16 +205,20 @@ app.post('/api/ping-active', async (req, res) => {
                 }]);
             }
 
-            const { error: updateError } = await supabase
+            // 🟢 เปลี่ยนจาก Update ทับของเดิม เป็นการ Insert บรรทัดใหม่เพื่อวาดกราฟไทม์ไลน์!
+            const newTotalChats = existingData.message_count + chats;
+            const newAfkCount = (existingData.afk_count || 0) + afkIncrement;
+
+            const { error: insertError } = await supabase
                 .from('line_activity')
-                .update({
+                .insert([{
+                    staff_name: sessionProfile,
                     status: 'Online',
                     last_active: localTime,
-                    message_count: existingData.message_count + chats,
-                    afk_count: (existingData.afk_count || 0) + afkIncrement 
-                })
-                .eq('id', existingData.id);
-            error = updateError;
+                    message_count: newTotalChats,
+                    afk_count: newAfkCount 
+                }]);
+            error = insertError;
         } else {
             // แชทแรกของวัน เซ็ตจำนวนอู้เป็น 0
             const { error: insertError } = await supabase
