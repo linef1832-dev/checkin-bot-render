@@ -689,15 +689,7 @@
                     chatData.push(0);
                 } else {
                     const maxInBucket = Math.max(...bucketArr); 
-                    let chatsAdded = 0;
-
-                    if (index === 0) {
-                        const minInBucket = Math.min(...bucketArr);
-                        chatsAdded = maxInBucket - minInBucket; 
-                    } else {
-                        chatsAdded = maxInBucket - prevMax; 
-                    }
-
+                    let chatsAdded = maxInBucket - prevMax; 
                     chatData.push(chatsAdded > 0 ? chatsAdded : 0);
                     prevMax = maxInBucket; 
                 }
