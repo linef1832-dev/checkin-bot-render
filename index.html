@@ -261,7 +261,8 @@
                     if (finalAfkCount < 0) finalAfkCount = 0;
 
                     // 🟢 4. ส่งยอดอู้ที่หักลบแล้วไปโชว์บนหน้าเว็บ!
-                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount };
+                        currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount };
+                        });
                 
 
                 renderTrackerTable();
@@ -463,17 +464,17 @@
                         <b style="color:${titleColor};">${icon} หายไป ${diffText}</b>
                         <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
                     </div>
-            <div style="display:flex; gap:5px;">
+        <div style="display:flex; gap:5px;">
                             <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ (เช่น ไปเข้าห้องน้ำ)..." style="margin:0; padding:8px; font-size:13px; flex:3; ${hasRemark ? 'color:#888;' : ''}">
                             <button class="btn-small" style="background:${hasRemark ? '#555' : '#43b581'}; flex:1;" onclick="saveRemark('${name}', '${dateStr}', '${g.start.toISOString()}', '${g.end ? g.end.toISOString() : 'null'}', ${i})">${hasRemark ? 'แก้ไข' : 'บันทึก'}</button>
                         </div>
                     </div>`;
                 });
-                } // 🟢 <--- เติมปีกกาปิดตรงนี้ 1 ตัวครับ!! (ปิดคำสั่ง else)
+            } // 🟢 และปีกกานี้ที่หายไปครับ!!
 
-                document.getElementById('modalContent').innerHTML = html;
-                document.getElementById('historyModal').style.display = 'flex';
-            }
+            document.getElementById('modalContent').innerHTML = html;
+            document.getElementById('historyModal').style.display = 'flex';
+        }
 
         async function saveRemark(name, date, start, end, index) {
             const pin = document.getElementById('adminPin').value;
