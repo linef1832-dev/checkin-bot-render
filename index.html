@@ -222,7 +222,7 @@
                     const totalChats = staffMap[name].totalChats; 
                     const gaps = [];
 
-                    // 🟢 ดึงข้อมูลประวัติอู้มาจับคู่กับชื่อที่ถูกรวมร่างแล้ว
+                // ดึงข้อมูลประวัติอู้มาจับคู่กับชื่อที่ถูกรวมร่างแล้ว
                     remarks.filter(rm => {
                         const rName = rm.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
                         return rName === name;
@@ -233,6 +233,11 @@
 
                         if (diffMins >= 10) { 
                             gaps.push({ start, end, diffMins, remark: rm.remark || '' });
+
+                            // 🟢 2. ถ้าช่องหมายเหตุถูกพิมพ์แล้ว ให้นับว่าเคลียร์แล้ว!
+                            if (rm.remark && rm.remark.trim() !== '') {
+                                explainedCount++; 
+                            }
                         }
                     });
 
@@ -242,16 +247,21 @@
 
                     if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 10) {
                         const exists = gaps.find(g => g.start.getTime() === lastActive.getTime());
-                                if (!exists) {
-                                    gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: '' });
-                                }
-                            }
+                        if (!exists) {
+                            gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: '' });
+                        }
+                    }
 
-                            // เรียงเวลาจากเช้าไปดึก
-                            gaps.sort((a, b) => a.start - b.start);
+                    // เรียงเวลาจากเช้าไปดึก
+                    gaps.sort((a, b) => a.start - b.start);
 
-                            currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: staffMap[name].totalAfk };
-                        });
+                    // 🟢 3. เอายอดอู้ทั้งหมดตั้ง ลบด้วยยอดที่เคลียร์แล้ว (ถ้าน้อยกว่า 0 ให้เป็น 0)
+                    let finalAfkCount = staffMap[name].totalAfk - explainedCount;
+                    if (finalAfkCount < 0) finalAfkCount = 0;
+
+                    // 🟢 4. ส่งยอดอู้ที่หักลบแล้วไปโชว์บนหน้าเว็บ!
+                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount };
+                
 
                 renderTrackerTable();
                 document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
@@ -314,7 +324,7 @@
 
             if (!currentTrackerData) return;
 
-            const keys = Object.keys(currentTrackerData).filter(name => name.includes(search));
+            let keys = Object.keys(currentTrackerData).filter(name => name.includes(search));
             if(keys.length === 0) {
                 tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่พบรายชื่อพนักงาน</td></tr>';
                 return;
@@ -324,13 +334,10 @@
             const currentMins = now.getHours() * 60 + now.getMinutes(); 
 
             let displayCount = 0; 
+            let renderItems = [];
 
-            // 🟢 ดักจับบัค Sort: ถ้า diffNow เป็นค่าแปลกๆ ให้ตีเป็น 0 ไปเลย (ป้องกันหน้าเว็บช็อก)
-            keys.sort((a, b) => {
-                let diffA = isNaN(currentTrackerData[a].diffNow) ? 0 : currentTrackerData[a].diffNow;
-                let diffB = isNaN(currentTrackerData[b].diffNow) ? 0 : currentTrackerData[b].diffNow;
-                return diffB - diffA;
-            }).forEach(name => {
+            // 🟢 Pass 1: ตรวจสอบสถานะของทุกคนก่อนวาดตาราง
+            keys.forEach(name => {
                 const d = currentTrackerData[name];
                 const staffShift = typeof getStaffShift === 'function' ? getStaffShift(name) : 'unknown'; 
 
@@ -340,23 +347,17 @@
                 let pauseReason = "";
 
                 const lastGap = d.gaps.length > 0 ? d.gaps[d.gaps.length - 1] : null;
-
-                // 🟢 ลอจิกใหม่: เช็คก่อนว่า "น้องเพิ่งพิมพ์ (diffNow < 10)" หรือเปล่า?
-                // ถ้าเพิ่งพิมพ์ แปลว่ายังมีชีวิตอยู่หน้าจอ! ข้ามการอ่านหมายเหตุ "เลิกงาน" และ "พัก" ไปเลย
                 const isRecentlyActive = d.diffNow < 10; 
 
                 if (lastGap && lastGap.remark && !isRecentlyActive) {
                     if (lastGap.remark.includes('เลิกงาน') || lastGap.remark.includes('หมดกะ')) {
-                        isOffDuty = true;
-                        offDutyReason = "แอดมินกดให้";
+                        isOffDuty = true; offDutyReason = "แอดมินกดให้";
                     } 
                     else if (lastGap.remark.includes('[พัก]')) {
-                        isPaused = true;
-                        pauseReason = lastGap.remark.replace('[พัก]', '').trim(); 
+                        isPaused = true; pauseReason = lastGap.remark.replace('[พัก]', '').trim(); 
                     }
                 }
 
-                // (เงื่อนไขหมดกะอัตโนมัติตามเวลายังเหมือนเดิม แต่ให้ทำงานก็ต่อเมื่อน้องไม่ได้เพิ่งพิมพ์)
                 if (!isOffDuty && !isPaused && staffShift !== 'unknown' && !isRecentlyActive) {
                     if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
                         isOffDuty = true; offDutyReason = "หมดเวลากะเช้า";
@@ -373,6 +374,28 @@
                 let currentCategory = 'ONLINE';
                 if (isOffDuty) { currentCategory = 'OFFLINE'; } 
                 else if (d.diffNow >= 10 && !isPaused) { currentCategory = 'AFK'; } 
+
+                // 🟢 ระบบถ่วงน้ำหนัก: 1=อยู่บนสุด, 2=อยู่ตรงกลาง, 3=ถูกเตะไปล่างสุด
+                let sortScore = 1; 
+                if (isPaused) sortScore = 2; 
+                if (isOffDuty) sortScore = 3; 
+
+                renderItems.push({ name, d, isOffDuty, offDutyReason, isPaused, pauseReason, currentCategory, sortScore });
+            });
+
+            // 🟢 Pass 2: ทำการจัดเรียง (เรียงตามน้ำหนักสถานะก่อน แล้วค่อยเรียงตามเวลาที่หายไป)
+            renderItems.sort((a, b) => {
+                if (a.sortScore !== b.sortScore) {
+                    return a.sortScore - b.sortScore; 
+                }
+                let diffA = isNaN(a.d.diffNow) ? 0 : a.d.diffNow;
+                let diffB = isNaN(b.d.diffNow) ? 0 : b.d.diffNow;
+                return diffB - diffA;
+            });
+
+            // 🟢 Pass 3: วาดข้อมูลลงตารางตามลำดับที่จัดเรียงไว้
+            renderItems.forEach(item => {
+                const { name, d, isOffDuty, offDutyReason, isPaused, pauseReason, currentCategory } = item;
 
                 if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) return; 
 
@@ -422,23 +445,29 @@
             if (gaps.length === 0) {
                 html = '<p style="text-align:center; color:#43b581;">✨ ไม่พบประวัติการอู้ในวันนี้ เยี่ยมมาก!</p>';
             } else {
-                gaps.forEach((g, i) => {
-                    const startStr = g.start.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'});
-                    const endStr = g.end ? g.end.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'}) : 'ปัจจุบัน';
-                    const diffText = g.diffMins >= 60 ? `${Math.floor(g.diffMins/60)} ชม. ${g.diffMins%60} นาที` : `${g.diffMins} นาที`;
-                    
-                    html += `<div class="history-item">
-                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-                            <b style="color:#ED4245;">🔴 หายไป ${diffText}</b>
-                            <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
-                        </div>
-                        <div style="display:flex; gap:5px;">
-                            <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ (เช่น ไปเข้าห้องน้ำ)..." style="margin:0; padding:8px; font-size:13px; flex:3;">
-                            <button class="btn-small" style="background:#43b581; flex:1;" onclick="saveRemark('${name}', '${dateStr}', '${g.start.toISOString()}', '${g.end ? g.end.toISOString() : 'null'}', ${i})">บันทึก</button>
-                        </div>
-                    </div>`;
-                });
-            }
+            gaps.forEach((g, i) => {
+                const startStr = g.start.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'});
+                const endStr = g.end ? g.end.toLocaleTimeString('th-TH', {hour: '2-digit', minute:'2-digit'}) : 'ปัจจุบัน';
+                const diffText = g.diffMins >= 60 ? `${Math.floor(g.diffMins/60)} ชม. ${g.diffMins%60} นาที` : `${g.diffMins} นาที`;
+
+                // 🟢 เช็คสถานะ: ถ้ามีเหตุผลแล้ว ให้เปลี่ยนสีเป็นสีเทาหม่นๆ
+                const hasRemark = g.remark && g.remark.trim() !== '';
+                const borderColor = hasRemark ? '#555555' : '#ED4245'; 
+                const titleColor = hasRemark ? '#888888' : '#ED4245'; 
+                const icon = hasRemark ? '⚪' : '🔴';
+                const bgStyle = hasRemark ? 'background: #222; opacity: 0.6;' : 'background: #1e1e2f;';
+
+                html += `<div class="history-item" style="border-left: 4px solid ${borderColor}; ${bgStyle}">
+                    <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                        <b style="color:${titleColor};">${icon} หายไป ${diffText}</b>
+                        <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
+                    </div>
+                    <div style="display:flex; gap:5px;">
+                        <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ (เช่น ไปเข้าห้องน้ำ)..." style="margin:0; padding:8px; font-size:13px; flex:3; ${hasRemark ? 'color:#888;' : ''}">
+                        <button class="btn-small" style="background:${hasRemark ? '#555' : '#43b581'}; flex:1;" onclick="saveRemark('${name}', '${dateStr}', '${g.start.toISOString()}', '${g.end ? g.end.toISOString() : 'null'}', ${i})">${hasRemark ? 'แก้ไข' : 'บันทึก'}</button>
+                    </div>
+                </div>`;
+            });
             
             document.getElementById('modalContent').innerHTML = html;
             document.getElementById('historyModal').style.display = 'flex';
