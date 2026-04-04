@@ -641,10 +641,33 @@
             ctx.style.display = 'block';
             noDataText.style.display = 'none';
 
-            // 1. จัดกลุ่มยอดแชทสะสมในแต่ละช่องเวลา
-            const bucketData = {};
+            // 🟢 อัปเกรดใหม่: สร้างไทม์ไลน์เวลาแบบ "ต่อเนื่อง" ไม่ให้กระโดดข้าม
+            const sortedPings = d.pings.slice().sort((a,b) => a.time - b.time);
+            const startTime = sortedPings[0].time;
+            const endTime = sortedPings[sortedPings.length - 1].time; // เอาเวลาล่าสุดที่บอทจับได้
 
-            d.pings.sort((a,b) => a.time - b.time).forEach(p => {
+            const allLabels = [];
+            let curr = new Date(startTime);
+
+            if (mode === '1h') {
+                curr.setMinutes(0, 0, 0); // เริ่มต้นที่ต้นชั่วโมง
+                while(curr <= endTime) {
+                    allLabels.push(`${String(curr.getHours()).padStart(2, '0')}:00`);
+                    curr.setHours(curr.getHours() + 1);
+                }
+            } else {
+                curr.setMinutes(Math.floor(curr.getMinutes() / 10) * 10, 0, 0); // เริ่มต้นที่รอบ 10 นาที
+                while(curr <= endTime) {
+                    allLabels.push(`${String(curr.getHours()).padStart(2, '0')}:${String(curr.getMinutes()).padStart(2, '0')}`);
+                    curr.setMinutes(curr.getMinutes() + 10);
+                }
+            }
+
+            // เตรียมตะกร้าใส่ยอดแชทตามเวลา
+            const bucketData = {};
+            allLabels.forEach(lbl => bucketData[lbl] = []);
+
+            sortedPings.forEach(p => {
                 const h = p.time.getHours();
                 const m = p.time.getMinutes();
                 let timeKey = '';
@@ -656,30 +679,33 @@
                     timeKey = `${String(h).padStart(2, '0')}:${String(minGroup).padStart(2, '0')}`;
                 }
 
-                if (!bucketData[timeKey]) bucketData[timeKey] = [];
-                bucketData[timeKey].push(p.chats); 
+                if (bucketData[timeKey]) bucketData[timeKey].push(p.chats); 
             });
 
-            const labels = Object.keys(bucketData).sort();
             const chatData = [];
             let prevMax = 0;
 
-            // 2. 🟢 โค้ดพระเอก: หา "ผลต่าง" เพื่อดูยอดแชทที่กดตอบไปจริงๆ ในช่วงนั้น
-            labels.forEach((key, index) => {
-                const maxInBucket = Math.max(...bucketData[key]); 
-                let chatsAdded = 0;
+            // คำนวณยอดแชทที่เพิ่มขึ้นในแต่ละตะกร้า
+            allLabels.forEach((key, index) => {
+                const bucketArr = bucketData[key];
 
-                if (index === 0) {
-                    // แท่งแรกสุดของวัน หาผลต่างภายในช่องเวลานั้นเอง (กันกราฟแท่งแรกพุ่งทะลุจอ)
-                    const minInBucket = Math.min(...bucketData[key]);
-                    chatsAdded = maxInBucket - minInBucket;
+                if (bucketArr.length === 0) {
+                    // ถ้าช่วงเวลานี้ไม่มีข้อมูล (บอทหลับ) ให้ใส่เป็น 0
+                    chatData.push(0);
                 } else {
-                    // แท่งต่อๆ ไป เอาค่ายอดสะสมสูงสุดของรอบนี้ ลบกับค่ายอดสะสมของรอบก่อนหน้า
-                    chatsAdded = maxInBucket - prevMax;
-                }
+                    const maxInBucket = Math.max(...bucketArr); 
+                    let chatsAdded = 0;
 
-                chatData.push(chatsAdded > 0 ? chatsAdded : 0);
-                prevMax = maxInBucket; // เก็บยอดไว้ลบกับรอบถัดไป
+                    if (index === 0) {
+                        const minInBucket = Math.min(...bucketArr);
+                        chatsAdded = maxInBucket - minInBucket; // แท่งแรกกันกราฟพุ่ง
+                    } else {
+                        chatsAdded = maxInBucket - prevMax; // หาผลต่าง
+                    }
+
+                    chatData.push(chatsAdded > 0 ? chatsAdded : 0);
+                    prevMax = maxInBucket; // เก็บยอดไว้ลบกับรอบถัดไป
+                }
             });
 
             if (personalChartInstance) personalChartInstance.destroy();
@@ -687,7 +713,7 @@
             personalChartInstance = new Chart(ctx.getContext('2d'), {
                 type: 'bar',
                 data: {
-                    labels: labels,
+                    labels: allLabels,
                     datasets: [{
                         label: `ยอดตอบลูกค้า (${mode === '1h' ? 'รายชั่วโมง' : 'ทุก 10 นาที'})`,
                         data: chatData,
@@ -700,55 +726,6 @@
                     plugins: { legend: { display: true, labels: { color: '#aaa' } } },
                     scales: {
                         y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa', stepSize: 1 } },
-                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
-                    }
-                }
-            });
-        }
-
-        // 🟢 ฟังก์ชันวาดกราฟรวม (Leaderboard)
-        let myChart = null; 
-        function renderChart() {
-            const ctx = document.getElementById('chatChart');
-            if (!ctx) return; 
-
-            const labels = [];
-            const data = [];
-            const bgColors = [];
-
-            const sortedStaff = Object.keys(currentTrackerData).sort((a, b) => {
-                return (currentTrackerData[b].totalChats || 0) - (currentTrackerData[a].totalChats || 0);
-            });
-
-            sortedStaff.forEach((name, index) => {
-                const chats = currentTrackerData[name].totalChats || 0;
-                labels.push(name);
-                data.push(chats);
-
-                if (index === 0) bgColors.push('#FEE75C'); 
-                else if (index === 1) bgColors.push('#C0C0C0'); 
-                else if (index === 2) bgColors.push('#CD7F32'); 
-                else bgColors.push('#5865F2'); 
-            });
-
-            if (myChart) myChart.destroy(); 
-
-            myChart = new Chart(ctx.getContext('2d'), {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'ยอดตอบแชท',
-                        data: data,
-                        backgroundColor: bgColors,
-                        borderRadius: 4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa' } },
                         x: { grid: { display: false }, ticks: { color: '#aaa' } }
                     }
                 }
