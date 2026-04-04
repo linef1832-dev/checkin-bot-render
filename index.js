@@ -249,7 +249,25 @@ app.post('/api/ping-active', async (req, res) => {
     }
 });
 
-// --- API สำหรับดึงข้อมูลกราฟ รายสัปดาห์ / รายเดือน ---
+// =========================================================
+// 1. API ดึงประวัติตารางแชทรายวัน (ตัวที่เผลอลบไป)
+// =========================================================
+app.post('/api/tracker-history', async (req, res) => {
+    const { date } = req.body;
+    try {
+        const startOfDay = new Date(`${date}T00:00:00+07:00`).toISOString();
+        const endOfDay = new Date(`${date}T23:59:59+07:00`).toISOString();
+
+        const { data: pings } = await supabase.from('line_activity').select('*').gte('last_active', startOfDay).lte('last_active', endOfDay).order('last_active', { ascending: true });
+        const { data: remarks } = await supabase.from('tracker_remarks').select('*').eq('afk_date', date);
+
+        res.json({ success: true, pings: pings || [], remarks: remarks || [] });
+    } catch (err) { res.status(500).json({ success: false }); }
+});
+
+// =========================================================
+// 2. API สำหรับดึงข้อมูลกราฟ รายสัปดาห์ / รายเดือน (ตัวใหม่)
+// =========================================================
 app.post('/api/personal-stats', async (req, res) => {
     const { staff_name, mode } = req.body;
     try {
