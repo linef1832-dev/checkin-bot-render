@@ -682,6 +682,56 @@
                 }
             });
         }
+        // 🟢 โค้ดสำหรับวาดกราฟรวม (Leaderboard)
+        let myChart = null; 
+        function renderChart() {
+            const ctx = document.getElementById('chatChart');
+            if (!ctx) return; // ถ้าไม่มีกล่องกราฟให้ข้ามไปก่อน
+
+            const labels = [];
+            const data = [];
+            const bgColors = [];
+
+            // เรียงลำดับคนตอบเยอะสุดไปน้อยสุด
+            const sortedStaff = Object.keys(currentTrackerData).sort((a, b) => {
+                return (currentTrackerData[b].totalChats || 0) - (currentTrackerData[a].totalChats || 0);
+            });
+
+            sortedStaff.forEach((name, index) => {
+                const chats = currentTrackerData[name].totalChats || 0;
+                labels.push(name);
+                data.push(chats);
+
+                // Top 3 ได้สี ทอง เงิน ทองแดง
+                if (index === 0) bgColors.push('#FEE75C'); 
+                else if (index === 1) bgColors.push('#C0C0C0'); 
+                else if (index === 2) bgColors.push('#CD7F32'); 
+                else bgColors.push('#5865F2'); 
+            });
+
+            if (myChart) myChart.destroy(); // ลบกราฟเก่าก่อนวาดใหม่
+
+            myChart = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ยอดตอบแชท',
+                        data: data,
+                        backgroundColor: bgColors,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa' } },
+                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        // }
     </script>
 </body>
 </html>
