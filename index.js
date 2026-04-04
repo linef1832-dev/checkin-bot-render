@@ -64,7 +64,7 @@ if (fs.existsSync(DATA_FILE)) {
 }
 
 // ==========================================
-// 🚀 เริ่มโซนสร้าง API ทั้งหมด (จัดเรียงใหม่ให้ถูกต้อง)
+// 🚀 เริ่มโซนสร้าง API ทั้งหมด
 // ==========================================
 
 app.post('/api/autocheckin', (req, res) => {
@@ -118,16 +118,12 @@ app.post('/api/startcheckin', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, message: '❌ Error' }); }
 });
 
-app.get('/api/getstaff', (req, res) => {
+app.get('/api/getstaff', async (req, res) => {
     try {
-        if (fs.existsSync('./staff.json')) {
-            const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-            res.json({ success: true, data: staffData });
-        } else {
-            res.json({ success: true, data: {} });
-        }
+        const staffData = await fetchStaffData();
+        res.json({ success: true, data: staffData });
     } catch (error) {
-        res.status(500).json({ success: false, message: '❌ ไม่สามารถอ่านไฟล์ staff.json ได้' });
+        res.status(500).json({ success: false, message: '❌ ไม่สามารถโหลดข้อมูลพนักงานจาก Supabase ได้' });
     }
 });
 
@@ -157,13 +153,10 @@ app.post('/api/ping-active', async (req, res) => {
     const chats = msgCount || 0;
     const now = Date.now();
 
-    // 🟢 โล่ป้องกัน Race Condition (แย่งกันเข้าประตู)
-    // ถ้ายิงสัญญาณมารัวๆ ภายใน 2 วินาที ให้ปัดตกไปเลย ป้องกันการสร้างบรรทัดเบิ้ล!
     if (userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 2000)) {
         return res.status(200).json({ success: true, status: 'ignored_race_condition' });
     }
 
-    // ตัวกันสแปม (ถ้าไม่ได้ตอบแชทเลย ให้ส่งข้อมูลแค่ทุกๆ 45 วินาทีพอ)
     if (chats === 0 && userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 45000)) {
         return res.status(200).json({ success: true, status: 'ignored_spam' });
     }
@@ -172,10 +165,8 @@ app.post('/api/ping-active', async (req, res) => {
 
     try {
         const localTime = new Date().toISOString(); 
-// ... (โค้ดด้านล่างยาวไปเหมือนเดิมครับ)
         console.log(`[Tracker] ได้รับสัญญาณ: ${sessionProfile} กำลังทำงาน! (ตอบแชท: ${chats} ข้อความ 💬)`);
 
-        // --- เริ่มต้นโค้ดอัปเกรด V3 (เพิ่มระบบนับอู้อัตโนมัติ + จดประวัติ) ---
         const nowThai = new Date(new Date().getTime() + (7 * 60 * 60 * 1000));
         const todayYYYYMMDD = nowThai.toISOString().split('T')[0]; 
         const startOfDayThai = `${todayYYYYMMDD}T00:00:00+07:00`; 
@@ -197,14 +188,12 @@ app.post('/api/ping-active', async (req, res) => {
             const currentPing = new Date(localTime).getTime();
             const diffFromLastPing = (currentPing - lastPing) / 60000;
 
-            // 🟢 เช็คว่าแท่งกราฟนี้ (บรรทัดนี้) ถูกสร้างมานานแค่ไหนแล้ว
             const bucketStart = new Date(existingData.created_at).getTime();
             const diffFromBucketStart = (currentPing - bucketStart) / 60000;
 
             const newTotalChats = existingData.message_count + chats;
             let newAfkCount = existingData.afk_count || 0;
 
-            // 🚨 ตรวจจับคนอู้ (หายเกิน 10 นาที)
             if (diffFromLastPing >= 10) {
                 newAfkCount += 1;
                 await supabase.from('tracker_remarks').insert([{
@@ -216,8 +205,6 @@ app.post('/api/ping-active', async (req, res) => {
                 }]);
             }
 
-            // 🟢 จุดตัดสินใจ: สร้างแท่งใหม่ หรือ ทับแท่งเดิม?
-            // ถ้าเวลาผ่านไปเกิน 10 นาทีจากตอนสร้างแท่งนี้ หรือเพิ่งกลับมาจากอู้ -> สร้างแท่งใหม่ (INSERT)
             if (diffFromBucketStart >= 10 || diffFromLastPing >= 10) {
                 const { error: insertError } = await supabase.from('line_activity').insert([{
                     staff_name: sessionProfile,
@@ -228,7 +215,6 @@ app.post('/api/ping-active', async (req, res) => {
                 }]);
                 error = insertError;
             } else {
-                // ถ้ายิงมารัวๆ ภายใน 10 นาที -> อัปเดตแท่งเดิม (UPDATE) Database จะได้ไม่แตก!
                 const { error: updateError } = await supabase.from('line_activity')
                     .update({
                         status: 'Online',
@@ -240,7 +226,6 @@ app.post('/api/ping-active', async (req, res) => {
                 error = updateError;
             }
         } else {
-            // แชทแรกของวัน เซ็ตจำนวนอู้เป็น 0
             const { error: insertError } = await supabase
                 .from('line_activity')
                 .insert([{
@@ -252,7 +237,6 @@ app.post('/api/ping-active', async (req, res) => {
                 }]);
             error = insertError;
         }
-        // --- จบโค้ดอัปเกรด V3 ---
 
         if (error) {
             console.error('[Tracker] Error:', error);
@@ -296,45 +280,18 @@ app.post('/api/updatestaff', async (req, res) => {
     if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
 
     try {
-        let staffData = {};
-        if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-
+        // อัปเดตให้ตรงกับ Table staff_list และคอลัมน์ staff_name
         if (action === 'add') {
-            if (!staffData[dept]) staffData[dept] = { morning: {}, night: {} };
-            if (!staffData[dept][shift]) staffData[dept][shift] = {};
-            for (const d in staffData) {
-                for (const s in staffData[d]) {
-                    if (staffData[d][s] && staffData[d][s][discordId]) delete staffData[d][s][discordId];
-                }
-            }
-            staffData[dept][shift][discordId] = staffName;
-
+            await supabase.from('staff_list').upsert({ discord_id: discordId, staff_name: staffName, department: dept, shift: shift });
         } else if (action === 'edit_name') {
-            let found = false;
-            for (const d in staffData) {
-                for (const s in staffData[d]) {
-                    if (staffData[d][s] && staffData[d][s][discordId]) {
-                        staffData[d][s][discordId] = newName;
-                        found = true; break;
-                    }
-                }
-                if (found) break;
-            }
-            if (!found) return res.status(404).json({ success: false, message: '❌ ไม่พบรายชื่อพนักงาน' });
-
+            await supabase.from('staff_list').update({ staff_name: newName }).eq('discord_id', discordId);
         } else if (action === 'remove') {
-            for (const d in staffData) {
-                for (const s in staffData[d]) {
-                    if (staffData[d][s] && staffData[d][s][discordId]) delete staffData[d][s][discordId];
-                }
-            }
+            await supabase.from('staff_list').delete().eq('discord_id', discordId);
         }
 
-        fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
-        syncToGitHub(staffData); 
         let msg = action === 'add' ? `✅ บันทึกพนักงาน ${staffName} สำเร็จ!` : (action === 'edit_name' ? '✅ เปลี่ยนชื่อพนักงานแล้ว!' : '🗑️ ลบพนักงานออกจากระบบแล้ว!');
         res.json({ success: true, message: msg });
-    } catch (error) { res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาดในการบันทึกข้อมูล' }); }
+    } catch (error) { res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาดในการบันทึกข้อมูลไปที่ Supabase' }); }
 });
 
 
@@ -342,24 +299,27 @@ app.post('/api/updatestaff', async (req, res) => {
 // 🛠️ โซน Functions ต่างๆ
 // ==========================================
 
-async function syncToGitHub(newStaffData) {
-    const token = process.env.GITHUB_TOKEN;
-    const owner = process.env.GITHUB_OWNER;
-    const repo = process.env.GITHUB_REPO;
-    if (!token || !owner || !repo) return console.log("⚠️ ข้ามการอัปเดต GitHub");
-
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/staff.json`;
+// ฟังก์ชันจำลองโครงสร้าง Object ให้เหมือน staff.json เดิม เพื่อไม่ให้ระบบอื่นๆ พัง
+async function fetchStaffData() {
     try {
-        const getRes = await fetch(url, { headers: { 'Authorization': `token ${token}` } });
-        const fileData = await getRes.json();
-        const contentBase64 = Buffer.from(JSON.stringify(newStaffData, null, 2)).toString('base64');
-        await fetch(url, {
-            method: 'PUT',
-            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
-            body: JSON.stringify({ message: "🤖 บอทอัปเดตรายชื่อพนักงาน", content: contentBase64, sha: fileData.sha })
+        // ดึงจาก Table staff_list
+        const { data, error } = await supabase.from('staff_list').select('*');
+        let staffObj = { AMOL: { morning: {}, noon: {}, night: {} }, ODOL: { morning: {}, noon: {}, night: {} } };
+        if (error || !data) return staffObj;
+
+        data.forEach(row => {
+            const dept = (row.department || 'ALL').toUpperCase();
+            const shift = (row.shift || 'morning').toLowerCase();
+            if (!staffObj[dept]) staffObj[dept] = { morning: {}, noon: {}, night: {} };
+            if (!staffObj[dept][shift]) staffObj[dept][shift] = {};
+            // ใช้ row.staff_name ตามรูป
+            staffObj[dept][shift][row.discord_id] = row.staff_name;
         });
-        console.log("✅ อัปเดตไฟล์ staff.json สำเร็จ!");
-    } catch (e) { console.error("❌ อัปเดต GitHub พลาด:", e); }
+        return staffObj;
+    } catch (e) {
+        console.error("Fetch Staff Error:", e);
+        return { AMOL: { morning: {}, noon: {}, night: {} }, ODOL: { morning: {}, noon: {}, night: {} } };
+    }
 }
 
 async function syncConfigToGitHub() {
@@ -406,16 +366,15 @@ function saveData() {
     } catch (e) {}
 }
 
-function getStaffName(userId, fallbackName) {
-    try {
-        if (!fs.existsSync('./staff.json')) return fallbackName;
-        const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-        for (const dept in staffData) {
-            for (const shift in staffData[dept]) {
-                if (staffData[dept][shift] && staffData[dept][shift][userId]) return staffData[dept][shift][userId];
+function getStaffName(userId, fallbackName, staffDataObj) {
+    if (!staffDataObj) return fallbackName;
+    for (const dept in staffDataObj) {
+        for (const shift in staffDataObj[dept]) {
+            if (staffDataObj[dept][shift] && staffDataObj[dept][shift][userId]) {
+                return staffDataObj[dept][shift][userId];
             }
         }
-    } catch (e) { }
+    }
     return fallbackName;
 }
 
@@ -441,7 +400,6 @@ async function processAutoShiftSwaps() {
 
         if (!supabaseLeave) return;
 
-        // ดึงข้อมูลย้อนหลังแค่ 3 วันพอครับ (ไม่กวาดหมดแล้ว ป้องกันฐานข้อมูลทำงานหนัก)
         const now = new Date();
         const pastDays = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000)).toISOString(); 
 
@@ -449,15 +407,9 @@ async function processAutoShiftSwaps() {
             .from('scheduled_tasks')
             .select('*')
             .eq('status', 'completed')
-            .gte('scheduled_for', pastDays); // กลับมาใส่ตัวกรองเวลา
+            .gte('scheduled_for', pastDays);
 
         if (error || !tasks || tasks.length === 0) return;
-
-        let staffData = {};
-        if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
-
-        // 📸 ถ่ายรูปข้อมูลก่อนทำ เพื่อเอาไว้เทียบตอนจบ!
-        const originalDataStr = JSON.stringify(staffData);
 
         for (const task of tasks) {
             if (processedTasks.has(task.id)) continue;
@@ -475,70 +427,21 @@ async function processAutoShiftSwaps() {
                     if (checkShift.includes('เช้า') || checkShift.includes('morning')) newShiftKey = 'morning';
                     else if (checkShift.includes('เที่ยง') || checkShift.includes('noon')) newShiftKey = 'noon';
 
-                    let foundUserId = null; let foundDept = null; let foundName = null;
-
-                    // ค้นหาพนักงานจากทุกกะ
-                    for (const dept in staffData) {
-                        for (const shift in staffData[dept]) {
-                            for (const uid in staffData[dept][shift]) {
-                                if (staffData[dept][shift][uid].toUpperCase().includes(targetName.toUpperCase())) {
-                                    foundUserId = uid; foundDept = dept; foundName = staffData[dept][shift][uid];
-                                    delete staffData[dept][shift][uid]; // ลบออกจากกะเดิม
-                                }
-                            }
+                    // Update directly in Supabase using staff_name search
+                    const { data: matchingStaff } = await supabase.from('staff_list').select('discord_id').ilike('staff_name', `%${targetName}%`);
+                    if (matchingStaff && matchingStaff.length > 0) {
+                        for (const staff of matchingStaff) {
+                            await supabase.from('staff_list').update({ shift: newShiftKey }).eq('discord_id', staff.discord_id);
                         }
-                    }
-
-                    // ใส่เข้ากะเป้าหมาย
-                    if (foundUserId && foundDept) {
-                        if (!staffData[foundDept][newShiftKey]) staffData[foundDept][newShiftKey] = {};
-                        staffData[foundDept][newShiftKey][foundUserId] = foundName; 
                     }
                 }
             }
             processedTasks.add(task.id);
         }
-
-        // 🛑 ด่านอรหันต์หยุดลูปนรก: เทียบรูปก่อนทำ vs หลังทำ
-        if (JSON.stringify(staffData) !== originalDataStr) {
-            // ถ้าข้อมูลไม่เหมือนเดิม (มีการย้ายกะจริงๆ) ถึงจะอนุญาตให้เซฟ!
-            fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
-            await syncToGitHub(staffData); 
-            console.log("💾 [AutoSwap] อัปเดตกะลงระบบเรียบร้อย!");
-        } else {
-            // ถ้าหน้าตาเหมือนเดิมเป๊ะ ให้ข้ามไปเลย
-            console.log("ℹ️ [AutoSwap] ตารางกะเหมือนเดิมเป๊ะ หยุดลูปการอัปเดตไฟล์!");
-        }
+        console.log("💾 [AutoSwap] ตรวจสอบและอัปเดตกะสำเร็จ!");
     } catch (err) { 
         console.error("❌ [AutoSwap] Error:", err); 
     }
-}
-
-function getLeavesToday(dateStr, department = 'ALL') {
-    let targetFile = LEAVE_FILE;
-    const possibleNames = [LEAVE_FILE, 'Leaves.json', 'leaves.json.txt', 'Leaves.json.txt'];
-    for (const name of possibleNames) { if (fs.existsSync(name)) { targetFile = name; break; } }
-    if (!fs.existsSync(targetFile)) return { morning: [], night: [] };
-
-    try {
-        const rawData = fs.readFileSync(targetFile, 'utf8');
-        if (!rawData.trim()) return { morning: [], night: [] };
-        const allLeaves = JSON.parse(rawData);
-        const todayData = allLeaves[dateStr];
-        if (!todayData) return { morning: [], night: [] };
-
-        let result = { morning: [], night: [] };
-        ['morning', 'night'].forEach(shift => {
-            if (todayData[shift]) {
-                if ((department === 'AMOL' || department === 'ALL') && Array.isArray(todayData[shift].AMOL)) result[shift].push(...todayData[shift].AMOL);
-                if ((department === 'ODOL' || department === 'ALL') && Array.isArray(todayData[shift].ODOL)) result[shift].push(...todayData[shift].ODOL);
-            }
-        });
-
-        result.morning = result.morning.map(n => n.toString().trim());
-        result.night = result.night.map(n => n.toString().trim());
-        return result;
-    } catch (e) { return { morning: [], night: [] }; }
 }
 
 async function getLeavesFromSupabase(department = 'ALL') {
@@ -563,8 +466,7 @@ async function getLeavesFromSupabase(department = 'ALL') {
         }
 
         const onLeaveUsers = Object.keys(activeLeaves);
-        let staffData = {};
-        try { if (fs.existsSync('./staff.json')) staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8')); } catch (err) { }
+        const staffData = await fetchStaffData();
 
         onLeaveUsers.forEach(leaveName => {
             let shiftFound = null; let userDeptFound = null; 
@@ -638,6 +540,9 @@ function startSummaryTimer(channelId) {
             const shiftTypeLower = session.shiftType ? session.shiftType.toLowerCase() : '';
             const leavesObj = await getLeavesFromSupabase(session.department);
 
+            // ดึงข้อมูลพนักงานจาก Supabase ล่าสุด
+            const staffDataObj = await fetchStaffData();
+
             let shiftIcon = "☀️ กะเช้า";
             let currentShiftLeaves = leavesObj.morning || [];
 
@@ -703,7 +608,7 @@ function startSummaryTimer(channelId) {
                     const vRoom = guild.channels.cache.get(vId);
                     if (vRoom) {
                         vRoom.members.forEach(member => {
-                            const staffName = getStaffName(member.id, member.displayName);
+                            const staffName = getStaffName(member.id, member.displayName, staffDataObj);
                             const cleanName = staffName.trim().toUpperCase();
 
                             let isLeave = false;
@@ -732,21 +637,20 @@ function startSummaryTimer(channelId) {
 
                 let absentMembers = [];
                 try {
-                    const staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8'));
                     let shiftKey = 'morning';
                     const sType = session.shiftType ? session.shiftType.toLowerCase() : '';
                     if (sType.includes('ดึก') || sType.includes('night')) shiftKey = 'night';
-                    else if (sType.includes('เที่ยง') || sType.includes('noon')) shiftKey = 'noon'; // 🟢 ดึงข้อมูลพนักงานจากกะ noon
+                    else if (sType.includes('เที่ยง') || sType.includes('noon')) shiftKey = 'noon';
 
                     let shiftStaff = {};
                     const targetDept = session.department.toUpperCase(); 
 
                     if (targetDept === 'ALL') {
-                        for (const dept in staffData) {
-                            if (staffData[dept] && staffData[dept][shiftKey]) Object.assign(shiftStaff, staffData[dept][shiftKey]);
+                        for (const dept in staffDataObj) {
+                            if (staffDataObj[dept] && staffDataObj[dept][shiftKey]) Object.assign(shiftStaff, staffDataObj[dept][shiftKey]);
                         }
                     } else {
-                        if (staffData[targetDept] && staffData[targetDept][shiftKey]) shiftStaff = staffData[targetDept][shiftKey];
+                        if (staffDataObj[targetDept] && staffDataObj[targetDept][shiftKey]) shiftStaff = staffDataObj[targetDept][shiftKey];
                     }
 
                     let safeLeaves = [];
@@ -815,12 +719,6 @@ client.on('messageCreate', async (message) => {
         const hasPermission = message.member.roles.cache.some(role => ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase()));
         if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
 
-        let staffData = {};
-        if (fs.existsSync('./staff.json')) {
-            try { staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8')); }
-            catch (e) { return message.reply('❌ เกิดข้อผิดพลาดในการอ่านไฟล์ staff.json'); }
-        } else { return message.reply('❌ ยังไม่มีฐานข้อมูลพนักงานค่ะ'); }
-
         const argsText = message.content.replace('!removestaff', '').trim();
         if (!argsText) return message.reply('⚠️ **วิธีใช้:** `!removestaff @แท็กพนักงาน` หรือ `!removestaff ชื่อพนักงาน`');
 
@@ -828,33 +726,21 @@ client.on('messageCreate', async (message) => {
         let removedName = null;
 
         if (targetUser) {
-            const staffId = targetUser.id;
-            for (const dept in staffData) {
-                for (const shift in staffData[dept]) {
-                    if (staffData[dept][shift] && staffData[dept][shift][staffId]) {
-                        removedName = staffData[dept][shift][staffId];
-                        delete staffData[dept][shift][staffId];
-                    }
-                }
-            }
+            // ค้นหาด้วยคอลัมน์ staff_name
+            const { data } = await supabase.from('staff_list').select('staff_name').eq('discord_id', targetUser.id).single();
+            if (data) removedName = data.staff_name;
+            await supabase.from('staff_list').delete().eq('discord_id', targetUser.id);
         } else {
-            const searchName = argsText.replace('@', '').toUpperCase(); 
-            for (const dept in staffData) {
-                for (const shift in staffData[dept]) {
-                    for (const uid in staffData[dept][shift]) {
-                        const nameInDb = staffData[dept][shift][uid].toUpperCase();
-                        if (nameInDb.includes(searchName) || searchName.includes(nameInDb)) {
-                            removedName = staffData[dept][shift][uid];
-                            delete staffData[dept][shift][uid];
-                        }
-                    }
-                }
+            const searchName = argsText.replace('@', '').trim(); 
+            // ค้นหาด้วยคอลัมน์ staff_name
+            const { data } = await supabase.from('staff_list').select('*').ilike('staff_name', `%${searchName}%`);
+            if (data && data.length > 0) {
+                removedName = data[0].staff_name;
+                await supabase.from('staff_list').delete().eq('discord_id', data[0].discord_id);
             }
         }
 
         if (removedName) {
-            fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
-            await syncToGitHub(staffData); 
             return message.reply(`🗑️ **ลบพนักงานสำเร็จ!**\nถอดรายชื่อ **${removedName}** ออกจากระบบเรียบร้อยแล้วค่ะ`);
         } else { return message.reply('⚠️ ไม่พบรายชื่อพนักงานคนนี้ในระบบค่ะ'); }
     }
@@ -864,7 +750,7 @@ client.on('messageCreate', async (message) => {
         if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
 
         const args = message.content.split(/\s+/);
-        if (args.length < 5) return message.reply('⚠️ **วิธีใช้:** `!addstaff @แท็กพนักงาน <AMOL/ODOL> <เช้า/ดึก> <ชื่อพนักงาน>`');
+        if (args.length < 5) return message.reply('⚠️ **วิธีใช้:** `!addstaff @แท็กพนักงาน <AMOL/ODOL> <เช้า/เที่ยง/ดึก> <ชื่อพนักงาน>`');
 
         const targetUser = message.mentions.users.first();
         if (!targetUser) return message.reply('❌ กรุณาแท็ก (@) พนักงานที่ต้องการเพิ่มด้วยค่ะ');
@@ -876,30 +762,22 @@ client.on('messageCreate', async (message) => {
         let shift = '';
         if (shiftInput === 'เช้า' || shiftInput.toLowerCase() === 'morning') shift = 'morning';
         else if (shiftInput === 'ดึก' || shiftInput.toLowerCase() === 'night') shift = 'night';
-        else if (shiftInput === 'เที่ยง' || shiftInput.toLowerCase() === 'noon') shift = 'noon'; // 🟢 เพิ่มกะเที่ยง
+        else if (shiftInput === 'เที่ยง' || shiftInput.toLowerCase() === 'noon') shift = 'noon';
         else return message.reply('❌ กะต้องระบุเป็น `เช้า`, `เที่ยง` หรือ `ดึก` เท่านั้นค่ะ');
 
         const staffName = args.slice(4).join(' '); 
         const staffId = targetUser.id;
 
-        let staffData = {};
-        if (fs.existsSync('./staff.json')) {
-            try { staffData = JSON.parse(fs.readFileSync('./staff.json', 'utf8')); } catch (e) { }
-        }
+        // บันทึกลง staff_list และใช้คอลัมน์ staff_name
+        const { error } = await supabase.from('staff_list').upsert({
+            discord_id: staffId,
+            staff_name: staffName,
+            department: dept,
+            shift: shift
+        });
 
-        if (!staffData[dept]) staffData[dept] = { morning: {}, night: {} };
-        if (!staffData[dept][shift]) staffData[dept][shift] = {};
-
-        for (const d in staffData) {
-            for (const s in staffData[d]) {
-                if (staffData[d][s] && staffData[d][s][staffId]) delete staffData[d][s][staffId];
-            }
-        }
-
-        staffData[dept][shift][staffId] = staffName;
-        fs.writeFileSync('./staff.json', JSON.stringify(staffData, null, 2), 'utf8');
-        await syncToGitHub(staffData); 
-        return message.reply(`✅ **บันทึกข้อมูลพนักงานสำเร็จ!**\n👤 ชื่อ: **${staffName}**\n🏢 แผนก: **${dept}**\n⏱️ กะ: **${shift === 'morning' ? 'เช้า ☀️' : 'ดึก 🌙'}**`);
+        if (error) return message.reply('❌ เกิดข้อผิดพลาดในการบันทึกข้อมูลพนักงานลง Supabase');
+        return message.reply(`✅ **บันทึกข้อมูลพนักงานสำเร็จ!**\n👤 ชื่อ: **${staffName}**\n🏢 แผนก: **${dept}**\n⏱️ กะ: **${shift === 'morning' ? 'เช้า ☀️' : (shift === 'noon' ? 'เที่ยง 🕛' : 'ดึก 🌙')}**`);
     }
 
     if (message.content === '!exportstaff') {
@@ -1038,7 +916,9 @@ client.on('messageCreate', async (message) => {
                 if (member.voice.streaming) {
                     const localTime = getThaiTime(); 
                     let shiftName = (session.shiftType === 'morning') ? "กะเช้า ☀️" : "กะดึก 🌙";
-                    const staffName = getStaffName(member.id, member.displayName);
+
+                    const staffDataObj = await fetchStaffData(); // ดึงข้อมูลใหม่
+                    const staffName = getStaffName(member.id, member.displayName, staffDataObj);
 
                     session.members.push({ id: member.id, name: staffName, time: localTime, shift: shiftName });
 
@@ -1169,7 +1049,6 @@ cron.schedule('1 0 * * 1', async () => {
     try {
         console.log('📊 [Weekly Report] Starting weekly data aggregation...');
 
-        // เรียกฟังก์ชันใน Supabase เพื่อสรุปยอด 7 วันที่ผ่านมาลงตาราง weekly_summary
         const { error } = await supabase.rpc('generate_weekly_report');
 
         if (error) {
@@ -1177,7 +1056,6 @@ cron.schedule('1 0 * * 1', async () => {
         } else {
             console.log('✅ [Weekly Report] Weekly stats saved successfully!');
 
-            // แจ้งเตือนเข้าห้องแอดมิน (ใส่ ID ห้องของบอสแทนที่ตัวเลขได้เลยครับ)
             const adminChannel = await client.channels.fetch('1442466109503569992').catch(() => null);
             if (adminChannel) {
                 adminChannel.send("📅 **[ระบบสรุปผลรายสัปดาห์]** บันทึกยอดรวมพนักงานทุกคนในสัปดาห์ที่ผ่านมาลงฐานข้อมูลเรียบร้อยแล้วค่ะ!");
