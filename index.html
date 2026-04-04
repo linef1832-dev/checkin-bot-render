@@ -38,6 +38,28 @@
         #historyModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center; }
         .modal-box { background: #2a2a40; padding: 20px; border-radius: 10px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; position: relative; }
         .history-item { background: #1e1e2f; padding: 10px; border-radius: 8px; border-left: 4px solid #ED4245; margin-bottom: 10px; }
+        /* --- โค้ดสำหรับ Popup กลางจอ --- */
+        #customPopup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: #2a2a40;
+            color: white;
+            padding: 20px 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            z-index: 10000;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            animation: popIn 0.3s ease-out forwards;
+        }
+        @keyframes popIn {
+            0% { opacity: 0; transform: translate(-50%, -40%) scale(0.9); }
+            100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
     </style>
 </head>
 <body onload="loadConfig()">
@@ -479,11 +501,21 @@
             document.getElementById('historyModal').style.display = 'flex';
         }
 
+        // 🟢 ฟังก์ชันแสดง Popup เด้งกลางจอ
+        function showPopup(message, isSuccess = true) {
+            const popup = document.getElementById('customPopup');
+            popup.innerHTML = message;
+            popup.style.borderBottom = isSuccess ? '5px solid #43b581' : '5px solid #ED4245';
+            popup.style.display = 'block';
+            setTimeout(() => { popup.style.display = 'none'; }, 2500); // ตั้งให้หายไปเองใน 2.5 วิ
+        }
+
+        // 🟢 ฟังก์ชันบันทึกหมายเหตุ (เวอร์ชันใช้ Popup ใหม่)
         async function saveRemark(name, date, start, end, index) {
             const pin = document.getElementById('adminPin').value;
-            if (!pin) return alert('🔑 รหัสผ่านผู้ดูแลระบบ?');
+            if (!pin) return showPopup('🔑 กรุณาใส่รหัสผ่านผู้ดูแลระบบครับ', false);
             const remarkText = document.getElementById(`rmk_${index}`).value;
-            
+
             try {
                 const res = await fetch('/api/save-remark', {
                     method: 'POST',
@@ -492,10 +524,14 @@
                 });
                 const data = await res.json();
                 if(data.success) {
-                    alert('✅ บันทึกหมายเหตุสำเร็จ!');
+                    showPopup('✅ บันทึกหมายเหตุสำเร็จ!', true);
                     fetchLineTracker(); 
-                } else { alert(data.message || '❌ เกิดข้อผิดพลาด'); }
-            } catch(e) { alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); }
+                } else { 
+                    showPopup(data.message || '❌ เกิดข้อผิดพลาด', false); 
+                }
+            } catch(e) { 
+                showPopup('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ', false); 
+            }
         }
 
         let timeSlots = [{ time: "07:50", shift: "☀️ กะเช้า" }];
@@ -860,5 +896,8 @@
             });
         }
     </script>
+
+    <div id="customPopup"></div>
+    
 </body>
 </html>
