@@ -131,6 +131,14 @@
             <div id="modalContent"></div>
         </div>
     </div>
+    <div id="chartModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center;">
+        <div class="modal-box" style="width: 95%; max-width: 600px; background: #2a2a40; padding: 20px; border-radius: 10px; position: relative;">
+            <button onclick="document.getElementById('chartModal').style.display='none'" style="position: absolute; top: 10px; right: 10px; width: 40px; background: #ED4245; padding: 5px; color: white; font-weight: bold; border: none; border-radius: 5px; cursor: pointer;">X</button>
+            <h3 id="chartModalTitle" style="margin-top: 0; color: #FEE75C;">📊 สถิติการตอบแชท</h3>
+            <p style="font-size: 13px; color: #aaa; margin-top: -10px;">ยอดแชทรายชั่วโมง (ใครพีคช่วงไหน ดูได้เลย!)</p>
+            <canvas id="personalChart" height="200"></canvas>
+        </div>
+    </div>
 
     <div id="staffMenu" class="tab-content">
         <div class="card" style="border-left: 4px solid #5865F2;">
@@ -198,12 +206,13 @@
                     // เช่น "VINZO 1" และ "VINZO 2" จะถูกรวมเป็น "VINZO" คำเดียว
                     const name = p.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
 
-                    if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0, totalAfk: 0 };
+                    if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0, totalAfk: 0, pings: [] };
 
                     let tStr = p.last_active;
                     if (!tStr.endsWith('Z') && !tStr.includes('+')) tStr += 'Z'; 
 
                     staffMap[name].times.push(new Date(tStr));
+                    staffMap[name].pings.push({ time: new Date(tStr), chats: parseInt(p.message_count || 0) });
 
                     if (p.message_count && !isNaN(p.message_count)) {
                         staffMap[name].totalChats += parseInt(p.message_count);
@@ -261,9 +270,7 @@
                     if (finalAfkCount < 0) finalAfkCount = 0;
 
                     // 🟢 4. ส่งยอดอู้ที่หักลบแล้วไปโชว์บนหน้าเว็บ!
-                        currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount };
-                        });
-                
+                        currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount, pings: staffMap[name].pings };
 
                 renderTrackerTable();
                 document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
@@ -424,7 +431,7 @@
                 const afkCount = d.totalAfk || 0;
 
                 tBody.innerHTML += `<tr style="${rowStyle}">
-                    <td style="font-weight: bold;">${name}</td>
+                    <td style="font-weight: bold; cursor: pointer; color: #FEE75C; text-decoration: underline;" onclick="openChartModal('${name}')">📊 ${name}</td>
                     <td>${statusHtml}<br><span style="font-size:11px;color:#aaa;">ล่าสุด: ${d.lastActive.toLocaleTimeString('th-TH')}</span></td>
                     <td style="text-align:center; font-weight:bold; color:#FEE75C; font-size:16px;">${d.totalChats || 0}</td> <td style="text-align:center; font-weight:bold; color: ${afkCount > 0 && !isOffDuty && !isPaused ? '#ED4245' : '#888'};">${afkCount}</td>
                     <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
@@ -609,6 +616,70 @@
         async function removeStaff(discordId) {
             const pin = document.getElementById('adminPin').value; if (!pin || !confirm('ลบแน่ใจ?')) return;
             try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
+        }
+        let personalChartInstance = null;
+
+        function openChartModal(name) {
+            const d = currentTrackerData[name];
+            if (!d || !d.pings) return;
+
+            document.getElementById('chartModalTitle').innerText = `📊 สถิติการตอบแชท: ${name}`;
+            document.getElementById('chartModal').style.display = 'flex';
+
+            const ctx = document.getElementById('personalChart');
+            if (personalChartInstance) personalChartInstance.destroy();
+
+            // คำนวณยอดแชท "รายชั่วโมง"
+            const hourlyData = {};
+            let minHour = 24;
+            let maxHour = 0;
+
+            d.pings.sort((a,b) => a.time - b.time).forEach(p => {
+                const h = p.time.getHours();
+                if (!hourlyData[h]) hourlyData[h] = [];
+                hourlyData[h].push(p.chats);
+                if (h < minHour) minHour = h;
+                if (h > maxHour) maxHour = h;
+            });
+
+            const labels = [];
+            const chatData = [];
+            let prevMax = 0;
+
+            // เอาผลต่างของยอดแชทแต่ละชั่วโมงมาทำเป็นกราฟ
+            for (let i = minHour; i <= maxHour; i++) {
+                labels.push(`${String(i).padStart(2, '0')}:00`);
+                if (hourlyData[i]) {
+                    const maxInHour = Math.max(...hourlyData[i]);
+                    const chatsAdded = maxInHour - prevMax;
+                    chatData.push(chatsAdded > 0 ? chatsAdded : 0);
+                    prevMax = maxInHour;
+                } else {
+                    chatData.push(0);
+                }
+            }
+
+            // วาดกราฟแท่ง
+            personalChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'ยอดตอบลูกค้า (คน)',
+                        data: chatData,
+                        backgroundColor: '#43b581',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa' } },
+                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
         }
     </script>
 </body>
