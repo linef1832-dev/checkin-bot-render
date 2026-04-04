@@ -184,41 +184,54 @@ app.post('/api/ping-active', async (req, res) => {
         let error; 
 
         if (existingDataArray && existingDataArray.length > 0) {
-            const existingData = existingDataArray[0]; 
+            const existingData = existingDataArray[0];
 
-            let afkIncrement = 0;
             const lastPing = new Date(existingData.last_active).getTime();
             const currentPing = new Date(localTime).getTime();
-            const diffMinutes = (currentPing - lastPing) / 60000;
+            const diffFromLastPing = (currentPing - lastPing) / 60000;
 
-            // 🚨 ถ้าหายไปเกิน 10 นาที แล้วกลับมาขยับเมาส์ ให้บวกอู้ 1 ครั้ง และจดประวัติ
-            if (diffMinutes >= 10) { 
-                afkIncrement = 1;
+            // 🟢 เช็คว่าแท่งกราฟนี้ (บรรทัดนี้) ถูกสร้างมานานแค่ไหนแล้ว
+            const bucketStart = new Date(existingData.created_at).getTime();
+            const diffFromBucketStart = (currentPing - bucketStart) / 60000;
 
-                // แอบจดเวลาที่หายไป ลงฐานข้อมูลอัตโนมัติ
+            const newTotalChats = existingData.message_count + chats;
+            let newAfkCount = existingData.afk_count || 0;
+
+            // 🚨 ตรวจจับคนอู้ (หายเกิน 10 นาที)
+            if (diffFromLastPing >= 10) {
+                newAfkCount += 1;
                 await supabase.from('tracker_remarks').insert([{
                     staff_name: sessionProfile,
                     afk_date: todayYYYYMMDD,
                     start_time: new Date(lastPing).toISOString(),
                     end_time: new Date(currentPing).toISOString(),
-                    remark: '' // เว้นว่างไว้ให้บอสมากรอกทีหลัง
+                    remark: ''
                 }]);
             }
 
-            // 🟢 เปลี่ยนจาก Update ทับของเดิม เป็นการ Insert บรรทัดใหม่เพื่อวาดกราฟไทม์ไลน์!
-            const newTotalChats = existingData.message_count + chats;
-            const newAfkCount = (existingData.afk_count || 0) + afkIncrement;
-
-            const { error: insertError } = await supabase
-                .from('line_activity')
-                .insert([{
+            // 🟢 จุดตัดสินใจ: สร้างแท่งใหม่ หรือ ทับแท่งเดิม?
+            // ถ้าเวลาผ่านไปเกิน 10 นาทีจากตอนสร้างแท่งนี้ หรือเพิ่งกลับมาจากอู้ -> สร้างแท่งใหม่ (INSERT)
+            if (diffFromBucketStart >= 10 || diffFromLastPing >= 10) {
+                const { error: insertError } = await supabase.from('line_activity').insert([{
                     staff_name: sessionProfile,
                     status: 'Online',
                     last_active: localTime,
                     message_count: newTotalChats,
-                    afk_count: newAfkCount 
+                    afk_count: newAfkCount
                 }]);
-            error = insertError;
+                error = insertError;
+            } else {
+                // ถ้ายิงมารัวๆ ภายใน 10 นาที -> อัปเดตแท่งเดิม (UPDATE) Database จะได้ไม่แตก!
+                const { error: updateError } = await supabase.from('line_activity')
+                    .update({
+                        status: 'Online',
+                        last_active: localTime,
+                        message_count: newTotalChats,
+                        afk_count: newAfkCount
+                    })
+                    .eq('id', existingData.id);
+                error = updateError;
+            }
         } else {
             // แชทแรกของวัน เซ็ตจำนวนอู้เป็น 0
             const { error: insertError } = await supabase
