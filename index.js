@@ -249,17 +249,30 @@ app.post('/api/ping-active', async (req, res) => {
     }
 });
 
-app.post('/api/tracker-history', async (req, res) => {
-    const { date } = req.body;
+// --- API สำหรับดึงข้อมูลกราฟ รายสัปดาห์ / รายเดือน ---
+app.post('/api/personal-stats', async (req, res) => {
+    const { staff_name, mode } = req.body;
     try {
-        const startOfDay = new Date(`${date}T00:00:00+07:00`).toISOString();
-        const endOfDay = new Date(`${date}T23:59:59+07:00`).toISOString();
+        const daysToFetch = mode === 'week' ? 7 : 30;
+        const now = new Date();
+        const pastDate = new Date(now.getTime() - ((daysToFetch - 1) * 24 * 60 * 60 * 1000));
 
-        const { data: pings } = await supabase.from('line_activity').select('*').gte('last_active', startOfDay).lte('last_active', endOfDay).order('last_active', { ascending: true });
-        const { data: remarks } = await supabase.from('tracker_remarks').select('*').eq('afk_date', date);
+        // ตั้งเวลาเริ่มต้นของวันแรกที่จะดึง (โซนเวลาไทย)
+        const startOfDayThai = `${pastDate.toISOString().split('T')[0]}T00:00:00+07:00`; 
 
-        res.json({ success: true, pings: pings || [], remarks: remarks || [] });
-    } catch (err) { res.status(500).json({ success: false }); }
+        const { data, error } = await supabase
+            .from('line_activity')
+            .select('last_active, message_count')
+            .eq('staff_name', staff_name)
+            .gte('last_active', startOfDayThai)
+            .order('last_active', { ascending: true });
+
+        if (error) throw error;
+        res.json({ success: true, data: data || [] });
+    } catch (err) {
+        console.error('[Stats API] Error:', err);
+        res.status(500).json({ success: false });
+    }
 });
 
 app.post('/api/save-remark', async (req, res) => {

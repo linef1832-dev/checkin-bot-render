@@ -139,10 +139,11 @@
         <div class="modal-box" style="width: 95%; max-width: 600px; background: #2a2a40; padding: 20px; border-radius: 10px; position: relative;">
             <button onclick="document.getElementById('chartModal').style.display='none'" style="position: absolute; top: 10px; right: 10px; width: 40px; background: #ED4245; padding: 5px; color: white; font-weight: bold; border: none; border-radius: 5px; cursor: pointer;">X</button>
             <h3 id="chartModalTitle" style="margin-top: 0; color: #FEE75C;">📊 สถิติการตอบแชท</h3>
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <button id="btnMode1h" class="btn-small" style="background: #5865F2; flex: 1;" onclick="renderPersonalChart('1h')">🕒 รายชั่วโมง</button>
-                <button id="btnMode10m" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #5865F2;" onclick="renderPersonalChart('10m')">⏱️ ทุก 10 นาที</button>
-                <button class="btn-small" style="background: #2a2a40; color: #555; flex: 1; cursor: not-allowed;" onclick="alert('ข้อมูลรายสัปดาห์/เดือน ต้องอัปเดตฐานข้อมูลหลังบ้านก่อนครับ (Coming Soon!)')">📅 สัปดาห์/เดือน</button>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                <button id="btnMode1h" class="btn-small" style="background: #5865F2; flex: 1; min-width: 80px;" onclick="switchChartMode('1h')">🕒 1 ชม.</button>
+                <button id="btnMode10m" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #5865F2; min-width: 80px;" onclick="switchChartMode('10m')">⏱️ 10 นาที</button>
+                <button id="btnModeWeek" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #CD7F32; min-width: 80px;" onclick="switchChartMode('week')">📅 สัปดาห์</button>
+                <button id="btnModeMonth" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #FEE75C; min-width: 80px;" onclick="switchChartMode('month')">🗓️ เดือน</button>
             </div>
             <canvas id="personalChart" height="200"></canvas>
             <p id="noDataText" style="display: none; text-align: center; color: #ED4245; font-weight: bold; margin-top: 20px;">ไม่มีข้อมูลแชทในระบบ</p>
@@ -609,7 +610,7 @@
             try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
         }
 
-        // 🟢 ฟังก์ชันวาดกราฟรายบุคคล (อัปเกรดไทม์ไลน์ต่อเนื่อง 100%)
+        // 🟢 ฟังก์ชันวาดกราฟรายบุคคล และ การสลับโหมด
         let personalChartInstance = null;
         let currentChartStaff = ''; 
 
@@ -617,7 +618,44 @@
             currentChartStaff = name;
             document.getElementById('chartModalTitle').innerText = `📊 สถิติการตอบแชท: ${name}`;
             document.getElementById('chartModal').style.display = 'flex';
-            renderPersonalChart('1h'); 
+            switchChartMode('1h'); 
+        }
+
+        async function switchChartMode(mode) {
+            // อัปเดตสีปุ่ม
+            const btns = { '1h': 'btnMode1h', '10m': 'btnMode10m', 'week': 'btnModeWeek', 'month': 'btnModeMonth' };
+            Object.keys(btns).forEach(k => {
+                document.getElementById(btns[k]).style.background = mode === k ? '#5865F2' : '#2a2a40';
+                document.getElementById(btns[k]).style.color = mode === k ? '#fff' : '#aaa';
+            });
+
+            if (mode === '1h' || mode === '10m') {
+                renderPersonalChart(mode); 
+            } else {
+                // ดึงข้อมูลรายสัปดาห์/เดือน จาก API ใหม่
+                const ctx = document.getElementById('personalChart');
+                const noDataText = document.getElementById('noDataText');
+                ctx.style.display = 'none';
+                noDataText.style.display = 'block';
+                noDataText.innerText = '⏳ กำลังดึงข้อมูล...';
+
+                try {
+                    const res = await fetch('/api/personal-stats', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ staff_name: currentChartStaff, mode })
+                    });
+                    const json = await res.json();
+                    if (json.success && json.data.length > 0) {
+                        renderLongTermChart(mode, json.data);
+                    } else {
+                        noDataText.innerText = '📭 ไม่มีข้อมูลแชทในระบบ';
+                    }
+                } catch(e) {
+                    console.error(e);
+                    noDataText.innerText = '❌ เกิดข้อผิดพลาดในการดึงข้อมูล';
+                }
+            }
         }
 
         function renderPersonalChart(mode) {
@@ -625,15 +663,11 @@
             const ctx = document.getElementById('personalChart');
             const noDataText = document.getElementById('noDataText');
 
-            document.getElementById('btnMode1h').style.background = mode === '1h' ? '#5865F2' : '#2a2a40';
-            document.getElementById('btnMode1h').style.color = mode === '1h' ? '#fff' : '#aaa';
-            document.getElementById('btnMode10m').style.background = mode === '10m' ? '#5865F2' : '#2a2a40';
-            document.getElementById('btnMode10m').style.color = mode === '10m' ? '#fff' : '#aaa';
-
             if (!d || !d.pings || d.pings.length === 0) {
                 if (personalChartInstance) personalChartInstance.destroy();
                 ctx.style.display = 'none';
                 noDataText.style.display = 'block';
+                noDataText.innerText = '📭 ไม่มีข้อมูลแชทในวันนี้';
                 return;
             }
 
@@ -713,6 +747,64 @@
                     plugins: { legend: { display: true, labels: { color: '#aaa' } } },
                     scales: {
                         y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa', stepSize: 1 } },
+                        x: { grid: { display: false }, ticks: { color: '#aaa' } }
+                    }
+                }
+            });
+        }
+
+        // ฟังก์ชันวาดกราฟสรุปรายสัปดาห์ / เดือน
+        function renderLongTermChart(mode, dataArray) {
+            const ctx = document.getElementById('personalChart');
+            const noDataText = document.getElementById('noDataText');
+            ctx.style.display = 'block';
+            noDataText.style.display = 'none';
+
+            // หากรอบข้อมูลสูงสุดของแต่ละวัน (รวมยอดของวันนั้นๆ)
+            const dailyMax = {};
+            dataArray.forEach(row => {
+                const dateObj = new Date(row.last_active);
+                const dateStr = `${dateObj.getDate().toString().padStart(2, '0')}/${(dateObj.getMonth()+1).toString().padStart(2, '0')}`;
+                const chats = parseInt(row.message_count || 0);
+
+                if (!dailyMax[dateStr] || chats > dailyMax[dateStr]) {
+                    dailyMax[dateStr] = chats;
+                }
+            });
+
+            // สร้างป้ายกำกับ (Labels) ย้อนหลังให้ครบ 7 วัน หรือ 30 วัน
+            const labels = [];
+            const data = [];
+            const daysToFetch = mode === 'week' ? 7 : 30;
+            const now = new Date();
+
+            for (let i = daysToFetch - 1; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(now.getDate() - i);
+                const dateStr = `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth()+1).toString().padStart(2, '0')}`;
+                labels.push(dateStr);
+                // ถ้าวันนั้นไม่มีข้อมูลให้เป็น 0
+                data.push(dailyMax[dateStr] || 0);
+            }
+
+            if (personalChartInstance) personalChartInstance.destroy();
+
+            personalChartInstance = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: `รวมยอดแชท/วัน (${mode === 'week' ? 'สัปดาห์ล่าสุด' : 'เดือนล่าสุด'})`,
+                        data: data,
+                        backgroundColor: mode === 'week' ? '#CD7F32' : '#FEE75C',
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: true, labels: { color: '#aaa' } } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#4f545c' }, ticks: { color: '#aaa' } },
                         x: { grid: { display: false }, ticks: { color: '#aaa' } }
                     }
                 }
