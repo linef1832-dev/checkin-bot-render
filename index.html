@@ -232,15 +232,23 @@
                 const { pings, remarks } = json;
                 const staffMap = {};
 
+                // 🟢 ฟังก์ชันฮีโร่! บังคับแปลงเวลาจากฐานข้อมูลให้เป็นเวลาสากล (UTC) ก่อน แล้วเบราว์เซอร์จะแปลงเป็นไทยให้เอง
+                const parseDBTime = (str) => {
+                    if (!str || str === 'null') return null;
+                    let d = str.replace(' ', 'T'); // เติม T คั่นกลางให้ถูกตามมาตรฐาน ISO
+                    if (!d.endsWith('Z') && !d.includes('+')) d += 'Z'; // บังคับให้เป็น UTC
+                    return new Date(d);
+                };
+
                 pings.forEach(p => {
                     const name = p.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
                     if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0, totalAfk: 0, pings: [] };
 
-                    let tStr = p.last_active;
-                    if (!tStr.endsWith('Z') && !tStr.includes('+')) tStr += 'Z'; 
+                    // ✅ ใช้ฟังก์ชันฮีโร่แปลงเวลา last_active
+                    const tDate = parseDBTime(p.last_active);
 
-                    staffMap[name].times.push(new Date(tStr));
-                    staffMap[name].pings.push({ time: new Date(tStr), chats: parseInt(p.message_count || 0) });
+                    staffMap[name].times.push(tDate);
+                    staffMap[name].pings.push({ time: tDate, chats: parseInt(p.message_count || 0) });
 
                     if (p.message_count && !isNaN(p.message_count)) {
                         staffMap[name].totalChats = parseInt(p.message_count);
@@ -263,8 +271,9 @@
                         const rName = rm.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
                         return rName === name;
                     }).forEach(rm => {
-                        const start = new Date(rm.start_time);
-                        const end = (rm.end_time && rm.end_time !== 'null') ? new Date(rm.end_time) : null;
+                        // ✅ ใช้ฟังก์ชันฮีโร่แปลงเวลา start_time และ end_time
+                        const start = parseDBTime(rm.start_time);
+                        const end = parseDBTime(rm.end_time);
                         let diffMins = end ? Math.floor((end - start) / 60000) : Math.floor((now - start) / 60000);
 
                         if (diffMins >= 10) { 
