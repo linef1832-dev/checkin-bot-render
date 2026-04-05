@@ -401,16 +401,16 @@
                 // --- ปิดกฎเตะคนออกตามกะทำงาน ---
                 if (!isOffDuty && !isPaused && staffShift !== 'unknown' && !isRecentlyActive) {
                     if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) {
-                        // isOffDuty = true; offDutyReason = "หมดเวลากะเช้า"; 
+                         isOffDuty = true; offDutyReason = "หมดเวลากะเช้า"; 
                     }
                     else if (staffShift === 'night' && (currentMins >= 485 && currentMins < 1205)) {
-                        // isOffDuty = true; offDutyReason = "หมดเวลากะดึก"; 
+                         isOffDuty = true; offDutyReason = "หมดเวลากะดึก"; 
                     }
                 }
 
                 // --- ปิดกฎเตะคนออกเมื่อหายไป 1 ชม. (เปลี่ยนให้เป็นแค่ "🔴 คนอู้" แทน) ---
                 if (!isOffDuty && !isPaused && d.diffNow >= 60) {
-                    // isOffDuty = true; offDutyReason = "หายไป 1 ชม."; 
+                     isOffDuty = true; offDutyReason = "หายไป 1 ชม."; 
                 }
 
                 let currentCategory = 'ONLINE';
