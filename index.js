@@ -258,8 +258,8 @@ app.post('/api/tracker-history', async (req, res) => {
         const startOfDay = new Date(`${date}T00:00:00+07:00`).toISOString();
         const endOfDay = new Date(`${date}T23:59:59+07:00`).toISOString();
 
-        const { data: pings } = await supabase.from('line_activity').select('*').gte('last_active', startOfDay).lte('last_active', endOfDay).order('last_active', { ascending: true });
-        const { data: remarks } = await supabase.from('tracker_remarks').select('*').eq('afk_date', date);
+        const { data: pings } = await supabase.from('line_activity').select('*').gte('last_active', startOfDay).lte('last_active', endOfDay).order('last_active', { ascending: true }).limit(10000);
+        const { data: remarks } = await supabase.from('tracker_remarks').select('*').eq('afk_date', date).limit(10000);
 
         res.json({ success: true, pings: pings || [], remarks: remarks || [] });
     } catch (err) { res.status(500).json({ success: false }); }

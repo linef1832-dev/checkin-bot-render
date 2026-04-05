@@ -221,7 +221,7 @@
 
             const dateStr = document.getElementById('trackerDate').value;
             try {
-                const res = await fetch('/api/tracker-history', {
+                const res = await fetch('/api/tracker-history?t=' + new Date().getTime(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ date: dateStr })
