@@ -946,7 +946,14 @@ client.on('messageCreate', async (message) => {
             try {
                 if (member.voice.streaming) {
                     const localTime = getThaiTime(); 
-                    let shiftName = (session.shiftType === 'morning') ? "กะเช้า ☀️" : "กะดึก 🌙";
+const sType = session.shiftType ? session.shiftType.toLowerCase() : 'morning';
+
+let shiftName = "กะเช้า ☀️";
+if (sType.includes('night') || sType.includes('ดึก')) {
+    shiftName = "กะดึก 🌙";
+} else if (sType.includes('noon') || sType.includes('afternoon') || sType.includes('เที่ยง') || sType.includes('บ่าย')) {
+    shiftName = "กะเที่ยง 🕛";
+}
 
                     const staffDataObj = await fetchStaffData(); // ดึงข้อมูลใหม่
                     const staffName = getStaffName(member.id, member.displayName, staffDataObj);
