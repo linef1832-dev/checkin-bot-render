@@ -629,14 +629,26 @@ function startSummaryTimer(channelId) {
                 } else { summary += `- ไม่มี -\n`; }
 
                 let missingMembers = [];
-                const departmentVoiceRooms = new Set();
+                
+                // 🛠️ หาห้องเสียงหลักที่มีคนเช็คชื่ออยู่เยอะที่สุด (ป้องกันการดึงห้องอื่นที่คนเช็คชื่อแล้วย้ายไป)
+                const voiceRoomCounts = {};
+                let mainVoiceRoomId = null;
+                let maxMembers = 0;
+
                 session.members.forEach(m => {
                     const vs = guild.voiceStates.cache.get(m.id);
-                    if (vs?.channelId) departmentVoiceRooms.add(vs.channelId);
+                    if (vs?.channelId) {
+                        voiceRoomCounts[vs.channelId] = (voiceRoomCounts[vs.channelId] || 0) + 1;
+                        if (voiceRoomCounts[vs.channelId] > maxMembers) {
+                            maxMembers = voiceRoomCounts[vs.channelId];
+                            mainVoiceRoomId = vs.channelId;
+                        }
+                    }
                 });
 
-                departmentVoiceRooms.forEach(vId => {
-                    const vRoom = guild.channels.cache.get(vId);
+                // 🎯 ตรวจสอบคนที่ลืมเช็คชื่อเฉพาะในห้องหลักเท่านั้น
+                if (mainVoiceRoomId) {
+                    const vRoom = guild.channels.cache.get(mainVoiceRoomId);
                     if (vRoom) {
                         vRoom.members.forEach(member => {
                             const staffName = getStaffName(member.id, member.displayName, staffDataObj);
@@ -652,12 +664,13 @@ function startSummaryTimer(channelId) {
                                 isSameDepartment = member.roles.cache.some(r => r.name.includes(session.department));
                             }
 
+                            // เช็คว่าเป็นบอทไหม, เช็คชื่อไปหรือยัง, วันนี้ลาไหม, อยู่แผนกเดียวกันไหม
                             if (!member.user.bot && !checkedIds.has(member.id) && !isLeave && isSameDepartment) {
                                 missingMembers.push({ name: staffName, vName: vRoom.name }); 
                             }
                         });
                     }
-                });
+                }
 
                 if (missingMembers.length > 0) {
                     summary += `\n🔴 **ลืมเช็คชื่อ (พบในกลุ่มห้องเสียงเดียวกัน):**\n`;
