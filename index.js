@@ -595,11 +595,21 @@ function startSummaryTimer(channelId) {
                 summary += `✅ **เช็คชื่อสำเร็จ:**\n`;
                 if (session.members.length > 0) {
                     const morningShift = session.members.filter(m => m.shift.includes("กะเช้า"));
+                    const noonShift = session.members.filter(m => m.shift.includes("กะเที่ยง")); // 🌟 เพิ่มกะเที่ยง
                     const nightShift = session.members.filter(m => m.shift.includes("กะดึก"));
 
                     if (morningShift.length > 0) {
                         summary += `\n☀️ **กะเช้า:**\n`;
                         morningShift.forEach((m, i) => {
+                            const HH = m.time.getHours().toString().padStart(2, '0');
+                            const MM = m.time.getMinutes().toString().padStart(2, '0');
+                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
+                        });
+                    }
+                    // 🌟 เพิ่มบล็อกสำหรับแสดงผลกะเที่ยง
+                    if (noonShift.length > 0) {
+                        summary += `\n🕛 **กะเที่ยง:**\n`;
+                        noonShift.forEach((m, i) => {
                             const HH = m.time.getHours().toString().padStart(2, '0');
                             const MM = m.time.getMinutes().toString().padStart(2, '0');
                             summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
