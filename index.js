@@ -629,26 +629,14 @@ function startSummaryTimer(channelId) {
                 } else { summary += `- ไม่มี -\n`; }
 
                 let missingMembers = [];
-                
-                // 🛠️ หาห้องเสียงหลักที่มีคนเช็คชื่ออยู่เยอะที่สุด (ป้องกันการดึงห้องอื่นที่คนเช็คชื่อแล้วย้ายไป)
-                const voiceRoomCounts = {};
-                let mainVoiceRoomId = null;
-                let maxMembers = 0;
-
+                const departmentVoiceRooms = new Set();
                 session.members.forEach(m => {
                     const vs = guild.voiceStates.cache.get(m.id);
-                    if (vs?.channelId) {
-                        voiceRoomCounts[vs.channelId] = (voiceRoomCounts[vs.channelId] || 0) + 1;
-                        if (voiceRoomCounts[vs.channelId] > maxMembers) {
-                            maxMembers = voiceRoomCounts[vs.channelId];
-                            mainVoiceRoomId = vs.channelId;
-                        }
-                    }
+                    if (vs?.channelId) departmentVoiceRooms.add(vs.channelId);
                 });
 
-                // 🎯 ตรวจสอบคนที่ลืมเช็คชื่อเฉพาะในห้องหลักเท่านั้น
-                if (mainVoiceRoomId) {
-                    const vRoom = guild.channels.cache.get(mainVoiceRoomId);
+                departmentVoiceRooms.forEach(vId => {
+                    const vRoom = guild.channels.cache.get(vId);
                     if (vRoom) {
                         vRoom.members.forEach(member => {
                             const staffName = getStaffName(member.id, member.displayName, staffDataObj);
@@ -664,13 +652,12 @@ function startSummaryTimer(channelId) {
                                 isSameDepartment = member.roles.cache.some(r => r.name.includes(session.department));
                             }
 
-                            // เช็คว่าเป็นบอทไหม, เช็คชื่อไปหรือยัง, วันนี้ลาไหม, อยู่แผนกเดียวกันไหม
                             if (!member.user.bot && !checkedIds.has(member.id) && !isLeave && isSameDepartment) {
                                 missingMembers.push({ name: staffName, vName: vRoom.name }); 
                             }
                         });
                     }
-                }
+                });
 
                 if (missingMembers.length > 0) {
                     summary += `\n🔴 **ลืมเช็คชื่อ (พบในกลุ่มห้องเสียงเดียวกัน):**\n`;
@@ -959,14 +946,14 @@ client.on('messageCreate', async (message) => {
             try {
                 if (member.voice.streaming) {
                     const localTime = getThaiTime(); 
-const sType = session.shiftType ? session.shiftType.toLowerCase() : 'morning';
+                    const sType = session.shiftType ? session.shiftType.toLowerCase() : 'morning';
 
-let shiftName = "กะเช้า ☀️";
-if (sType.includes('night') || sType.includes('ดึก')) {
-    shiftName = "กะดึก 🌙";
-} else if (sType.includes('noon') || sType.includes('afternoon') || sType.includes('เที่ยง') || sType.includes('บ่าย')) {
-    shiftName = "กะเที่ยง 🕛";
-}
+                    let shiftName = "กะเช้า ☀️";
+                    if (sType.includes('night') || sType.includes('ดึก')) {
+                        shiftName = "กะดึก 🌙";
+                    } else if (sType.includes('noon') || sType.includes('afternoon') || sType.includes('เที่ยง') || sType.includes('บ่าย')) {
+                        shiftName = "กะเที่ยง 🕛";
+                    }
 
                     const staffDataObj = await fetchStaffData(); // ดึงข้อมูลใหม่
                     const staffName = getStaffName(member.id, member.displayName, staffDataObj);
@@ -1043,13 +1030,16 @@ client.once('ready', () => {
                 if (chName.includes('ODOL')) sessionDept = "ODOL";
                 else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
 
-                let checkinDuration = 10; 
-                if (currentSlot.endTime && currentSlot.time) {
-                    const start = new Date(`1970/01/01 ${currentSlot.time}`);
-                    const end = new Date(`1970/01/01 ${currentSlot.endTime}`);
-                    let diffMs = end - start;
-                    if (diffMs < 0) diffMs += (24 * 60 * 60 * 1000); 
-                    checkinDuration = Math.round(diffMs / 60000); 
+                let checkinDuration = 10; // 🌟 บังคับล็อกเวลาเช็คชื่อไว้ที่ 10 นาทีเสมอ
+
+                // 🌟 คำนวณเวลาปิดรับเช็คชื่อ (บวกเพิ่ม 10 นาทีจากเวลาที่เริ่ม) เพื่อเอาไปแสดงในประกาศ
+                let displayEndTime = "ไม่ได้ระบุ";
+                if (currentSlot.time) {
+                    const startObj = new Date(`1970/01/01 ${currentSlot.time}`);
+                    startObj.setMinutes(startObj.getMinutes() + checkinDuration); // บวกไป 10 นาที
+                    const endHH = String(startObj.getHours()).padStart(2, '0');
+                    const endMM = String(startObj.getMinutes()).padStart(2, '0');
+                    displayEndTime = `${endHH}:${endMM}`;
                 }
 
                 activeSessions.set(channelId, { 
@@ -1064,7 +1054,7 @@ client.once('ready', () => {
                 const startEmbed = new EmbedBuilder()
                     .setColor('#00FF00')
                     .setTitle(`🔔 เริ่มเช็คชื่อพนักงาน แผนก: ${sessionDept === 'ALL' ? channel.name : sessionDept} (อัตโนมัติ)`)
-                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **เปิดรับเช็คชื่อถึงเวลา: ${currentSlot.endTime || "ไม่ได้ระบุ"} น.** (${checkinDuration} นาที)`)
+                    .setDescription(`📅 **ประจำวันที่:** ${todayStr}\n⏰ **รอบเวลา:** ${currentTimeStr} น. (${shiftLabel})\n\n📢 **กติกา:**\n1. ต้องอยู่ในห้องเสียง\n2. ต้องแชร์หน้าจอ\n3. พิมพ์ \`!checkin\` ในห้องนี้\n\n⏱️ **เปิดรับเช็คชื่อถึงเวลา: ${displayEndTime} น.** (${checkinDuration} นาที)`)
                     .setTimestamp();
 
                 await channel.send({ embeds: [startEmbed] });
