@@ -333,17 +333,36 @@ app.post('/api/updatestaff', async (req, res) => {
 // ฟังก์ชันจำลองโครงสร้าง Object ให้เหมือน staff.json เดิม เพื่อไม่ให้ระบบอื่นๆ พัง
 async function fetchStaffData() {
     try {
-        // ดึงจาก Table staff_list
-        const { data, error } = await supabase.from('staff_list').select('*');
-        let staffObj = { AMOL: { morning: {}, noon: {}, night: {} }, ODOL: { morning: {}, noon: {}, night: {} } };
-        if (error || !data) return staffObj;
+        // ดึงจาก staff_list พร้อมกับข้อมูลกะจากตาราง users (เชื่อมผ่าน staff_name = username)
+        const { data: staffList, error: staffError } = await supabase.from('staff_list').select('*');
+        const { data: usersList, error: usersError } = await supabase.from('users').select('username, allowed_shift');
 
-        data.forEach(row => {
+        let staffObj = { AMOL: { morning: {}, noon: {}, night: {} }, ODOL: { morning: {}, noon: {}, night: {} } };
+        if (staffError || !staffList) return staffObj;
+
+        // สร้าง map ชื่อ -> allowed_shift จากตาราง users
+        const shiftMap = {};
+        if (!usersError && usersList) {
+            usersList.forEach(u => {
+                if (u.username) shiftMap[u.username.trim().toLowerCase()] = (u.allowed_shift || '').toLowerCase();
+            });
+        }
+
+        staffList.forEach(row => {
             const dept = (row.department || 'ALL').toUpperCase();
-            const shift = (row.shift || 'morning').toLowerCase();
+
+            // หากะจาก users ก่อน ถ้าไม่เจอค่อยใช้ค่าจาก staff_list
+            const nameKey = (row.staff_name || '').trim().toLowerCase();
+            const shiftFromUsers = shiftMap[nameKey];
+            let shift = shiftFromUsers || (row.shift || 'morning').toLowerCase();
+
+            // normalize ค่ากะให้ตรงกับ morning / noon / night
+            if (shift === 'เช้า' || shift === 'am' || shift === 'day') shift = 'morning';
+            else if (shift === 'เที่ยง' || shift === 'pm' || shift === 'afternoon') shift = 'noon';
+            else if (shift === 'ดึก' || shift === 'pm2' || shift === 'evening') shift = 'night';
+
             if (!staffObj[dept]) staffObj[dept] = { morning: {}, noon: {}, night: {} };
             if (!staffObj[dept][shift]) staffObj[dept][shift] = {};
-            // ใช้ row.staff_name ตามรูป
             staffObj[dept][shift][row.discord_id] = row.staff_name;
         });
         return staffObj;
