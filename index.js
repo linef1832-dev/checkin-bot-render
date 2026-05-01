@@ -678,6 +678,9 @@ function startSummaryTimer(channelId) {
 
                 let absentMembers = [];
                 try {
+                    // --- ส่วนที่แก้ไข: ดึงข้อมูลสดใหม่ทุกครั้งก่อนสรุปยอด ---
+                    const currentStaffData = await fetchStaffData(); 
+                    // ----------------------------------------------
                     let shiftKey = 'morning';
                     const sType = session.shiftType ? session.shiftType.toLowerCase() : '';
                     if (sType.includes('ดึก') || sType.includes('night')) shiftKey = 'night';
