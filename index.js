@@ -37,7 +37,7 @@ app.get('/', (req, res) => {
 const WEB_ADMIN_PIN = "123456"; 
 const TOKEN = process.env.TOKEN;
 const GUILD_ID = '1442466109503569992'; 
-const PORT = 3000;
+const PORT = process.env.PORT || 5000;
 const DATA_FILE = 'bot_timer_data.json';
 const LEAVE_FILE = 'leaves.json'; 
 
@@ -1124,5 +1124,5 @@ cron.schedule('1 0 * * 1', async () => {
 });
 
 // --- สั่งเริ่มเซิร์ฟเวอร์ (ห้ามลบ 2 บรรทัดนี้นะครับบอส!) ---
-app.listen(process.env.PORT || 3000, () => { console.log(`🌐 Server web port is open and listening for Render!`); });
+app.listen(PORT, '0.0.0.0', () => { console.log(`🌐 Server web port is open and listening on port ${PORT}!`); });
 client.login(process.env.TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
