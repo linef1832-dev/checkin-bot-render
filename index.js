@@ -356,10 +356,15 @@ async function fetchStaffData() {
             const shiftFromUsers = shiftMap[nameKey];
             let shift = shiftFromUsers || (row.shift || 'morning').toLowerCase();
 
-            // normalize ค่ากะให้ตรงกับ morning / noon / night
-            if (shift === 'เช้า' || shift === 'am' || shift === 'day') shift = 'morning';
-            else if (shift === 'เที่ยง' || shift === 'pm' || shift === 'afternoon') shift = 'noon';
-            else if (shift === 'ดึก' || shift === 'pm2' || shift === 'evening') shift = 'night';
+            // normalize ค่ากะจาก users (กะเช้า / กะดึก / กะเที่ยง / all) ให้ตรงกับ morning / noon / night
+            // ถ้า users บอกว่า all หรือหากะไม่เจอ ให้ fallback ไปใช้ค่าจาก staff_list
+            if (shiftFromUsers === 'all' || !shiftFromUsers) {
+                shift = (row.shift || 'morning').toLowerCase();
+            }
+            if (shift === 'กะเช้า' || shift === 'เช้า' || shift === 'am' || shift === 'day') shift = 'morning';
+            else if (shift === 'กะดึก' || shift === 'ดึก' || shift === 'pm2' || shift === 'evening') shift = 'night';
+            else if (shift === 'กะเที่ยง' || shift === 'เที่ยง' || shift === 'pm' || shift === 'afternoon') shift = 'noon';
+            else if (!['morning', 'night', 'noon'].includes(shift)) shift = 'morning';
 
             if (!staffObj[dept]) staffObj[dept] = { morning: {}, noon: {}, night: {} };
             if (!staffObj[dept][shift]) staffObj[dept][shift] = {};
