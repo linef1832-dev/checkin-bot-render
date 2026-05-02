@@ -480,17 +480,23 @@ async function getLeavesFromSupabase(department = 'ALL') {
     if (!supabaseLeave) return result; 
 
     try {
-        const { data, error } = await supabaseLeave.from('leave_logs').select('id, action_type, username, department').eq('leave_date', targetDate).order('id', { ascending: true });
+        // 🛑 แก้ไข 1: เปลี่ยนมาดึงจากตาราง leave_requests และกรองเฉพาะคนที่ status เป็น 'approved'
+        const { data, error } = await supabaseLeave
+            .from('leave_requests') 
+            .select('id, user_name, reason, status') 
+            .eq('leave_date', targetDate)
+            .eq('status', 'approved')
+            .order('id', { ascending: true });
+            
         if (error) return result;
 
         let activeLeaves = {};
         if (data) {
             for (const row of data) {
-                if (row.username) {
-                    const leaveName = row.username.trim(); 
-                    const action = row.action_type ? row.action_type.trim() : '';
-                    if (action.startsWith('จอง')) activeLeaves[leaveName] = action; 
-                    else if (action === 'ยกเลิก') delete activeLeaves[leaveName];
+                if (row.user_name) {
+                    const leaveName = row.user_name.trim(); 
+                    // 🛑 แก้ไข 2: ใช้ reason แทน action_type เพื่อเช็คสาเหตุการลา
+                    activeLeaves[leaveName] = row.reason ? row.reason.trim() : 'XX'; 
                 }
             }
         }
