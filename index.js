@@ -545,9 +545,14 @@ async function getLeavesFromSupabase(department = 'ALL') {
 
             if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) return; 
 
-            let leaveType = "วันหยุด";
-            const rawAction = activeLeaves[leaveName].toUpperCase();
-            if (rawAction.includes('[KL]')) leaveType = "ลากิจ";
+            // 🌟 [แก้บั๊ก] รองรับ 4 ประเภทการลาตามที่กำหนดในระบบ
+            // X = หยุดปกติ, XX = สับกะ, KL = ลากิจ, PN = พักร้อน
+            const rawAction = activeLeaves[leaveName].toUpperCase().trim();
+            let leaveType = "วันหยุด"; // default fallback
+            if (rawAction === 'KL' || rawAction.includes('KL')) leaveType = "ลากิจ";
+            else if (rawAction === 'PN' || rawAction.includes('PN')) leaveType = "พักร้อน";
+            else if (rawAction === 'XX' || rawAction.includes('XX')) leaveType = "สับกะ";
+            else if (rawAction === 'X') leaveType = "วันหยุด";
 
             const leaveData = { name: leaveName, type: leaveType };
             if (shiftFound === 'morning') result.morning.push(leaveData);
@@ -643,17 +648,30 @@ function startSummaryTimer(channelId) {
                     }
                 } else { summary += `- ไม่มี -\n`; }
 
+                // 🌟 [ใหม่] แยกรายชื่อเป็น 4 หมวดตามประเภทการลา
                 const dayOffs = currentShiftLeaves.filter(l => l.type === "วันหยุด");
+                const swapShift = currentShiftLeaves.filter(l => l.type === "สับกะ");
                 const klLeaves = currentShiftLeaves.filter(l => l.type === "ลากิจ");
+                const vacations = currentShiftLeaves.filter(l => l.type === "พักร้อน");
 
-                summary += `\n😴 **รายชื่อวันหยุด (${shiftIcon}):**\n`;
+                summary += `\n😴 **รายชื่อหยุดปกติ (${shiftIcon}):**\n`;
                 if (dayOffs.length > 0) {
                     dayOffs.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
+                } else { summary += `- ไม่มี -\n`; }
+
+                summary += `\n🔄 **รายชื่อสับกะ (${shiftIcon}):**\n`;
+                if (swapShift.length > 0) {
+                    swapShift.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
                 } else { summary += `- ไม่มี -\n`; }
 
                 summary += `\n📝 **รายชื่อลากิจ (${shiftIcon}):**\n`;
                 if (klLeaves.length > 0) {
                     klLeaves.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
+                } else { summary += `- ไม่มี -\n`; }
+
+                summary += `\n🏖️ **รายชื่อพักร้อน (${shiftIcon}):**\n`;
+                if (vacations.length > 0) {
+                    vacations.forEach((l, i) => summary += `   ${i + 1}. **${l.name}**\n`);
                 } else { summary += `- ไม่มี -\n`; }
 
                 let missingMembers = [];
@@ -900,14 +918,23 @@ client.on('messageCreate', async (message) => {
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
 
         if (leavesObj.morning.length > 0 || leavesObj.noon.length > 0 || leavesObj.night.length > 0) {
+            // 🌟 helper สร้าง label icon ตามประเภทการลา
+            const formatLeaveItem = (l, i) => {
+                let typeIcon = '(วันหยุด 😴)';
+                if (l.type === 'ลากิจ') typeIcon = '(ลากิจ 📝)';
+                else if (l.type === 'พักร้อน') typeIcon = '(พักร้อน 🏖️)';
+                else if (l.type === 'สับกะ') typeIcon = '(สับกะ 🔄)';
+                return `${i + 1}. ${l.name} ${typeIcon}`;
+            };
+
             if (leavesObj.morning && leavesObj.morning.length > 0) {
-                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+                msg += `☀️ **กะเช้า (${leavesObj.morning.length} ท่าน):**\n` + leavesObj.morning.map(formatLeaveItem).join('\n') + `\n\n`;
             }
             if (leavesObj.noon && leavesObj.noon.length > 0) {
-                msg += `🕛 **กะเที่ยง (${leavesObj.noon.length} ท่าน):**\n` + leavesObj.noon.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+                msg += `🕛 **กะเที่ยง (${leavesObj.noon.length} ท่าน):**\n` + leavesObj.noon.map(formatLeaveItem).join('\n') + `\n\n`;
             }
             if (leavesObj.night && leavesObj.night.length > 0) {
-                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map((l, i) => `${i + 1}. ${l.name} ${l.type === 'ลากิจ' ? '(ลากิจ 📝)' : '(วันหยุด 😴)'}`).join('\n') + `\n\n`;
+                msg += `🌙 **กะดึก (${leavesObj.night.length} ท่าน):**\n` + leavesObj.night.map(formatLeaveItem).join('\n') + `\n\n`;
             }
         } else { msg += `⚠️ ไม่พบรายชื่อพนักงานหยุดของแผนกนี้ในวันนี้ค่ะ`; }
         return message.reply(msg);
