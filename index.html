@@ -658,28 +658,43 @@
             try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
         }
 
-        // 🌟 [ใหม่] ย้ายกะพนักงาน — ไม่ต้องลบแล้วสร้างใหม่
-        async function changeShift(discordId, currentShift, staffName) {
+        // 🌟 [ใหม่] ย้ายกะพนักงาน — ใช้ Modal Dropdown ที่สวยและใช้ง่าย
+        let shiftModalContext = null;
+
+        function changeShift(discordId, currentShift, staffName) {
             const pin = document.getElementById('adminPin').value;
             if (!pin) return alert('⚠️ ใส่รหัสผ่านผู้ดูแลก่อนค่ะ');
 
             const shiftLabels = { 'morning': '☀️ กะเช้า', 'noon': '🕛 กะเที่ยง', 'night': '🌙 กะดึก' };
-            const shiftMap = { '1': 'morning', '2': 'noon', '3': 'night' };
 
-            const ans = prompt(
-                `🔄 ย้ายกะพนักงาน: ${staffName}\n` +
-                `กะปัจจุบัน: ${shiftLabels[currentShift] || currentShift}\n\n` +
-                `กรอกหมายเลขกะใหม่:\n` +
-                `  1 = ☀️ กะเช้า\n` +
-                `  2 = 🕛 กะเที่ยง\n` +
-                `  3 = 🌙 กะดึก`
-            );
-            if (!ans) return; // ยกเลิก
-            const newShift = shiftMap[ans.trim()];
-            if (!newShift) return alert('❌ กรอกได้เฉพาะ 1, 2 หรือ 3 เท่านั้นค่ะ');
-            if (newShift === currentShift) return alert('⚠️ พนักงานอยู่กะนี้อยู่แล้วค่ะ');
+            shiftModalContext = { discordId, currentShift, staffName };
+            document.getElementById('shiftModalStaffName').innerText = staffName;
+            document.getElementById('shiftModalCurrent').innerText = shiftLabels[currentShift] || currentShift;
+            document.getElementById('shiftModalSelect').value = currentShift;
+            document.getElementById('shiftModal').style.display = 'flex';
+        }
 
-            if (!confirm(`ยืนยันย้าย ${staffName}\nจาก ${shiftLabels[currentShift]} → ${shiftLabels[newShift]} ?`)) return;
+        function closeShiftModal() {
+            document.getElementById('shiftModal').style.display = 'none';
+            shiftModalContext = null;
+        }
+
+        async function confirmShiftChange() {
+            if (!shiftModalContext) return;
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) return alert('⚠️ ใส่รหัสผ่านก่อน');
+
+            const { discordId, currentShift, staffName } = shiftModalContext;
+            const newShift = document.getElementById('shiftModalSelect').value;
+            const shiftLabels = { 'morning': '☀️ กะเช้า', 'noon': '🕛 กะเที่ยง', 'night': '🌙 กะดึก' };
+
+            if (newShift === currentShift) {
+                return alert('⚠️ พนักงานอยู่กะนี้อยู่แล้วค่ะ');
+            }
+
+            const btnConfirm = document.getElementById('shiftModalConfirmBtn');
+            btnConfirm.innerText = '⏳ กำลังบันทึก...';
+            btnConfirm.disabled = true;
 
             try {
                 const res = await fetch('/api/updatestaff', {
@@ -689,11 +704,17 @@
                 });
                 const json = await res.json();
                 if (json.success) {
+                    closeShiftModal();
                     loadStaff();
                 } else {
                     alert(json.message || '❌ ย้ายกะไม่สำเร็จ');
                 }
-            } catch (e) { alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); }
+            } catch (e) { 
+                alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); 
+            } finally {
+                btnConfirm.innerText = '✅ ยืนยัน';
+                btnConfirm.disabled = false;
+            }
         }
 
         // 🟢 ฟังก์ชันวาดกราฟรายบุคคล และ การสลับโหมด
@@ -949,5 +970,28 @@
 
     <div id="customPopup"></div>
     
+    <!-- 🌟 Modal สำหรับย้ายกะพนักงาน -->
+    <div id="shiftModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this)closeShiftModal()">
+        <div style="background:#2a2a40; padding:25px; border-radius:12px; min-width:320px; max-width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+            <h3 style="margin:0 0 15px 0; color:#fff;">🔄 ย้ายกะพนักงาน</h3>
+            <div style="background:#1e1e2e; padding:12px; border-radius:6px; margin-bottom:15px;">
+                <div style="color:#fff; font-weight:bold; font-size:15px;" id="shiftModalStaffName">-</div>
+                <div style="color:#aaa; font-size:13px; margin-top:4px;">
+                    กะปัจจุบัน: <span id="shiftModalCurrent" style="color:#f0a020;">-</span>
+                </div>
+            </div>
+            <label style="color:#fff; display:block; margin-bottom:8px; font-size:14px;">เลือกกะใหม่:</label>
+            <select id="shiftModalSelect" style="width:100%; padding:12px; border-radius:6px; background:#1e1e2e; color:#fff; border:1px solid #444; margin-bottom:20px; font-size:15px; cursor:pointer;">
+                <option value="morning">☀️ กะเช้า</option>
+                <option value="noon">🕛 กะเที่ยง</option>
+                <option value="night">🌙 กะดึก</option>
+            </select>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="closeShiftModal()" style="padding:10px 20px; background:#555; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px;">ยกเลิก</button>
+                <button id="shiftModalConfirmBtn" onclick="confirmShiftChange()" style="padding:10px 20px; background:#5865F2; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px; font-weight:bold;">✅ ยืนยัน</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
