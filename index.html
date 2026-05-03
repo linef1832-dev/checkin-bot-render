@@ -628,8 +628,9 @@
                                                     <br><span class="staff-id" style="font-size: 11px; color: #888;">ID: ${id}</span>
                                                 </div>
                                                 <div style="display: flex; gap: 5px;">
-                                                    <button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button>
-                                                    <button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button>
+                                                    <button class="btn-small" style="background:#5865F2;" title="บันทึกชื่อ" onclick="saveEdittedName('${id}')">💾</button>
+                                                    <button class="btn-small" style="background:#f0a020;" title="ย้ายกะ" onclick="changeShift('${id}', '${shift.key}', '${name.replace(/'/g, "\\'")}')">🔄</button>
+                                                    <button class="btn-red btn-small" title="ลบ" onclick="removeStaff('${id}')">🗑️</button>
                                                 </div>
                                              </li>`; 
                                 }
@@ -655,6 +656,44 @@
         async function removeStaff(discordId) {
             const pin = document.getElementById('adminPin').value; if (!pin || !confirm('ลบแน่ใจ?')) return;
             try { await fetch('/api/updatestaff', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'remove', discordId, pin }) }); loadStaff(); } catch (e) {}
+        }
+
+        // 🌟 [ใหม่] ย้ายกะพนักงาน — ไม่ต้องลบแล้วสร้างใหม่
+        async function changeShift(discordId, currentShift, staffName) {
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) return alert('⚠️ ใส่รหัสผ่านผู้ดูแลก่อนค่ะ');
+
+            const shiftLabels = { 'morning': '☀️ กะเช้า', 'noon': '🕛 กะเที่ยง', 'night': '🌙 กะดึก' };
+            const shiftMap = { '1': 'morning', '2': 'noon', '3': 'night' };
+
+            const ans = prompt(
+                `🔄 ย้ายกะพนักงาน: ${staffName}\n` +
+                `กะปัจจุบัน: ${shiftLabels[currentShift] || currentShift}\n\n` +
+                `กรอกหมายเลขกะใหม่:\n` +
+                `  1 = ☀️ กะเช้า\n` +
+                `  2 = 🕛 กะเที่ยง\n` +
+                `  3 = 🌙 กะดึก`
+            );
+            if (!ans) return; // ยกเลิก
+            const newShift = shiftMap[ans.trim()];
+            if (!newShift) return alert('❌ กรอกได้เฉพาะ 1, 2 หรือ 3 เท่านั้นค่ะ');
+            if (newShift === currentShift) return alert('⚠️ พนักงานอยู่กะนี้อยู่แล้วค่ะ');
+
+            if (!confirm(`ยืนยันย้าย ${staffName}\nจาก ${shiftLabels[currentShift]} → ${shiftLabels[newShift]} ?`)) return;
+
+            try {
+                const res = await fetch('/api/updatestaff', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'change_shift', discordId, newShift, pin })
+                });
+                const json = await res.json();
+                if (json.success) {
+                    loadStaff();
+                } else {
+                    alert(json.message || '❌ ย้ายกะไม่สำเร็จ');
+                }
+            } catch (e) { alert('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ'); }
         }
 
         // 🟢 ฟังก์ชันวาดกราฟรายบุคคล และ การสลับโหมด
