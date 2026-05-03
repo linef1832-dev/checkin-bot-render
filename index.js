@@ -645,9 +645,17 @@ function startSummaryTimer(channelId) {
 
                 let missingMembers = [];
                 const departmentVoiceRooms = new Set();
+                // 🌟 [แก้บั๊ก] ใช้ voice channel ที่บันทึกตอน !checkin (ไม่ใช่ปัจจุบัน)
+                // เพราะหลังเช็คชื่อแล้ว พนักงานอาจย้ายไปห้องเสียงอื่น (เช่น ไปช่วยงานห้องอื่น)
+                // ถ้าใช้ voiceStates.cache ตอนสรุป → จะไปสแกนห้องอื่นที่ไม่เกี่ยวกับ session นี้
                 session.members.forEach(m => {
-                    const vs = guild.voiceStates.cache.get(m.id);
-                    if (vs?.channelId) departmentVoiceRooms.add(vs.channelId);
+                    if (m.voiceChannelId) {
+                        departmentVoiceRooms.add(m.voiceChannelId);
+                    } else {
+                        // fallback สำหรับ session เก่าที่ยังไม่มี voiceChannelId
+                        const vs = guild.voiceStates.cache.get(m.id);
+                        if (vs?.channelId) departmentVoiceRooms.add(vs.channelId);
+                    }
                 });
 
                 departmentVoiceRooms.forEach(vId => {
@@ -976,7 +984,7 @@ client.on('messageCreate', async (message) => {
                     const staffDataObj = await fetchStaffData(); // ดึงข้อมูลใหม่
                     const staffName = getStaffName(member.id, member.displayName, staffDataObj);
 
-                    session.members.push({ id: member.id, name: staffName, time: localTime, shift: shiftName });
+                    session.members.push({ id: member.id, name: staffName, time: localTime, shift: shiftName, voiceChannelId: member.voice.channelId });
 
                     try {
                         const { error } = await supabase.from('checkins').insert([{ discord_id: member.id, name: staffName, checkin_time: localTime, shift: shiftName }]); 
