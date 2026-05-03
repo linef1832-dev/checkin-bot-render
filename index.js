@@ -1096,13 +1096,24 @@ client.once('ready', () => {
                 if (chName.includes('ODOL')) sessionDept = "ODOL";
                 else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
 
-                let checkinDuration = 10; // 🌟 บังคับล็อกเวลาเช็คชื่อไว้ที่ 10 นาทีเสมอ
-
-                // 🌟 คำนวณเวลาปิดรับเช็คชื่อ (บวกเพิ่ม 10 นาทีจากเวลาที่เริ่ม) เพื่อเอาไปแสดงในประกาศ
+                // 🌟 คำนวณระยะเวลาเช็คชื่อจาก endTime ที่ผู้ดูแลตั้งไว้ในแดชบอร์ด
+                //    ถ้าไม่ได้ตั้ง endTime จะ fallback เป็น 10 นาทีตามค่าเดิม
+                let checkinDuration = 10;
                 let displayEndTime = "ไม่ได้ระบุ";
-                if (currentSlot.time) {
+
+                if (currentSlot.endTime && /^\d{1,2}:\d{2}$/.test(currentSlot.endTime) && currentSlot.time) {
+                    const [sh, sm] = currentSlot.time.split(':').map(Number);
+                    const [eh, em] = currentSlot.endTime.split(':').map(Number);
+                    const startMin = sh * 60 + sm;
+                    let endMin = eh * 60 + em;
+                    if (endMin <= startMin) endMin += 24 * 60; // กรณีข้ามเที่ยงคืน
+                    const diff = endMin - startMin;
+                    if (diff >= 1 && diff <= 24 * 60) checkinDuration = diff;
+                    displayEndTime = currentSlot.endTime;
+                } else if (currentSlot.time) {
+                    // ไม่มี endTime → fallback คำนวณจาก start + 10 นาที
                     const startObj = new Date(`1970/01/01 ${currentSlot.time}`);
-                    startObj.setMinutes(startObj.getMinutes() + checkinDuration); // บวกไป 10 นาที
+                    startObj.setMinutes(startObj.getMinutes() + checkinDuration);
                     const endHH = String(startObj.getHours()).padStart(2, '0');
                     const endMM = String(startObj.getMinutes()).padStart(2, '0');
                     displayEndTime = `${endHH}:${endMM}`;
