@@ -307,7 +307,7 @@ app.post('/api/save-remark', async (req, res) => {
 });
 
 app.post('/api/updatestaff', async (req, res) => {
-    const { pin, action, dept, shift, discordId, staffName, newName } = req.body;
+    const { pin, action, dept, shift, discordId, staffName, newName, newShift } = req.body;
     if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
 
     try {
@@ -318,9 +318,22 @@ app.post('/api/updatestaff', async (req, res) => {
             await supabase.from('staff_list').update({ staff_name: newName }).eq('discord_id', discordId);
         } else if (action === 'remove') {
             await supabase.from('staff_list').delete().eq('discord_id', discordId);
+        } else if (action === 'change_shift') {
+            // 🌟 [ใหม่] ย้ายกะพนักงาน — ไม่ต้องลบแล้วสร้างใหม่
+            if (!['morning', 'noon', 'night'].includes(newShift)) {
+                return res.status(400).json({ success: false, message: '❌ กะที่ระบุไม่ถูกต้อง' });
+            }
+            await supabase.from('staff_list').update({ shift: newShift }).eq('discord_id', discordId);
         }
 
-        let msg = action === 'add' ? `✅ บันทึกพนักงาน ${staffName} สำเร็จ!` : (action === 'edit_name' ? '✅ เปลี่ยนชื่อพนักงานแล้ว!' : '🗑️ ลบพนักงานออกจากระบบแล้ว!');
+        let msg;
+        if (action === 'add') msg = `✅ บันทึกพนักงาน ${staffName} สำเร็จ!`;
+        else if (action === 'edit_name') msg = '✅ เปลี่ยนชื่อพนักงานแล้ว!';
+        else if (action === 'remove') msg = '🗑️ ลบพนักงานออกจากระบบแล้ว!';
+        else if (action === 'change_shift') {
+            const shiftLabel = newShift === 'morning' ? '☀️ กะเช้า' : (newShift === 'noon' ? '🕛 กะเที่ยง' : '🌙 กะดึก');
+            msg = `🔄 ย้ายไป${shiftLabel}เรียบร้อย!`;
+        }
         res.json({ success: true, message: msg });
     } catch (error) { res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาดในการบันทึกข้อมูลไปที่ Supabase' }); }
 });
