@@ -530,9 +530,18 @@ async function processAutoShiftSwaps() {
                     const { data: partial } = await supabase.from('staff_list').select('discord_id, staff_name').ilike('staff_name', `%${targetName}%`);
                     if (partial && partial.length === 1) { matched = partial; matchMode = 'ชื่อบางส่วน'; }
                     else if (partial && partial.length > 1) {
-                        console.warn(`   ⚠️ task ${task.id}: ชื่อ "${targetName}" กำกวม เจอ ${partial.length} คน (${partial.map(x => x.staff_name).join(', ')}) → ข้าม กันอัปเดตผิดคน`);
-                        processedTasks.add(task.id);
-                        continue;
+                        // กำกวม → คัดด้วย "token": แยก staff_name ด้วย - / _ เว้นวรรค แล้วหาคนที่มีชื่อเป้าหมายเป็น "คำเต็ม" พอดี
+                        // เช่น "MIKA" → "ODOL-MIKA" (มี token MIKA = ใช่) / "AMOL-MIKAEL" (token MIKAEL ≠ MIKA = ไม่ใช่)
+                        const tnUpper = targetName.toUpperCase();
+                        const tokenHits = partial.filter(x =>
+                            (x.staff_name || '').toUpperCase().split(/[-_/\s]+/).includes(tnUpper)
+                        );
+                        if (tokenHits.length === 1) { matched = tokenHits; matchMode = 'token'; }
+                        else {
+                            console.warn(`   ⚠️ task ${task.id}: ชื่อ "${targetName}" กำกวม เจอ ${partial.length} คน (${partial.map(x => x.staff_name).join(', ')})${tokenHits.length > 1 ? ` | token ยังซ้ำ ${tokenHits.length} คน` : ''} → ข้าม กันอัปเดตผิดคน`);
+                            processedTasks.add(task.id);
+                            continue;
+                        }
                     }
                 }
             }
