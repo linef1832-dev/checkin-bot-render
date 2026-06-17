@@ -458,27 +458,27 @@ async function processAutoShiftSwaps() {
         }
 
         const now = new Date();
-        // ขยายช่วงเป็น 7 วัน เพื่อกู้กะที่ตกหล่นช่วงบอทดับ (เดิม 3 วัน)
-        const windowStart = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000)).toISOString();
         const leaveHost = (supabaseLeaveUrl || '').replace(/^https?:\/\//, '').split('.')[0];
 
-        // ดึงงานย้อนหลัง 7 วัน "ทุก status" แล้วค่อยกรองเองในโค้ด (เผื่อระบบภายนอกไม่ได้ใช้ 'completed')
-        // เรียงเก่า→ใหม่ เพื่อให้คำสั่งล่าสุดของแต่ละคนเป็นตัวชนะ (apply ทีหลังทับทีก่อน)
-        const { data: tasks, error } = await supabaseLeave
+        // ดึงงาน "ล่าสุด" สูงสุด 500 แถว (ทุก status) โดยไม่จำกัดช่วงวัน
+        // เหตุผล: ถ้าบอทดับนาน (เป็นเดือน) งานย้ายกะล่าสุดจะเก่ากว่า 7 วัน ต้องดึงมากู้ให้ได้
+        // เรียงใหม่→เก่า เอา 500 แถวล่าสุด แล้วค่อย reverse เป็นเก่า→ใหม่ตอนประมวลผล (คำสั่งล่าสุดของแต่ละคนชนะ)
+        const { data: recent, error } = await supabaseLeave
             .from('scheduled_tasks')
             .select('*')
-            .gte('scheduled_for', windowStart)
-            .order('scheduled_for', { ascending: true });
+            .order('scheduled_for', { ascending: false })
+            .limit(500);
 
         if (error) {
-            console.error(`❌ [AutoSwap] อ่านตาราง scheduled_tasks ไม่ได้ (project=${leaveHost} | table ไม่มี / RLS บล็อก / ชี้ผิดโปรเจกต์?):`, error.message || error);
+            console.error(`❌ [AutoSwap] อ่านตาราง scheduled_tasks ไม่ได้ (project=${leaveHost} | RLS บล็อก / ชี้ผิดโปรเจกต์?):`, error.message || error);
             return;
         }
-        console.log(`🩺 [AutoSwap] project=${leaveHost} | ดึงงาน 7 วันล่าสุดได้ ${tasks ? tasks.length : 0} แถว (ทุก status)`);
-        if (!tasks || tasks.length === 0) {
-            console.warn("⚠️ [AutoSwap] ไม่มีแถวเลยใน 7 วัน → ระบบภายนอกอาจไม่ได้เขียนลงตารางนี้ / ชี้ผิดโปรเจกต์ / RLS บล็อก");
+        if (!recent || recent.length === 0) {
+            console.warn(`⚠️ [AutoSwap] project=${leaveHost} | ตาราง scheduled_tasks ว่าง (0 แถว) → ระบบภายนอกไม่ได้เขียนที่นี่ / ชี้ผิดโปรเจกต์ / RLS บล็อก`);
             return;
         }
+        const tasks = recent.slice().reverse(); // เก่า→ใหม่
+        console.log(`🩺 [AutoSwap] project=${leaveHost} | ดึงงานล่าสุดได้ ${tasks.length} แถว (ทุก status, ไม่จำกัดช่วงวัน)`);
 
         // สรุปให้เห็นว่าจริงๆ มี task_type/status อะไรบ้าง (ช่วย debug)
         const summary = {};
