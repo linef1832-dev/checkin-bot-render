@@ -437,53 +437,123 @@ function getSupabaseDateStr() {
     return `${localTime.getFullYear()}-${String(localTime.getMonth() + 1).padStart(2, '0')}-${String(localTime.getDate()).padStart(2, '0')}`;
 }
 
+// แปลงข้อความกะ (ไทย/อังกฤษ/ตัวย่อ) → คีย์มาตรฐานที่ staff_list ใช้: morning | noon | night
+// คืน null ถ้าระบุไม่ได้ (กันการเขียนค่ามั่ว)
+function resolveShiftKey(raw) {
+    const s = (raw || '').toString().trim().toLowerCase();
+    if (!s || s === 'คงเดิม' || s === 'same' || s === 'keep') return null;
+    if (s.includes('เช้า') || s.includes('morning') || s === 'm' || s === 'am') return 'morning';
+    if (s.includes('เที่ยง') || s.includes('บ่าย') || s.includes('noon') || s.includes('afternoon') || s === 'n') return 'noon';
+    if (s.includes('ดึก') || s.includes('กลางคืน') || s.includes('night') || s.includes('evening') || s === 'pm') return 'night';
+    return null; // ระบุกะไม่ได้ → ไม่อัปเดต
+}
+
 async function processAutoShiftSwaps() {
     try {
         console.log("🔄 [AutoSwap] กำลังตรวจสอบตารางย้ายกะ...");
 
-        if (!supabaseLeave) return;
+        if (!supabaseLeave) {
+            console.warn("⚠️ [AutoSwap] supabaseLeave = null → ไม่ได้ตั้ง SUPABASE_LEAVE_URL / SUPABASE_LEAVE_KEY (หรือค่าว่าง)");
+            return;
+        }
 
         const now = new Date();
-        const pastDays = new Date(now.getTime() - (3 * 24 * 60 * 60 * 1000)).toISOString(); 
+        // ขยายช่วงเป็น 7 วัน เพื่อกู้กะที่ตกหล่นช่วงบอทดับ (เดิม 3 วัน)
+        const windowStart = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000)).toISOString();
+        const leaveHost = (supabaseLeaveUrl || '').replace(/^https?:\/\//, '').split('.')[0];
 
+        // ดึงงานย้อนหลัง 7 วัน "ทุก status" แล้วค่อยกรองเองในโค้ด (เผื่อระบบภายนอกไม่ได้ใช้ 'completed')
+        // เรียงเก่า→ใหม่ เพื่อให้คำสั่งล่าสุดของแต่ละคนเป็นตัวชนะ (apply ทีหลังทับทีก่อน)
         const { data: tasks, error } = await supabaseLeave
             .from('scheduled_tasks')
             .select('*')
-            .eq('status', 'completed')
-            .gte('scheduled_for', pastDays);
+            .gte('scheduled_for', windowStart)
+            .order('scheduled_for', { ascending: true });
 
-        if (error || !tasks || tasks.length === 0) return;
+        if (error) {
+            console.error(`❌ [AutoSwap] อ่านตาราง scheduled_tasks ไม่ได้ (project=${leaveHost} | table ไม่มี / RLS บล็อก / ชี้ผิดโปรเจกต์?):`, error.message || error);
+            return;
+        }
+        console.log(`🩺 [AutoSwap] project=${leaveHost} | ดึงงาน 7 วันล่าสุดได้ ${tasks ? tasks.length : 0} แถว (ทุก status)`);
+        if (!tasks || tasks.length === 0) {
+            console.warn("⚠️ [AutoSwap] ไม่มีแถวเลยใน 7 วัน → ระบบภายนอกอาจไม่ได้เขียนลงตารางนี้ / ชี้ผิดโปรเจกต์ / RLS บล็อก");
+            return;
+        }
+
+        // สรุปให้เห็นว่าจริงๆ มี task_type/status อะไรบ้าง (ช่วย debug)
+        const summary = {};
+        for (const t of tasks) { const k = `${t.task_type}|${t.status}`; summary[k] = (summary[k] || 0) + 1; }
+        console.log("🩺 [AutoSwap] task_type|status ที่เจอ:", JSON.stringify(summary));
+
+        const SKIP_STATUS = ['cancelled', 'canceled', 'failed', 'rejected', 'deleted', 'error'];
+        let applied = 0;
 
         for (const task of tasks) {
-            if (processedTasks.has(task.id)) continue;
+            if (processedTasks.has(task.id)) continue; // apply ครั้งเดียวต่อ task (กันการทับการแก้มือซ้ำๆ)
+
+            const ttype = (task.task_type || '').toLowerCase();
+            const tstatus = (task.status || '').toLowerCase();
+
+            // รับเฉพาะงานที่เกี่ยวกับ "ย้ายกะ" (ครอบคลุมชื่อ type ที่อาจต่างกัน) และข้ามงานที่ยกเลิก/ล้มเหลว
+            const isShiftTask = ttype.includes('shift') || ttype.includes('กะ');
+            if (!isShiftTask || SKIP_STATUS.includes(tstatus)) { processedTasks.add(task.id); continue; }
+
+            // เฉพาะงานที่ถึงเวลาแล้ว (กันการ apply งานอนาคตก่อนกำหนด) — ไม่มี scheduled_for ถือว่าถึงเวลา
+            if (task.scheduled_for && new Date(task.scheduled_for).getTime() > now.getTime()) continue; // ยังไม่ถึงเวลา อย่าเพิ่ง mark ว่าทำแล้ว
 
             let p = task.payload;
-            if (typeof p === 'string') { try { p = JSON.parse(p); } catch(e){ p = {}; } }
+            if (typeof p === 'string') { try { p = JSON.parse(p); } catch (e) { p = {}; } }
+            p = p || {};
 
-            if (task.task_type === 'individual_shift_update') {
-                const targetName = (p.user_name || p.name || p.staff_name || '').trim();
-                const targetShiftTh = (p.target_shift || p.shift || p.new_shift || '').trim();
+            const targetName = (p.user_name || p.name || p.staff_name || p.employee || p.username || '').toString().trim();
+            const targetDiscordId = (p.discord_id || p.discordId || p.user_id || p.userId || '').toString().trim();
+            const newShiftKey = resolveShiftKey(p.target_shift || p.shift || p.new_shift || p.to_shift || p.shift_name);
 
-                if (targetName && targetShiftTh && targetShiftTh !== 'คงเดิม') {
-                    let newShiftKey = 'night';
-                    const checkShift = targetShiftTh.toLowerCase();
-                    if (checkShift.includes('เช้า') || checkShift.includes('morning')) newShiftKey = 'morning';
-                    else if (checkShift.includes('เที่ยง') || checkShift.includes('noon')) newShiftKey = 'noon';
+            if ((!targetName && !targetDiscordId) || !newShiftKey) {
+                console.log(`   ⏭️ ข้าม task ${task.id} (type=${task.task_type}): payload ไม่ครบ name="${targetName}" id="${targetDiscordId}" shift="${p.target_shift || p.shift || p.new_shift || p.to_shift || p.shift_name || ''}"`);
+                processedTasks.add(task.id);
+                continue;
+            }
 
-                    // Update directly in Supabase using staff_name search
-                    const { data: matchingStaff } = await supabase.from('staff_list').select('discord_id').ilike('staff_name', `%${targetName}%`);
-                    if (matchingStaff && matchingStaff.length > 0) {
-                        for (const staff of matchingStaff) {
-                            await supabase.from('staff_list').update({ shift: newShiftKey }).eq('discord_id', staff.discord_id);
-                        }
+            // หาพนักงาน — ลำดับความแม่น: discord_id > ชื่อตรงเป๊ะ > ชื่อบางส่วน
+            // ถ้าชื่อบางส่วนเจอหลายคน = กำกวม → ข้าม (กันอัปเดตผิดคน เช่น "ต้น" ไปโดน "ต้นน้ำ")
+            let matched = [];
+            let matchMode = '';
+            if (targetDiscordId) {
+                const { data } = await supabase.from('staff_list').select('discord_id, staff_name').eq('discord_id', targetDiscordId);
+                if (data && data.length) { matched = data; matchMode = 'discord_id'; }
+            }
+            if (matched.length === 0 && targetName) {
+                const { data: exact } = await supabase.from('staff_list').select('discord_id, staff_name').ilike('staff_name', targetName);
+                if (exact && exact.length) { matched = exact; matchMode = 'ชื่อตรงเป๊ะ'; }
+                else {
+                    const { data: partial } = await supabase.from('staff_list').select('discord_id, staff_name').ilike('staff_name', `%${targetName}%`);
+                    if (partial && partial.length === 1) { matched = partial; matchMode = 'ชื่อบางส่วน'; }
+                    else if (partial && partial.length > 1) {
+                        console.warn(`   ⚠️ task ${task.id}: ชื่อ "${targetName}" กำกวม เจอ ${partial.length} คน (${partial.map(x => x.staff_name).join(', ')}) → ข้าม กันอัปเดตผิดคน`);
+                        processedTasks.add(task.id);
+                        continue;
                     }
                 }
             }
+
+            if (matched.length === 0) {
+                console.warn(`   ⚠️ task ${task.id}: หาพนักงานไม่เจอใน staff_list (name="${targetName}", id="${targetDiscordId}") → ไม่อัปเดต`);
+                processedTasks.add(task.id);
+                continue;
+            }
+
+            for (const staff of matched) {
+                await supabase.from('staff_list').update({ shift: newShiftKey }).eq('discord_id', staff.discord_id);
+            }
+            applied++;
+            console.log(`   ↪️ [${task.scheduled_for}] "${targetName || targetDiscordId}" → ${newShiftKey} (match=${matchMode}, ${matched.length} คน)`);
             processedTasks.add(task.id);
         }
-        console.log("💾 [AutoSwap] ตรวจสอบและอัปเดตกะสำเร็จ!");
-    } catch (err) { 
-        console.error("❌ [AutoSwap] Error:", err); 
+
+        console.log(`💾 [AutoSwap] ตรวจสอบเสร็จ — อัปเดตกะไป ${applied} รายการ`);
+    } catch (err) {
+        console.error("❌ [AutoSwap] Error:", err);
     }
 }
 
