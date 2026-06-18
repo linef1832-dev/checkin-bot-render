@@ -448,6 +448,22 @@ function resolveShiftKey(raw) {
     return null; // ระบุกะไม่ได้ → ไม่อัปเดต
 }
 
+// เทียบว่า "ชื่อคนลา" กับ "ชื่อพนักงาน" เป็นคนเดียวกันไหม — ใช้ token match (คำเต็ม) ไม่ใช่ substring หลวมๆ
+// กันเคส เช่น "MIKA" ไปโดน "AMOL-MIKAEL" หรือชื่อแอดมินไปโดนพนักงานคนอื่น
+function isSamePerson(staffNameUpper, leaveNameUpper) {
+    const s = (staffNameUpper || '').trim();
+    const l = (leaveNameUpper || '').trim();
+    if (!s || !l) return false;
+    if (s === l) return true;
+    const sTokens = s.split(/[-_/\s]+/).filter(Boolean);
+    const lTokens = l.split(/[-_/\s]+/).filter(Boolean);
+    // ชื่อลาเป็นคำเดียว → ต้องตรงกับ token ใด token หนึ่งของชื่อพนักงาน เช่น "MIKA" ∈ {ODOL, MIKA}
+    if (lTokens.length === 1 && sTokens.includes(lTokens[0])) return true;
+    // กรณีกลับกัน: ชื่อพนักงานเป็นคำเดียว → ตรงกับ token ของชื่อลา
+    if (sTokens.length === 1 && lTokens.includes(sTokens[0])) return true;
+    return false;
+}
+
 async function processAutoShiftSwaps() {
     try {
         console.log("🔄 [AutoSwap] กำลังตรวจสอบตารางย้ายกะ...");
@@ -604,19 +620,19 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 if (staffData[dept].morning) {
                     for (const id in staffData[dept].morning) {
                         const staffName = staffData[dept].morning[id].trim().toUpperCase();
-                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) { shiftFound = 'morning'; userDeptFound = dept; break; }
+                        if (isSamePerson(staffName, cleanLeaveName)) { shiftFound = 'morning'; userDeptFound = dept; break; }
                     }
                 }
                 if (!shiftFound && staffData[dept].noon) {
                     for (const id in staffData[dept].noon) {
                         const staffName = staffData[dept].noon[id].trim().toUpperCase();
-                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) { shiftFound = 'noon'; userDeptFound = dept; break; }
+                        if (isSamePerson(staffName, cleanLeaveName)) { shiftFound = 'noon'; userDeptFound = dept; break; }
                     }
                 }
                 if (!shiftFound && staffData[dept].night) {
                     for (const id in staffData[dept].night) {
                         const staffName = staffData[dept].night[id].trim().toUpperCase();
-                        if (staffName.includes(cleanLeaveName) || cleanLeaveName.includes(staffName)) { shiftFound = 'night'; userDeptFound = dept; break; }
+                        if (isSamePerson(staffName, cleanLeaveName)) { shiftFound = 'night'; userDeptFound = dept; break; }
                     }
                 }
                 if (shiftFound) break;
