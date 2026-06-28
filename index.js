@@ -1373,6 +1373,50 @@ cron.schedule('1 0 * * 1', async () => {
 });
 
 
+
+// ==========================================
+// 📊 API สำหรับ KPI Dashboard (Web)
+// ==========================================
+app.post('/api/kpi-team', async (req, res) => {
+    try {
+        const { dept, mode } = req.body;
+        const now = new Date();
+        let startDate, endDate;
+
+        if (mode === 'month') {
+            startDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+            endDate   = now.toISOString().split('T')[0];
+        } else {
+            const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+            startDate  = past.toISOString().split('T')[0];
+            endDate    = now.toISOString().split('T')[0];
+        }
+
+        const staffDataObj = await fetchStaffData();
+        const results = [];
+
+        const depts = dept === 'ALL' ? ['AMOL','ODOL'] : [dept.toUpperCase()];
+
+        for (const d of depts) {
+            const deptData = staffDataObj[d];
+            if (!deptData) continue;
+            for (const shift of ['morning','noon','night']) {
+                if (!deptData[shift]) continue;
+                for (const [, name] of Object.entries(deptData[shift])) {
+                    const shortName = name.replace(/^(AMOL|ODOL)[-\s]/i,'').trim();
+                    const kpi = await calcKPI(shortName, startDate, endDate);
+                    results.push({ name, dept: d, shift, ...kpi });
+                }
+            }
+        }
+
+        res.json({ success: true, data: results, startDate, endDate });
+    } catch(e) {
+        console.error('[KPI API]', e);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 // ==========================================
 // 📊 ระบบ KPI / OKR
 // ==========================================
