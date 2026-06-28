@@ -1051,6 +1051,7 @@
                         <option value="absent">วันขาด</option>
                         <option value="afk">วัน AFK</option>
                         <option value="leave">วันลา</option>
+                    <option value="late">วันสาย</option>
                     </select>
                 </div>
             </div>
@@ -1090,6 +1091,7 @@
                             <th>#</th>
                             <th>ชื่อ</th>
                             <th style="text-align:center;">⏰ ตรงเวลา</th>
+                            <th style="text-align:center;">🕐 สาย</th>
                             <th style="text-align:center;">😴 AFK</th>
                             <th style="text-align:center;">📝 ลา</th>
                             <th style="text-align:center;">❌ ขาด</th>
@@ -1136,6 +1138,9 @@
                 renderKPIChart();
                 renderKPISummary();
                 document.getElementById('kpiSummaryCards').style.display = 'grid';
+                if (json.kpiStartDate) {
+                    document.getElementById('kpiCount').textContent += ` (นับตั้งแต่ ${json.kpiStartDate})`;
+                }
 
             } catch(e) {
                 tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#ED4245; padding:20px;">❌ ${e.message}</td></tr>`;
@@ -1151,6 +1156,7 @@
                 if (sortBy === 'absent')  return b.absentDays - a.absentDays;
                 if (sortBy === 'afk')     return b.afkDays - a.afkDays;
                 if (sortBy === 'leave')   return b.leaveDays - a.leaveDays;
+                if (sortBy === 'late')    return (b.lateDays||0) - (a.lateDays||0);
                 return 0;
             });
 
@@ -1182,7 +1188,8 @@
                         ${bar}
                         <span style="font-size:11px; color:#aaa;">${s.totalCheckins}/${s.workDays}ว</span>
                     </td>
-                    <td style="text-align:center; color:${s.afkDays > 0 ? '#f39c12' : '#aaa'}; font-weight:bold;">${s.afkDays}</td>
+                    <td style="text-align:center; color:${(s.lateDays||0) > 0 ? '#f39c12' : '#aaa'}; font-weight:bold;">${s.lateDays||0}</td>
+                    <td style="text-align:center; color:${s.afkDays > 0 ? '#ED4245' : '#aaa'}; font-weight:bold;">${s.afkDays}</td>
                     <td style="text-align:center; color:#5865F2; font-weight:bold;">${s.leaveDays}</td>
                     <td style="text-align:center; color:${s.absentDays > 0 ? '#ED4245' : '#aaa'}; font-weight:bold;">${s.absentDays}</td>
                     <td style="text-align:center;">${result}</td>
