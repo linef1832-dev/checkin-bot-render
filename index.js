@@ -1459,16 +1459,15 @@ app.post('/api/kpi-team', async (req, res) => {
             leaveMap[key] = (leaveMap[key] || 0) + 1;
         });
 
-        // คำนวณวันทำงานในช่วงเวลา
-        let workDays = 0;
-        const cur = new Date(startDate + 'T00:00:00+07:00');
-        const last = new Date(endDate   + 'T00:00:00+07:00');
-        while (cur <= last) { if (cur.getDay() !== 0) workDays++; cur.setDate(cur.getDate() + 1); const uniqueDays = new Set(
-        (allCheckins.data || []).map(c => 
-        new Date(c.checkin_time).toISOString().split('T')[0]
-    )
-);
-workDays = uniqueDays.size;
+        // workDays = จำนวนวันที่มีการเปิด session เช็คอินจริง
+        const uniqueCheckinDates = new Set(
+            (allCheckins.data || []).map(c => {
+                const thai = new Date(new Date(c.checkin_time).getTime() + 7*60*60*1000);
+                return thai.toISOString().split('T')[0];
+            })
+        );
+        const workDays = uniqueCheckinDates.size || 1;
+
         // ── คำนวณ KPI แต่ละคน ──
         const results = [];
         const depts = dept === 'ALL' ? ['AMOL','ODOL'] : [dept.toUpperCase()];
