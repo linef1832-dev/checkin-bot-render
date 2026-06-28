@@ -75,6 +75,7 @@
         <button class="tab-btn active" onclick="openTab(event, 'checkinMenu')">🕒 เช็คชื่อ</button>
         <button class="tab-btn" onclick="openTab(event, 'trackerMenu')">🟢 แชท LINE</button>
         <button class="tab-btn" onclick="openTab(event, 'staffMenu')">👥 พนักงาน</button>
+        <button class="tab-btn" onclick="openTab(event, 'kpiMenu'); loadKPI()">📊 KPI</button>
     </div>
 
     <div id="checkinMenu" class="tab-content active">
@@ -1019,6 +1020,215 @@
             </div>
         </div>
     </div>
+
+
+    <!-- ==================== TAB KPI ==================== -->
+    <div id="kpiMenu" class="tab-content">
+
+        <!-- ตัวกรอง -->
+        <div class="card" style="border-left: 4px solid #FEE75C;">
+            <h3 style="margin-top:0;">📊 รายงาน KPI พนักงาน</h3>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:13px; color:#aaa;">แผนก</label>
+                    <select id="kpiDept" style="margin-top:4px;">
+                        <option value="ALL">ทุกแผนก</option>
+                        <option value="AMOL">AMOL</option>
+                        <option value="ODOL">ODOL</option>
+                    </select>
+                </div>
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:13px; color:#aaa;">ช่วงเวลา</label>
+                    <select id="kpiMode" style="margin-top:4px;">
+                        <option value="week">7 วันล่าสุด</option>
+                        <option value="month">เดือนนี้</option>
+                    </select>
+                </div>
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:13px; color:#aaa;">เรียงตาม</label>
+                    <select id="kpiSort" style="margin-top:4px;" onchange="renderKPITable()">
+                        <option value="ontime">ตรงเวลา %</option>
+                        <option value="absent">วันขาด</option>
+                        <option value="afk">วัน AFK</option>
+                        <option value="leave">วันลา</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="loadKPI()" style="background:#43b581; margin-top:10px;">🔍 ดึงข้อมูล</button>
+        </div>
+
+        <!-- สรุปภาพรวม -->
+        <div id="kpiSummaryCards" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px; display:none;">
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #43b581;">
+                <div style="font-size:24px; font-weight:bold; color:#43b581;" id="kpiAvgOntime">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">เฉลี่ยตรงเวลา</div>
+            </div>
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #ED4245;">
+                <div style="font-size:24px; font-weight:bold; color:#ED4245;" id="kpiTotalAbsent">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">รวมวันขาด</div>
+            </div>
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #f39c12;">
+                <div style="font-size:24px; font-weight:bold; color:#f39c12;" id="kpiTotalAfk">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">รวมวัน AFK</div>
+            </div>
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #5865F2;">
+                <div style="font-size:24px; font-weight:bold; color:#5865F2;" id="kpiMvp">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">🏆 MVP</div>
+            </div>
+        </div>
+
+        <!-- ตาราง KPI -->
+        <div class="card" style="padding:15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="margin:0;">รายชื่อพนักงาน</h3>
+                <span id="kpiCount" style="font-size:13px; color:#aaa;"></span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="tracker-table" id="kpiTable">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>ชื่อ</th>
+                            <th style="text-align:center;">⏰ ตรงเวลา</th>
+                            <th style="text-align:center;">😴 AFK</th>
+                            <th style="text-align:center;">📝 ลา</th>
+                            <th style="text-align:center;">❌ ขาด</th>
+                            <th style="text-align:center;">ผล</th>
+                        </tr>
+                    </thead>
+                    <tbody id="kpiTableBody">
+                        <tr><td colspan="7" style="text-align:center; color:#aaa; padding:30px;">กดปุ่ม "ดึงข้อมูล" เพื่อโหลด KPI</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- กราฟ -->
+        <div class="card" style="border-left:4px solid #5865F2;">
+            <h3 style="margin-top:0;">📈 กราฟเช็คอินตรงเวลา (%)</h3>
+            <canvas id="kpiChart" height="120"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // ==================== KPI Logic ====================
+        let kpiData = [];
+        let kpiChartInstance = null;
+
+        async function loadKPI() {
+            const dept  = document.getElementById('kpiDept').value;
+            const mode  = document.getElementById('kpiMode').value;
+            const tbody = document.getElementById('kpiTableBody');
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</td></tr>';
+            document.getElementById('kpiSummaryCards').style.display = 'none';
+
+            try {
+                const res  = await fetch('/api/kpi-team', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dept, mode })
+                });
+                const json = await res.json();
+                if (!json.success) throw new Error(json.message || 'Error');
+
+                kpiData = json.data;
+                renderKPITable();
+                renderKPIChart();
+                renderKPISummary();
+                document.getElementById('kpiSummaryCards').style.display = 'grid';
+
+            } catch(e) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#ED4245; padding:20px;">❌ ${e.message}</td></tr>`;
+            }
+        }
+
+        function renderKPITable() {
+            const sortBy = document.getElementById('kpiSort').value;
+            const tbody  = document.getElementById('kpiTableBody');
+
+            const sorted = [...kpiData].sort((a, b) => {
+                if (sortBy === 'ontime')  return b.onTimePct - a.onTimePct;
+                if (sortBy === 'absent')  return b.absentDays - a.absentDays;
+                if (sortBy === 'afk')     return b.afkDays - a.afkDays;
+                if (sortBy === 'leave')   return b.leaveDays - a.leaveDays;
+                return 0;
+            });
+
+            document.getElementById('kpiCount').textContent = `ทั้งหมด ${sorted.length} คน`;
+
+            if (sorted.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#aaa; padding:30px;">ไม่พบข้อมูล</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = sorted.map((s, i) => {
+                const pct   = s.onTimePct;
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+                const result = pct >= 90 && s.absentDays === 0 ? '<span style="color:#43b581;">🏆 ดีเยี่ยม</span>'
+                             : pct >= 75 ? '<span style="color:#FEE75C;">👍 ดี</span>'
+                             : '<span style="color:#ED4245;">⚠️ ปรับปรุง</span>';
+
+                const barW  = Math.round(pct);
+                const barColor = pct >= 90 ? '#43b581' : pct >= 75 ? '#FEE75C' : '#ED4245';
+                const bar   = `<div style="background:#383852; border-radius:4px; height:6px; margin-top:4px;">
+                                <div style="width:${barW}%; background:${barColor}; height:6px; border-radius:4px;"></div>
+                               </div>`;
+
+                return `<tr>
+                    <td style="font-weight:bold; color:#aaa;">${medal}</td>
+                    <td style="font-weight:bold; color:#FEE75C; font-size:13px;">${s.name}</td>
+                    <td style="text-align:center;">
+                        <span style="color:${barColor}; font-weight:bold;">${pct}%</span>
+                        ${bar}
+                        <span style="font-size:11px; color:#aaa;">${s.totalCheckins}/${s.workDays}ว</span>
+                    </td>
+                    <td style="text-align:center; color:${s.afkDays > 0 ? '#f39c12' : '#aaa'}; font-weight:bold;">${s.afkDays}</td>
+                    <td style="text-align:center; color:#5865F2; font-weight:bold;">${s.leaveDays}</td>
+                    <td style="text-align:center; color:${s.absentDays > 0 ? '#ED4245' : '#aaa'}; font-weight:bold;">${s.absentDays}</td>
+                    <td style="text-align:center;">${result}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function renderKPISummary() {
+            if (!kpiData.length) return;
+            const avgOntime = Math.round(kpiData.reduce((s, d) => s + d.onTimePct, 0) / kpiData.length);
+            const totalAbsent = kpiData.reduce((s, d) => s + d.absentDays, 0);
+            const totalAfk    = kpiData.reduce((s, d) => s + d.afkDays, 0);
+            const mvp = [...kpiData].sort((a, b) => b.onTimePct - a.onTimePct)[0];
+
+            document.getElementById('kpiAvgOntime').textContent  = avgOntime + '%';
+            document.getElementById('kpiTotalAbsent').textContent = totalAbsent + ' วัน';
+            document.getElementById('kpiTotalAfk').textContent    = totalAfk + ' วัน';
+            document.getElementById('kpiMvp').textContent         = mvp ? mvp.name.replace(/^(AMOL|ODOL)[-\s]/i,'') : '-';
+        }
+
+        function renderKPIChart() {
+            const ctx = document.getElementById('kpiChart');
+            if (kpiChartInstance) kpiChartInstance.destroy();
+
+            const sorted = [...kpiData].sort((a,b) => b.onTimePct - a.onTimePct);
+            const labels = sorted.map(d => d.name.replace(/^(AMOL|ODOL)[-\s]/i,''));
+            const data   = sorted.map(d => d.onTimePct);
+            const colors = data.map(v => v >= 90 ? '#43b581' : v >= 75 ? '#FEE75C' : '#ED4245');
+
+            kpiChartInstance = new Chart(ctx.getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{ label: 'ตรงเวลา %', data, backgroundColor: colors, borderRadius: 4 }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, grid: { color: '#4f545c' }, ticks: { color: '#aaa', callback: v => v + '%' } },
+                        x: { grid: { display: false }, ticks: { color: '#aaa', font: { size: 10 } } }
+                    }
+                }
+            });
+        }
+    </script>
 
 </body>
 </html>
