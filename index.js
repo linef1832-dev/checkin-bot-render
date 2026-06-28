@@ -464,6 +464,20 @@ function isSamePerson(staffNameUpper, leaveNameUpper) {
     return false;
 }
 
+
+// ==========================================
+// 🕐 Helper: ช่วงเวลาเช็คอินแต่ละกะ
+// เช้า: 07:49-19:49 | เที่ยง: 10:49-23:49 | ดึก: 19:49-07:49
+// ==========================================
+function getActiveShifts(thaiTime) {
+    const totalMin = thaiTime.getHours() * 60 + thaiTime.getMinutes();
+    const active = [];
+    if (totalMin >= 7*60+49 && totalMin < 19*60+49) active.push('morning');
+    if (totalMin >= 10*60+49) active.push('noon');
+    if (totalMin >= 19*60+49 || totalMin < 7*60+49) active.push('night');
+    return active;
+}
+
 async function processAutoShiftSwaps() {
     try {
         console.log("🔄 [AutoSwap] กำลังตรวจสอบตารางย้ายกะ...");
@@ -1095,129 +1109,149 @@ client.on('messageCreate', async (message) => {
     if (message.content === '!checkin') {
         if (!dataStore.checkinChannels.includes(channelId)) return;
 
-        const session = activeSessions.get(channelId);
-        if (!session) return message.reply('❌ **ขณะนี้ระบบปิดรับเช็คชื่อสำหรับห้องนี้แล้วค่ะ**');
+        const member    = message.member;
+        const localTime = getThaiTime();
 
-        const member = message.member;
-        if (!member.voice.channelId || !member.voice.streaming) return message.reply('❌ คุณต้องเข้าห้องเสียงและแชร์หน้าจอด้วยค่ะ');
-        if (session.members.some(m => m.id === member.id)) return message.reply('✅ คุณได้เช็คชื่อไปแล้วค่ะ');
+        if (!member.voice.channelId || !member.voice.streaming)
+            return message.reply('❌ คุณต้องเข้าห้องเสียงและแชร์หน้าจอด้วยค่ะ');
 
+        const activeShifts = getActiveShifts(localTime);
+        if (activeShifts.length === 0)
+            return message.reply('❌ ขณะนี้ยังไม่เข้าช่วงเวลาของกะใดเลยค่ะ');
+
+        const staffDataObj  = await fetchStaffData();
+        const staffName     = getStaffName(member.id, member.displayName, staffDataObj);
+        let   memberShiftKey = null;
+        outer: for (const dept in staffDataObj) {
+            for (const sk of ['morning', 'noon', 'night']) {
+                if (staffDataObj[dept][sk]?.[member.id]) { memberShiftKey = sk; break outer; }
+            }
+        }
+
+        if (memberShiftKey) {
+            if (!activeShifts.includes(memberShiftKey)) {
+                const shiftTH = memberShiftKey === 'morning' ? 'กะเช้า' : memberShiftKey === 'noon' ? 'กะเที่ยง' : 'กะดึก';
+                return message.reply('❌ ยังไม่ถึงเวลาเข้างาน' + shiftTH + 'ค่ะ');
+            }
+            const today = getSupabaseDateStr();
+            let startISO, endISO;
+            const h = localTime.getHours(), m = localTime.getMinutes();
+            if (memberShiftKey === 'morning') {
+                startISO = new Date(today + 'T07:49:00+07:00').toISOString();
+                endISO   = new Date(today + 'T19:49:00+07:00').toISOString();
+            } else if (memberShiftKey === 'noon') {
+                startISO = new Date(today + 'T10:49:00+07:00').toISOString();
+                endISO   = new Date(today + 'T23:59:59+07:00').toISOString();
+            } else {
+                const base = new Date(localTime);
+                if (h < 7 || (h === 7 && m < 49)) base.setDate(base.getDate() - 1);
+                const bs = base.getFullYear() + '-' + String(base.getMonth()+1).padStart(2,'0') + '-' + String(base.getDate()).padStart(2,'0');
+                const nx = new Date(base); nx.setDate(nx.getDate()+1);
+                const ns = nx.getFullYear() + '-' + String(nx.getMonth()+1).padStart(2,'0') + '-' + String(nx.getDate()).padStart(2,'0');
+                startISO = new Date(bs + 'T19:49:00+07:00').toISOString();
+                endISO   = new Date(ns + 'T07:49:00+07:00').toISOString();
+            }
+            const { data: already } = await supabase.from('checkins').select('checkin_time')
+                .eq('discord_id', member.id).gte('checkin_time', startISO).lte('checkin_time', endISO).limit(1);
+            if (already && already.length > 0) {
+                const prev = new Date(already[0].checkin_time);
+                const HH = String(prev.getHours()).padStart(2,'0'), MM = String(prev.getMinutes()).padStart(2,'0');
+                const shiftTH = memberShiftKey === 'morning' ? 'กะเช้า' : memberShiftKey === 'noon' ? 'กะเที่ยง' : 'กะดึก';
+                return message.reply('✅ คุณเช็คอิน' + shiftTH + 'ไปแล้วเวลา **' + HH + ':' + MM + ' น.** ค่ะ ไม่สามารถเช็คซ้ำได้');
+            }
+        }
+
+        const session   = activeSessions.get(channelId);
         const statusMsg = await message.reply('⏳ กำลังตรวจสอบ 10 วินาที...');
         setTimeout(async () => {
             try {
-                if (member.voice.streaming) {
-                    const localTime = getThaiTime(); 
-                    const sType = session.shiftType ? session.shiftType.toLowerCase() : 'morning';
-
-                    let shiftName = "กะเช้า ☀️";
-                    if (sType.includes('night') || sType.includes('ดึก')) {
-                        shiftName = "กะดึก 🌙";
-                    } else if (sType.includes('noon') || sType.includes('afternoon') || sType.includes('เที่ยง') || sType.includes('บ่าย')) {
-                        shiftName = "กะเที่ยง 🕛";
-                    }
-
-                    const staffDataObj = await fetchStaffData(); // ดึงข้อมูลใหม่
-                    const staffName = getStaffName(member.id, member.displayName, staffDataObj);
-
-                    session.members.push({ id: member.id, name: staffName, time: localTime, shift: shiftName, voiceChannelId: member.voice.channelId });
-
-                    try {
-                        const { error } = await supabase.from('checkins').insert([{ discord_id: member.id, name: staffName, checkin_time: localTime, shift: shiftName }]); 
-                        if (error) console.error("❌ Supabase Error:", error);
-                    } catch (err) { }
-
-                    statusMsg.edit(`✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **${shiftName}** (ลำดับที่ ${session.members.length})`);
-                } else { statusMsg.edit('❌ เช็คชื่อล้มเหลว: ปิดแชร์หน้าจอก่อนเวลาค่ะ'); }
-            } catch (err) { }
+                if (!member.voice.streaming) return statusMsg.edit('❌ เช็คชื่อล้มเหลว: ปิดแชร์หน้าจอก่อนเวลาค่ะ');
+                const checkinTime = getThaiTime();
+                const sType = session?.shiftType?.toLowerCase() || memberShiftKey || 'morning';
+                let shiftName = 'กะเช้า ☀️';
+                if (sType.includes('night') || sType.includes('ดึก') || memberShiftKey === 'night') shiftName = 'กะดึก 🌙';
+                else if (sType.includes('noon') || sType.includes('เที่ยง') || memberShiftKey === 'noon') shiftName = 'กะเที่ยง 🕛';
+                const totalMin = checkinTime.getHours()*60 + checkinTime.getMinutes();
+                let lateMin = 0;
+                if (memberShiftKey === 'morning' && totalMin > 8*60) lateMin = totalMin - 8*60;
+                else if (memberShiftKey === 'noon' && totalMin > 11*60) lateMin = totalMin - 11*60;
+                else if (memberShiftKey === 'night' && totalMin > 20*60) lateMin = totalMin - 20*60;
+                const lateText = lateMin > 0 ? ' ⏰ **สาย ' + lateMin + ' นาที**' : ' ✅ ตรงเวลา';
+                if (session && !session.members.some(m => m.id === member.id))
+                    session.members.push({ id: member.id, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: member.voice.channelId, lateMin });
+                await supabase.from('checkins').insert([{
+                    discord_id: member.id, name: staffName, checkin_time: checkinTime, shift: shiftName, late_minutes: lateMin
+                }]).catch(e => console.error('❌ Supabase checkin Error:', e));
+                const orderText = session ? ' (ลำดับที่ ' + session.members.length + ')' : ' (มาสาย)';
+                statusMsg.edit('✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **' + shiftName + '**' + lateText + orderText);
+            } catch (err) { console.error(err); }
         }, 10000);
     }
-})
 
     // ── !kpi ──────────────────────────────────────────────────────────────
     if (message.content.startsWith('!kpi') && !message.content.startsWith('!kpiteam')) {
         const args   = message.content.split(/\s+/);
         const mode   = args[1]?.toLowerCase() === 'month' ? 'month' : 'week';
         const target = message.mentions.users.first();
-
-        const isHead = message.member.roles.cache.some(r =>
-            ['PTT', 'TT HAED', 'TT HEAD'].includes(r.name.toUpperCase())
-        );
-
+        const isHead = message.member.roles.cache.some(r => ['PTT', 'TT HAED', 'TT HEAD'].includes(r.name.toUpperCase()));
         if (target && !isHead) return message.reply('❌ ไม่มีสิทธิ์ดู KPI คนอื่นค่ะ');
-
-        const now   = new Date();
+        const now = new Date();
         let startDate, endDate, label;
-
         if (mode === 'month') {
-            startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            startDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
             endDate   = now.toISOString().split('T')[0];
             label     = `รายเดือน (${now.toLocaleString('th-TH', { month: 'long', year: 'numeric' })})`;
         } else {
-            const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+            const past = new Date(now.getTime() - 6*24*60*60*1000);
             startDate  = past.toISOString().split('T')[0];
             endDate    = now.toISOString().split('T')[0];
-            label      = `รายสัปดาห์ (${startDate} ถึง ${endDate})`;
+            label      = 'รายสัปดาห์';
         }
-
         const staffData = await fetchStaffData();
-        let staffName;
-
+        let kpiStaffName;
         if (target) {
-            for (const dept in staffData) {
-                for (const shift of ['morning', 'noon', 'night']) {
-                    if (staffData[dept][shift]?.[target.id]) {
-                        staffName = staffData[dept][shift][target.id]; break;
-                    }
+            outer2: for (const dept in staffData) {
+                for (const shift of ['morning','noon','night']) {
+                    if (staffData[dept][shift]?.[target.id]) { kpiStaffName = staffData[dept][shift][target.id]; break outer2; }
                 }
-                if (staffName) break;
             }
-            if (!staffName) return message.reply('❌ ไม่พบพนักงานคนนี้ในระบบค่ะ');
+            if (!kpiStaffName) return message.reply('❌ ไม่พบพนักงานคนนี้ในระบบค่ะ');
         } else {
-            for (const dept in staffData) {
-                for (const shift of ['morning', 'noon', 'night']) {
-                    if (staffData[dept][shift]?.[message.author.id]) {
-                        staffName = staffData[dept][shift][message.author.id]; break;
-                    }
+            outer3: for (const dept in staffData) {
+                for (const shift of ['morning','noon','night']) {
+                    if (staffData[dept][shift]?.[message.author.id]) { kpiStaffName = staffData[dept][shift][message.author.id]; break outer3; }
                 }
-                if (staffName) break;
             }
-            if (!staffName) return message.reply('❌ ไม่พบชื่อคุณในระบบค่ะ กรุณาติดต่อหัวหน้า');
+            if (!kpiStaffName) return message.reply('❌ ไม่พบชื่อคุณในระบบค่ะ กรุณาติดต่อหัวหน้า');
         }
-
-        const waiting = await message.reply('⏳ กำลังคำนวณ KPI...');
-        const shortName = staffName.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
-        const kpi = await calcKPI(shortName, startDate, endDate);
-        await waiting.edit(buildKPIMessage(staffName, kpi, label));
+        const waiting   = await message.reply('⏳ กำลังคำนวณ KPI...');
+        const shortName = kpiStaffName.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
+        const kpiResult = await calcKPI(shortName, startDate, endDate);
+        await waiting.edit(buildKPIMessage(kpiStaffName, kpiResult, label));
         return;
     }
 
     // ── !kpiteam ──────────────────────────────────────────────────────────
     if (message.content.startsWith('!kpiteam')) {
-        const isHead = message.member.roles.cache.some(r =>
-            ['PTT', 'TT HAED', 'TT HEAD'].includes(r.name.toUpperCase())
-        );
+        const isHead = message.member.roles.cache.some(r => ['PTT', 'TT HAED', 'TT HEAD'].includes(r.name.toUpperCase()));
         if (!isHead) return message.reply('❌ ไม่มีสิทธิ์ใช้คำสั่งนี้ค่ะ');
-
         const args = message.content.split(/\s+/);
         const dept = args[1]?.toUpperCase() || 'AMOL';
         const mode = args[2]?.toLowerCase() === 'month' ? 'month' : 'week';
-
-        const now = new Date();
+        const now  = new Date();
         let startDate, endDate, label;
-
         if (mode === 'month') {
-            startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            startDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
             endDate   = now.toISOString().split('T')[0];
-            label     = `รายเดือน`;
+            label     = 'รายเดือน';
         } else {
-            const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+            const past = new Date(now.getTime() - 6*24*60*60*1000);
             startDate  = past.toISOString().split('T')[0];
             endDate    = now.toISOString().split('T')[0];
-            label      = `รายสัปดาห์`;
+            label      = 'รายสัปดาห์';
         }
-
         const waiting = await message.reply(`⏳ กำลังสร้างรายงาน KPI แผนก ${dept}...`);
-        const text = await buildTeamKPIMessage(dept, startDate, endDate, label);
+        const text    = await buildTeamKPIMessage(dept, startDate, endDate, label);
         await waiting.edit(text.slice(0, 2000));
         return;
     }
