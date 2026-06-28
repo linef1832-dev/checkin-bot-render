@@ -1131,6 +1131,96 @@ client.on('messageCreate', async (message) => {
             } catch (err) { }
         }, 10000);
     }
+})
+
+    // ── !kpi ──────────────────────────────────────────────────────────────
+    if (message.content.startsWith('!kpi') && !message.content.startsWith('!kpiteam')) {
+        const args   = message.content.split(/\s+/);
+        const mode   = args[1]?.toLowerCase() === 'month' ? 'month' : 'week';
+        const target = message.mentions.users.first();
+
+        const isHead = message.member.roles.cache.some(r =>
+            ['PTT', 'TT HAED', 'TT HEAD'].includes(r.name.toUpperCase())
+        );
+
+        if (target && !isHead) return message.reply('❌ ไม่มีสิทธิ์ดู KPI คนอื่นค่ะ');
+
+        const now   = new Date();
+        let startDate, endDate, label;
+
+        if (mode === 'month') {
+            startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            endDate   = now.toISOString().split('T')[0];
+            label     = `รายเดือน (${now.toLocaleString('th-TH', { month: 'long', year: 'numeric' })})`;
+        } else {
+            const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+            startDate  = past.toISOString().split('T')[0];
+            endDate    = now.toISOString().split('T')[0];
+            label      = `รายสัปดาห์ (${startDate} ถึง ${endDate})`;
+        }
+
+        const staffData = await fetchStaffData();
+        let staffName;
+
+        if (target) {
+            for (const dept in staffData) {
+                for (const shift of ['morning', 'noon', 'night']) {
+                    if (staffData[dept][shift]?.[target.id]) {
+                        staffName = staffData[dept][shift][target.id]; break;
+                    }
+                }
+                if (staffName) break;
+            }
+            if (!staffName) return message.reply('❌ ไม่พบพนักงานคนนี้ในระบบค่ะ');
+        } else {
+            for (const dept in staffData) {
+                for (const shift of ['morning', 'noon', 'night']) {
+                    if (staffData[dept][shift]?.[message.author.id]) {
+                        staffName = staffData[dept][shift][message.author.id]; break;
+                    }
+                }
+                if (staffName) break;
+            }
+            if (!staffName) return message.reply('❌ ไม่พบชื่อคุณในระบบค่ะ กรุณาติดต่อหัวหน้า');
+        }
+
+        const waiting = await message.reply('⏳ กำลังคำนวณ KPI...');
+        const shortName = staffName.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
+        const kpi = await calcKPI(shortName, startDate, endDate);
+        await waiting.edit(buildKPIMessage(staffName, kpi, label));
+        return;
+    }
+
+    // ── !kpiteam ──────────────────────────────────────────────────────────
+    if (message.content.startsWith('!kpiteam')) {
+        const isHead = message.member.roles.cache.some(r =>
+            ['PTT', 'TT HAED', 'TT HEAD'].includes(r.name.toUpperCase())
+        );
+        if (!isHead) return message.reply('❌ ไม่มีสิทธิ์ใช้คำสั่งนี้ค่ะ');
+
+        const args = message.content.split(/\s+/);
+        const dept = args[1]?.toUpperCase() || 'AMOL';
+        const mode = args[2]?.toLowerCase() === 'month' ? 'month' : 'week';
+
+        const now = new Date();
+        let startDate, endDate, label;
+
+        if (mode === 'month') {
+            startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+            endDate   = now.toISOString().split('T')[0];
+            label     = `รายเดือน`;
+        } else {
+            const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+            startDate  = past.toISOString().split('T')[0];
+            endDate    = now.toISOString().split('T')[0];
+            label      = `รายสัปดาห์`;
+        }
+
+        const waiting = await message.reply(`⏳ กำลังสร้างรายงาน KPI แผนก ${dept}...`);
+        const text = await buildTeamKPIMessage(dept, startDate, endDate, label);
+        await waiting.edit(text.slice(0, 2000));
+        return;
+    }
 });
 
 client.once('ready', () => { 
@@ -1281,6 +1371,134 @@ cron.schedule('1 0 * * 1', async () => {
     scheduled: true,
     timezone: "Asia/Bangkok"
 });
+
+
+// ==========================================
+// 📊 ระบบ KPI / OKR
+// ==========================================
+
+async function calcKPI(staffName, startDate, endDate) {
+    const start = new Date(`${startDate}T00:00:00+07:00`).toISOString();
+    const end   = new Date(`${endDate}T23:59:59+07:00`).toISOString();
+
+    const { data: checkins } = await supabase
+        .from('checkins').select('checkin_time, shift')
+        .ilike('name', `%${staffName}%`)
+        .gte('checkin_time', start).lte('checkin_time', end);
+
+    const totalCheckins = checkins ? checkins.length : 0;
+    let onTime = 0;
+    if (checkins) {
+        for (const c of checkins) {
+            const t = new Date(c.checkin_time);
+            const totalMin = t.getHours() * 60 + t.getMinutes();
+            const shift = (c.shift || '').toLowerCase();
+            if (shift.includes('เช้า')    && totalMin <= 8  * 60) onTime++;
+            else if (shift.includes('เที่ยง') && totalMin <= 11 * 60) onTime++;
+            else if (shift.includes('ดึก')   && totalMin <= 20 * 60) onTime++;
+        }
+    }
+    const onTimePct = totalCheckins > 0 ? Math.round((onTime / totalCheckins) * 100) : 0;
+
+    const { data: afkRows } = await supabase
+        .from('tracker_remarks').select('afk_date')
+        .ilike('staff_name', `%${staffName}%`)
+        .gte('afk_date', startDate).lte('afk_date', endDate);
+    const afkDays = afkRows ? new Set(afkRows.map(r => r.afk_date)).size : 0;
+
+    const { data: leaveRows } = await supabase
+        .from('leave_requests').select('leave_date')
+        .ilike('user_name', `%${staffName}%`)
+        .eq('status', 'approved')
+        .gte('leave_date', startDate).lte('leave_date', endDate);
+    const leaveDays = leaveRows ? leaveRows.length : 0;
+
+    let workDays = 0;
+    const cur = new Date(`${startDate}T00:00:00+07:00`);
+    const last = new Date(`${endDate}T00:00:00+07:00`);
+    while (cur <= last) { if (cur.getDay() !== 0) workDays++; cur.setDate(cur.getDate() + 1); }
+    const absentDays = Math.max(0, workDays - totalCheckins - leaveDays);
+
+    return { totalCheckins, onTimePct, afkDays, leaveDays, absentDays, workDays };
+}
+
+function buildKPIMessage(staffName, kpi, label) {
+    const bar = (pct) => '🟩'.repeat(Math.round(pct / 10)) + '⬜'.repeat(10 - Math.round(pct / 10)) + ` ${pct}%`;
+    return [
+        `📊 **รายงาน KPI ${label}**`,
+        `👤 **${staffName}**`,
+        `──────────────────────────`,
+        `✅ เช็คอินตรงเวลา:  ${bar(kpi.onTimePct)}`,
+        `   (เช็คอิน ${kpi.totalCheckins}/${kpi.workDays} วัน)`,
+        `😴 วัน AFK:         **${kpi.afkDays} วัน**`,
+        `📝 วันลา:           **${kpi.leaveDays} วัน**`,
+        `❌ วันขาดงาน:       **${kpi.absentDays} วัน**`,
+        `──────────────────────────`,
+        kpi.onTimePct >= 90 && kpi.absentDays === 0 ? `🏆 **ผลงานดีเยี่ยม!**`
+        : kpi.onTimePct >= 75 ? `👍 **ผลงานอยู่ในเกณฑ์ดี**`
+        : `⚠️ **ควรปรับปรุงการเข้างาน**`
+    ].join('\n');
+}
+
+async function buildTeamKPIMessage(dept, startDate, endDate, label) {
+    const staffData = await fetchStaffData();
+    const deptData  = staffData[dept.toUpperCase()];
+    if (!deptData) return `❌ ไม่พบแผนก ${dept}`;
+
+    const allStaff = {};
+    for (const shift of ['morning', 'noon', 'night']) {
+        if (deptData[shift]) Object.assign(allStaff, deptData[shift]);
+    }
+
+    let lines = [`📊 **รายงาน KPI ${label} — แผนก ${dept.toUpperCase()}**`, `──────────────────────────`];
+    let topOnTime = 0, topName = '';
+
+    for (const [, name] of Object.entries(allStaff)) {
+        const shortName = name.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
+        const kpi = await calcKPI(shortName, startDate, endDate);
+        const status = kpi.onTimePct >= 90 && kpi.absentDays === 0 ? '🏆' : kpi.onTimePct >= 75 ? '✅' : '⚠️';
+        lines.push(`${status} **${name}**\n   ⏰ ตรงเวลา ${kpi.onTimePct}% | 😴 AFK ${kpi.afkDays}ว | 📝 ลา ${kpi.leaveDays}ว | ❌ ขาด ${kpi.absentDays}ว`);
+        if (kpi.onTimePct > topOnTime) { topOnTime = kpi.onTimePct; topName = name; }
+    }
+    lines.push(`──────────────────────────`);
+    lines.push(`🥇 **MVP:** ${topName} (ตรงเวลา ${topOnTime}%)`);
+    return lines.join('\n');
+}
+
+const KPI_REPORT_CHANNEL = process.env.KPI_CHANNEL_ID || '1442466109503569992';
+
+// ทุกวันจันทร์ 08:00 — รายงานรายสัปดาห์
+cron.schedule('0 8 * * 1', async () => {
+    try {
+        const now  = new Date();
+        const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const start = past.toISOString().split('T')[0];
+        const end   = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const ch = await client.channels.fetch(KPI_REPORT_CHANNEL).catch(() => null);
+        if (!ch) return;
+        for (const dept of ['AMOL', 'ODOL']) {
+            const text = await buildTeamKPIMessage(dept, start, end, 'รายสัปดาห์');
+            await sendLongMessage(ch, text);
+        }
+    } catch (e) { console.error('❌ [KPI Weekly]', e); }
+}, { scheduled: true, timezone: 'Asia/Bangkok' });
+
+// วันที่ 1 ของทุกเดือน 08:00 — รายงานรายเดือน
+cron.schedule('0 8 1 * *', async () => {
+    try {
+        const now  = new Date();
+        const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const startDate = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-01`;
+        const lastDay   = new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+        const endDate   = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${lastDay}`;
+        const ch = await client.channels.fetch(KPI_REPORT_CHANNEL).catch(() => null);
+        if (!ch) return;
+        for (const dept of ['AMOL', 'ODOL']) {
+            const text = await buildTeamKPIMessage(dept, startDate, endDate, 'รายเดือน');
+            await sendLongMessage(ch, text);
+        }
+    } catch (e) { console.error('❌ [KPI Monthly]', e); }
+}, { scheduled: true, timezone: 'Asia/Bangkok' });
 
 // --- สั่งเริ่มเซิร์ฟเวอร์ (ห้ามลบ 2 บรรทัดนี้นะครับบอส!) ---
 app.listen(PORT, '0.0.0.0', () => { console.log(`🌐 Server web port is open and listening on port ${PORT}!`); });
