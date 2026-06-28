@@ -1415,14 +1415,26 @@ app.post('/api/kpi-team', async (req, res) => {
     try {
         const { dept, mode } = req.body;
         const now = new Date();
+
+        // วันเริ่มนับข้อมูล KPI (เริ่มนับจากวันนี้เป็นต้นไป)
+        const KPI_START_DATE = '2026-06-28';
+
         let startDate, endDate;
         if (mode === 'month') {
-            startDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+            // ใช้วันที่ใหญ่กว่าระหว่าง KPI_START_DATE กับวันแรกของเดือน
+            const monthStart = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-01';
+            startDate = monthStart > KPI_START_DATE ? monthStart : KPI_START_DATE;
             endDate   = now.toISOString().split('T')[0];
         } else {
             const past = new Date(now.getTime() - 6*24*60*60*1000);
-            startDate  = past.toISOString().split('T')[0];
-            endDate    = now.toISOString().split('T')[0];
+            const weekStart = past.toISOString().split('T')[0];
+            startDate = weekStart > KPI_START_DATE ? weekStart : KPI_START_DATE;
+            endDate   = now.toISOString().split('T')[0];
+        }
+
+        // ถ้าช่วงเวลาทั้งหมดอยู่ก่อน KPI_START_DATE ให้ return ข้อมูลว่าง
+        if (startDate > endDate) {
+            return res.json({ success: true, data: [], startDate, endDate, note: 'ยังไม่มีข้อมูล KPI' });
         }
 
         const start = new Date(startDate + 'T00:00:00+07:00').toISOString();
@@ -1431,7 +1443,8 @@ app.post('/api/kpi-team', async (req, res) => {
         // ── ดึงข้อมูลทั้งหมดในครั้งเดียว ──
         const [staffDataObj, allCheckins, allAfk, allLeaves] = await Promise.all([
             fetchStaffData(),
-            supabase.from('checkins').select('discord_id, name, checkin_time, shift')
+            supabase.from('checkins')
+                .select('discord_id, name, checkin_time, shift, late_minutes')
                 .gte('checkin_time', start).lte('checkin_time', end),
             supabase.from('tracker_remarks').select('staff_name, afk_date')
                 .gte('afk_date', startDate).lte('afk_date', endDate),
@@ -1440,26 +1453,26 @@ app.post('/api/kpi-team', async (req, res) => {
         ]);
 
         // ── สร้าง lookup maps ──
-        const checkinMap = {}; // discord_id -> [{checkin_time, shift}]
+        const checkinMap = {}; // discord_id -> [{checkin_time, shift, late_minutes}]
         (allCheckins.data || []).forEach(c => {
             if (!checkinMap[c.discord_id]) checkinMap[c.discord_id] = [];
             checkinMap[c.discord_id].push(c);
         });
 
-        const afkMap = {}; // staff_name_upper -> Set of dates
+        const afkMap = {};
         (allAfk.data || []).forEach(r => {
             const key = (r.staff_name || '').toUpperCase().replace(/\s*\d+$/, '').trim();
             if (!afkMap[key]) afkMap[key] = new Set();
             afkMap[key].add(r.afk_date);
         });
 
-        const leaveMap = {}; // user_name_upper -> count
+        const leaveMap = {};
         (allLeaves.data || []).forEach(r => {
             const key = (r.user_name || '').toUpperCase().trim();
             leaveMap[key] = (leaveMap[key] || 0) + 1;
         });
 
-        // workDays = จำนวนวันที่มีการเปิด session เช็คอินจริง
+        // workDays = จำนวนวันที่มีการเปิด session เช็คอินจริง (นับจาก KPI_START_DATE)
         const uniqueCheckinDates = new Set(
             (allCheckins.data || []).map(c => {
                 const thai = new Date(new Date(c.checkin_time).getTime() + 7*60*60*1000);
@@ -1480,27 +1493,34 @@ app.post('/api/kpi-team', async (req, res) => {
                 for (const [discordId, name] of Object.entries(deptData[shift])) {
                     const shortName = name.replace(/^(AMOL|ODOL)[-\s]/i,'').trim().toUpperCase();
 
-                    // เช็คอิน
+                    // เช็คอิน + ตรงเวลา + สาย
                     const myCheckins = checkinMap[discordId] || [];
                     const totalCheckins = myCheckins.length;
-                    let onTime = 0;
+                    let onTime = 0, lateDays = 0;
                     myCheckins.forEach(c => {
-                        const t = new Date(c.checkin_time);
-                        const totalMin = t.getHours()*60 + t.getMinutes();
-                        const s = (c.shift||'').toLowerCase();
-                        if (s.includes('เช้า') && totalMin <= 8*60) onTime++;
-                        else if (s.includes('เที่ยง') && totalMin <= 11*60) onTime++;
-                        else if (s.includes('ดึก') && totalMin <= 20*60) onTime++;
+                        const lateMin = parseInt(c.late_minutes || 0);
+                        if (lateMin > 0) {
+                            lateDays++;
+                        } else {
+                            const t = new Date(c.checkin_time);
+                            const totalMin = t.getHours()*60 + t.getMinutes();
+                            const s = (c.shift||'').toLowerCase();
+                            if (s.includes('เช้า') && totalMin <= 8*60) onTime++;
+                            else if (s.includes('เที่ยง') && totalMin <= 11*60) onTime++;
+                            else if (s.includes('ดึก') && totalMin <= 20*60) onTime++;
+                            else onTime++; // มาแต่ไม่ได้บันทึก late_minutes = ถือว่าตรงเวลา
+                        }
                     });
                     const onTimePct = totalCheckins > 0 ? Math.round((onTime/totalCheckins)*100) : 0;
 
-                    // AFK — เทียบชื่อแบบ token
+                    // AFK
                     let afkDays = 0;
                     for (const [key, dates] of Object.entries(afkMap)) {
                         const sTokens = shortName.split(/[-_\s]+/).filter(Boolean);
                         const kTokens = key.split(/[-_\s]+/).filter(Boolean);
-                        const match = sTokens.some(t => kTokens.includes(t)) || kTokens.some(t => sTokens.includes(t));
-                        if (match) { afkDays = dates.size; break; }
+                        if (sTokens.some(t => kTokens.includes(t)) || kTokens.some(t => sTokens.includes(t))) {
+                            afkDays = dates.size; break;
+                        }
                     }
 
                     // ลา
@@ -1508,22 +1528,26 @@ app.post('/api/kpi-team', async (req, res) => {
                     for (const [key, count] of Object.entries(leaveMap)) {
                         const sTokens = shortName.split(/[-_\s]+/).filter(Boolean);
                         const kTokens = key.split(/[-_\s]+/).filter(Boolean);
-                        const match = sTokens.some(t => kTokens.includes(t)) || kTokens.some(t => sTokens.includes(t));
-                        if (match) { leaveDays = count; break; }
+                        if (sTokens.some(t => kTokens.includes(t)) || kTokens.some(t => sTokens.includes(t))) {
+                            leaveDays = count; break;
+                        }
                     }
 
+                    // วันขาด = วันทำงาน - เช็คอิน - ลา (นับเฉพาะตั้งแต่ KPI_START_DATE)
                     const absentDays = Math.max(0, workDays - totalCheckins - leaveDays);
-                    results.push({ name, dept: d, shift, totalCheckins, onTimePct, afkDays, leaveDays, absentDays, workDays });
+
+                    results.push({ name, dept: d, shift, totalCheckins, onTimePct, lateDays, afkDays, leaveDays, absentDays, workDays });
                 }
             }
         }
 
-        res.json({ success: true, data: results, startDate, endDate });
+        res.json({ success: true, data: results, startDate, endDate, kpiStartDate: KPI_START_DATE });
     } catch(e) {
         console.error('[KPI API]', e);
         res.status(500).json({ success: false, message: e.message });
     }
 });
+
 
 async function calcKPI(staffName, startDate, endDate) {
     const start = new Date(startDate + 'T00:00:00+07:00').toISOString();
