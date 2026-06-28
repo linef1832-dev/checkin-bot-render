@@ -1416,19 +1416,57 @@ app.post('/api/kpi-team', async (req, res) => {
         const { dept, mode } = req.body;
         const now = new Date();
         let startDate, endDate;
-
         if (mode === 'month') {
             startDate = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
             endDate   = now.toISOString().split('T')[0];
         } else {
-            const past = new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000);
+            const past = new Date(now.getTime() - 6*24*60*60*1000);
             startDate  = past.toISOString().split('T')[0];
             endDate    = now.toISOString().split('T')[0];
         }
 
-        const staffDataObj = await fetchStaffData();
-        const results = [];
+        const start = new Date(startDate + 'T00:00:00+07:00').toISOString();
+        const end   = new Date(endDate   + 'T23:59:59+07:00').toISOString();
 
+        // ── ดึงข้อมูลทั้งหมดในครั้งเดียว ──
+        const [staffDataObj, allCheckins, allAfk, allLeaves] = await Promise.all([
+            fetchStaffData(),
+            supabase.from('checkins').select('discord_id, name, checkin_time, shift')
+                .gte('checkin_time', start).lte('checkin_time', end),
+            supabase.from('tracker_remarks').select('staff_name, afk_date')
+                .gte('afk_date', startDate).lte('afk_date', endDate),
+            supabase.from('leave_requests').select('user_name, leave_date')
+                .eq('status', 'approved').gte('leave_date', startDate).lte('leave_date', endDate)
+        ]);
+
+        // ── สร้าง lookup maps ──
+        const checkinMap = {}; // discord_id -> [{checkin_time, shift}]
+        (allCheckins.data || []).forEach(c => {
+            if (!checkinMap[c.discord_id]) checkinMap[c.discord_id] = [];
+            checkinMap[c.discord_id].push(c);
+        });
+
+        const afkMap = {}; // staff_name_upper -> Set of dates
+        (allAfk.data || []).forEach(r => {
+            const key = (r.staff_name || '').toUpperCase().replace(/\s*\d+$/, '').trim();
+            if (!afkMap[key]) afkMap[key] = new Set();
+            afkMap[key].add(r.afk_date);
+        });
+
+        const leaveMap = {}; // user_name_upper -> count
+        (allLeaves.data || []).forEach(r => {
+            const key = (r.user_name || '').toUpperCase().trim();
+            leaveMap[key] = (leaveMap[key] || 0) + 1;
+        });
+
+        // คำนวณวันทำงานในช่วงเวลา
+        let workDays = 0;
+        const cur = new Date(startDate + 'T00:00:00+07:00');
+        const last = new Date(endDate   + 'T00:00:00+07:00');
+        while (cur <= last) { if (cur.getDay() !== 0) workDays++; cur.setDate(cur.getDate() + 1); }
+
+        // ── คำนวณ KPI แต่ละคน ──
+        const results = [];
         const depts = dept === 'ALL' ? ['AMOL','ODOL'] : [dept.toUpperCase()];
 
         for (const d of depts) {
@@ -1436,10 +1474,43 @@ app.post('/api/kpi-team', async (req, res) => {
             if (!deptData) continue;
             for (const shift of ['morning','noon','night']) {
                 if (!deptData[shift]) continue;
-                for (const [, name] of Object.entries(deptData[shift])) {
-                    const shortName = name.replace(/^(AMOL|ODOL)[-\s]/i,'').trim();
-                    const kpi = await calcKPI(shortName, startDate, endDate);
-                    results.push({ name, dept: d, shift, ...kpi });
+                for (const [discordId, name] of Object.entries(deptData[shift])) {
+                    const shortName = name.replace(/^(AMOL|ODOL)[-\s]/i,'').trim().toUpperCase();
+
+                    // เช็คอิน
+                    const myCheckins = checkinMap[discordId] || [];
+                    const totalCheckins = myCheckins.length;
+                    let onTime = 0;
+                    myCheckins.forEach(c => {
+                        const t = new Date(c.checkin_time);
+                        const totalMin = t.getHours()*60 + t.getMinutes();
+                        const s = (c.shift||'').toLowerCase();
+                        if (s.includes('เช้า') && totalMin <= 8*60) onTime++;
+                        else if (s.includes('เที่ยง') && totalMin <= 11*60) onTime++;
+                        else if (s.includes('ดึก') && totalMin <= 20*60) onTime++;
+                    });
+                    const onTimePct = totalCheckins > 0 ? Math.round((onTime/totalCheckins)*100) : 0;
+
+                    // AFK — เทียบชื่อแบบ token
+                    let afkDays = 0;
+                    for (const [key, dates] of Object.entries(afkMap)) {
+                        const sTokens = shortName.split(/[-_\s]+/).filter(Boolean);
+                        const kTokens = key.split(/[-_\s]+/).filter(Boolean);
+                        const match = sTokens.some(t => kTokens.includes(t)) || kTokens.some(t => sTokens.includes(t));
+                        if (match) { afkDays = dates.size; break; }
+                    }
+
+                    // ลา
+                    let leaveDays = 0;
+                    for (const [key, count] of Object.entries(leaveMap)) {
+                        const sTokens = shortName.split(/[-_\s]+/).filter(Boolean);
+                        const kTokens = key.split(/[-_\s]+/).filter(Boolean);
+                        const match = sTokens.some(t => kTokens.includes(t)) || kTokens.some(t => sTokens.includes(t));
+                        if (match) { leaveDays = count; break; }
+                    }
+
+                    const absentDays = Math.max(0, workDays - totalCheckins - leaveDays);
+                    results.push({ name, dept: d, shift, totalCheckins, onTimePct, afkDays, leaveDays, absentDays, workDays });
                 }
             }
         }
@@ -1451,101 +1522,39 @@ app.post('/api/kpi-team', async (req, res) => {
     }
 });
 
-// ==========================================
-// 📊 ระบบ KPI / OKR
-// ==========================================
-
 async function calcKPI(staffName, startDate, endDate) {
-    const start = new Date(`${startDate}T00:00:00+07:00`).toISOString();
-    const end   = new Date(`${endDate}T23:59:59+07:00`).toISOString();
-
-    const { data: checkins } = await supabase
-        .from('checkins').select('checkin_time, shift')
-        .ilike('name', `%${staffName}%`)
-        .gte('checkin_time', start).lte('checkin_time', end);
-
+    const start = new Date(startDate + 'T00:00:00+07:00').toISOString();
+    const end   = new Date(endDate   + 'T23:59:59+07:00').toISOString();
+    const { data: checkins } = await supabase.from('checkins').select('checkin_time, shift')
+        .ilike('name', `%${staffName}%`).gte('checkin_time', start).lte('checkin_time', end);
     const totalCheckins = checkins ? checkins.length : 0;
     let onTime = 0;
     if (checkins) {
         for (const c of checkins) {
             const t = new Date(c.checkin_time);
-            const totalMin = t.getHours() * 60 + t.getMinutes();
-            const shift = (c.shift || '').toLowerCase();
-            if (shift.includes('เช้า')    && totalMin <= 8  * 60) onTime++;
-            else if (shift.includes('เที่ยง') && totalMin <= 11 * 60) onTime++;
-            else if (shift.includes('ดึก')   && totalMin <= 20 * 60) onTime++;
+            const totalMin = t.getHours()*60 + t.getMinutes();
+            const shift = (c.shift||'').toLowerCase();
+            if (shift.includes('เช้า') && totalMin <= 8*60) onTime++;
+            else if (shift.includes('เที่ยง') && totalMin <= 11*60) onTime++;
+            else if (shift.includes('ดึก') && totalMin <= 20*60) onTime++;
         }
     }
-    const onTimePct = totalCheckins > 0 ? Math.round((onTime / totalCheckins) * 100) : 0;
-
-    const { data: afkRows } = await supabase
-        .from('tracker_remarks').select('afk_date')
-        .ilike('staff_name', `%${staffName}%`)
-        .gte('afk_date', startDate).lte('afk_date', endDate);
+    const onTimePct = totalCheckins > 0 ? Math.round((onTime/totalCheckins)*100) : 0;
+    const { data: afkRows } = await supabase.from('tracker_remarks').select('afk_date')
+        .ilike('staff_name', `%${staffName}%`).gte('afk_date', startDate).lte('afk_date', endDate);
     const afkDays = afkRows ? new Set(afkRows.map(r => r.afk_date)).size : 0;
-
-    const { data: leaveRows } = await supabase
-        .from('leave_requests').select('leave_date')
-        .ilike('user_name', `%${staffName}%`)
-        .eq('status', 'approved')
+    const { data: leaveRows } = await supabase.from('leave_requests').select('leave_date')
+        .ilike('user_name', `%${staffName}%`).eq('status','approved')
         .gte('leave_date', startDate).lte('leave_date', endDate);
     const leaveDays = leaveRows ? leaveRows.length : 0;
-
     let workDays = 0;
-    const cur = new Date(`${startDate}T00:00:00+07:00`);
-    const last = new Date(`${endDate}T00:00:00+07:00`);
-    while (cur <= last) { if (cur.getDay() !== 0) workDays++; cur.setDate(cur.getDate() + 1); }
+    const cur = new Date(startDate+'T00:00:00+07:00'), last = new Date(endDate+'T00:00:00+07:00');
+    while (cur <= last) { if (cur.getDay()!==0) workDays++; cur.setDate(cur.getDate()+1); }
     const absentDays = Math.max(0, workDays - totalCheckins - leaveDays);
-
     return { totalCheckins, onTimePct, afkDays, leaveDays, absentDays, workDays };
 }
 
-function buildKPIMessage(staffName, kpi, label) {
-    const bar = (pct) => '🟩'.repeat(Math.round(pct / 10)) + '⬜'.repeat(10 - Math.round(pct / 10)) + ` ${pct}%`;
-    return [
-        `📊 **รายงาน KPI ${label}**`,
-        `👤 **${staffName}**`,
-        `──────────────────────────`,
-        `✅ เช็คอินตรงเวลา:  ${bar(kpi.onTimePct)}`,
-        `   (เช็คอิน ${kpi.totalCheckins}/${kpi.workDays} วัน)`,
-        `😴 วัน AFK:         **${kpi.afkDays} วัน**`,
-        `📝 วันลา:           **${kpi.leaveDays} วัน**`,
-        `❌ วันขาดงาน:       **${kpi.absentDays} วัน**`,
-        `──────────────────────────`,
-        kpi.onTimePct >= 90 && kpi.absentDays === 0 ? `🏆 **ผลงานดีเยี่ยม!**`
-        : kpi.onTimePct >= 75 ? `👍 **ผลงานอยู่ในเกณฑ์ดี**`
-        : `⚠️ **ควรปรับปรุงการเข้างาน**`
-    ].join('\n');
-}
 
-async function buildTeamKPIMessage(dept, startDate, endDate, label) {
-    const staffData = await fetchStaffData();
-    const deptData  = staffData[dept.toUpperCase()];
-    if (!deptData) return `❌ ไม่พบแผนก ${dept}`;
-
-    const allStaff = {};
-    for (const shift of ['morning', 'noon', 'night']) {
-        if (deptData[shift]) Object.assign(allStaff, deptData[shift]);
-    }
-
-    let lines = [`📊 **รายงาน KPI ${label} — แผนก ${dept.toUpperCase()}**`, `──────────────────────────`];
-    let topOnTime = 0, topName = '';
-
-    for (const [, name] of Object.entries(allStaff)) {
-        const shortName = name.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
-        const kpi = await calcKPI(shortName, startDate, endDate);
-        const status = kpi.onTimePct >= 90 && kpi.absentDays === 0 ? '🏆' : kpi.onTimePct >= 75 ? '✅' : '⚠️';
-        lines.push(`${status} **${name}**\n   ⏰ ตรงเวลา ${kpi.onTimePct}% | 😴 AFK ${kpi.afkDays}ว | 📝 ลา ${kpi.leaveDays}ว | ❌ ขาด ${kpi.absentDays}ว`);
-        if (kpi.onTimePct > topOnTime) { topOnTime = kpi.onTimePct; topName = name; }
-    }
-    lines.push(`──────────────────────────`);
-    lines.push(`🥇 **MVP:** ${topName} (ตรงเวลา ${topOnTime}%)`);
-    return lines.join('\n');
-}
-
-const KPI_REPORT_CHANNEL = process.env.KPI_CHANNEL_ID || '1442466109503569992';
-
-// ทุกวันจันทร์ 08:00 — รายงานรายสัปดาห์
 cron.schedule('0 8 * * 1', async () => {
     try {
         const now  = new Date();
