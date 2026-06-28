@@ -1463,8 +1463,12 @@ app.post('/api/kpi-team', async (req, res) => {
         let workDays = 0;
         const cur = new Date(startDate + 'T00:00:00+07:00');
         const last = new Date(endDate   + 'T00:00:00+07:00');
-        while (cur <= last) { if (cur.getDay() !== 0) workDays++; cur.setDate(cur.getDate() + 1); }
-
+        while (cur <= last) { if (cur.getDay() !== 0) workDays++; cur.setDate(cur.getDate() + 1); const uniqueDays = new Set(
+        (allCheckins.data || []).map(c => 
+        new Date(c.checkin_time).toISOString().split('T')[0]
+    )
+);
+workDays = uniqueDays.size;
         // ── คำนวณ KPI แต่ละคน ──
         const results = [];
         const depts = dept === 'ALL' ? ['AMOL','ODOL'] : [dept.toUpperCase()];
