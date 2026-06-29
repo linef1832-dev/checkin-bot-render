@@ -1206,10 +1206,12 @@ client.on('messageCreate', async (message) => {
                     session.members.push({ id: memberId, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: voiceChId, lateMin });
 
                 // บันทึกลง Supabase
-                await supabase.from('checkins').insert([{
-                    discord_id: memberId, name: staffName,
-                    checkin_time: checkinTime, shift: shiftName, late_minutes: lateMin
-                }]).catch(e => console.error('❌ Supabase checkin Error:', e));
+                try {
+                    await supabase.from('checkins').insert([{
+                        discord_id: memberId, name: staffName,
+                        checkin_time: checkinTime, shift: shiftName, late_minutes: lateMin
+                    }]);
+                } catch (dbErr) { console.error('❌ Supabase checkin Error:', dbErr); }
 
                 const orderText = session ? ' (ลำดับที่ ' + session.members.length + ')' : ' (มาสาย)';
                 await statusMsg.edit('✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **' + shiftName + '**' + lateText + orderText);
