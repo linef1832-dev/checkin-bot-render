@@ -1161,35 +1161,64 @@ client.on('messageCreate', async (message) => {
             }
         }
 
-        const session   = activeSessions.get(channelId);
+        const session      = activeSessions.get(channelId);
+        const memberId     = member.id;
+        const guildRef     = message.guild;
+        const checkinTime  = getThaiTime();
+
+        // คำนวณกะและเวลาสาย (ทำก่อน setTimeout เลย ไม่ต้องรอ)
+        const sType = session?.shiftType?.toLowerCase() || memberShiftKey || 'morning';
+        let shiftName = 'กะเช้า ☀️';
+        if (sType.includes('night') || sType.includes('ดึก') || memberShiftKey === 'night') shiftName = 'กะดึก 🌙';
+        else if (sType.includes('noon') || sType.includes('เที่ยง') || memberShiftKey === 'noon') shiftName = 'กะเที่ยง 🕛';
+        const totalMin = checkinTime.getHours()*60 + checkinTime.getMinutes();
+        let lateMin = 0;
+        if (memberShiftKey === 'morning' && totalMin > 8*60) lateMin = totalMin - 8*60;
+        else if (memberShiftKey === 'noon' && totalMin > 11*60) lateMin = totalMin - 11*60;
+        else if (memberShiftKey === 'night' && totalMin > 20*60) lateMin = totalMin - 20*60;
+        const lateText = lateMin > 0 ? ' ⏰ **สาย ' + lateMin + ' นาที**' : ' ✅ ตรงเวลา';
+        const voiceChId = member.voice.channelId;
+
         const statusMsg = await message.reply('⏳ กำลังตรวจสอบ 10 วินาที...');
+
         setTimeout(async () => {
             try {
-                // refetch member เพื่อให้ได้ค่า voice state ล่าสุด
-                const freshMember = await message.guild.members.fetch(member.id).catch(() => null);
-                if (!freshMember || !freshMember.voice.streaming) {
+                console.log(`[checkin] ตรวจสอบ ${staffName} หลัง 10 วินาที`);
+
+                // refetch member เพื่อดู voice state ล่าสุด
+                let isStreaming = false;
+                try {
+                    const freshMember = await guildRef.members.fetch(memberId);
+                    isStreaming = !!(freshMember?.voice?.streaming);
+                    console.log(`[checkin] ${staffName} streaming=${isStreaming}`);
+                } catch (fetchErr) {
+                    console.error('[checkin] fetch member error:', fetchErr);
+                    // ถ้า fetch ไม่ได้ ให้ผ่านไปเลย (กันบอทล็อคตัวเอง)
+                    isStreaming = true;
+                }
+
+                if (!isStreaming) {
                     return statusMsg.edit('❌ เช็คชื่อล้มเหลว: ปิดแชร์หน้าจอก่อนเวลาค่ะ');
                 }
-                const checkinTime = getThaiTime();
-                const sType = session?.shiftType?.toLowerCase() || memberShiftKey || 'morning';
-                let shiftName = 'กะเช้า ☀️';
-                if (sType.includes('night') || sType.includes('ดึก') || memberShiftKey === 'night') shiftName = 'กะดึก 🌙';
-                else if (sType.includes('noon') || sType.includes('เที่ยง') || memberShiftKey === 'noon') shiftName = 'กะเที่ยง 🕛';
-                const totalMin = checkinTime.getHours()*60 + checkinTime.getMinutes();
-                let lateMin = 0;
-                if (memberShiftKey === 'morning' && totalMin > 8*60) lateMin = totalMin - 8*60;
-                else if (memberShiftKey === 'noon' && totalMin > 11*60) lateMin = totalMin - 11*60;
-                else if (memberShiftKey === 'night' && totalMin > 20*60) lateMin = totalMin - 20*60;
-                const lateText = lateMin > 0 ? ' ⏰ **สาย ' + lateMin + ' นาที**' : ' ✅ ตรงเวลา';
-                const voiceChId = freshMember.voice.channelId || member.voice.channelId;
-                if (session && !session.members.some(m => m.id === member.id))
-                    session.members.push({ id: member.id, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: voiceChId, lateMin });
+
+                // บันทึกเข้า session
+                if (session && !session.members.some(m => m.id === memberId))
+                    session.members.push({ id: memberId, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: voiceChId, lateMin });
+
+                // บันทึกลง Supabase
                 await supabase.from('checkins').insert([{
-                    discord_id: member.id, name: staffName, checkin_time: checkinTime, shift: shiftName, late_minutes: lateMin
+                    discord_id: memberId, name: staffName,
+                    checkin_time: checkinTime, shift: shiftName, late_minutes: lateMin
                 }]).catch(e => console.error('❌ Supabase checkin Error:', e));
+
                 const orderText = session ? ' (ลำดับที่ ' + session.members.length + ')' : ' (มาสาย)';
-                statusMsg.edit('✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **' + shiftName + '**' + lateText + orderText);
-            } catch (err) { console.error(err); }
+                await statusMsg.edit('✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **' + shiftName + '**' + lateText + orderText);
+                console.log(`[checkin] ✅ ${staffName} เช็คชื่อสำเร็จ`);
+
+            } catch (err) {
+                console.error('[checkin] setTimeout error:', err);
+                await statusMsg.edit('❌ เกิดข้อผิดพลาด กรุณาลองใหม่ค่ะ').catch(() => {});
+            }
         }, 10000);
     }
 
