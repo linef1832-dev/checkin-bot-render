@@ -1165,7 +1165,11 @@ client.on('messageCreate', async (message) => {
         const statusMsg = await message.reply('⏳ กำลังตรวจสอบ 10 วินาที...');
         setTimeout(async () => {
             try {
-                if (!member.voice.streaming) return statusMsg.edit('❌ เช็คชื่อล้มเหลว: ปิดแชร์หน้าจอก่อนเวลาค่ะ');
+                // refetch member เพื่อให้ได้ค่า voice state ล่าสุด
+                const freshMember = await message.guild.members.fetch(member.id).catch(() => null);
+                if (!freshMember || !freshMember.voice.streaming) {
+                    return statusMsg.edit('❌ เช็คชื่อล้มเหลว: ปิดแชร์หน้าจอก่อนเวลาค่ะ');
+                }
                 const checkinTime = getThaiTime();
                 const sType = session?.shiftType?.toLowerCase() || memberShiftKey || 'morning';
                 let shiftName = 'กะเช้า ☀️';
@@ -1177,8 +1181,9 @@ client.on('messageCreate', async (message) => {
                 else if (memberShiftKey === 'noon' && totalMin > 11*60) lateMin = totalMin - 11*60;
                 else if (memberShiftKey === 'night' && totalMin > 20*60) lateMin = totalMin - 20*60;
                 const lateText = lateMin > 0 ? ' ⏰ **สาย ' + lateMin + ' นาที**' : ' ✅ ตรงเวลา';
+                const voiceChId = freshMember.voice.channelId || member.voice.channelId;
                 if (session && !session.members.some(m => m.id === member.id))
-                    session.members.push({ id: member.id, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: member.voice.channelId, lateMin });
+                    session.members.push({ id: member.id, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: voiceChId, lateMin });
                 await supabase.from('checkins').insert([{
                     discord_id: member.id, name: staffName, checkin_time: checkinTime, shift: shiftName, late_minutes: lateMin
                 }]).catch(e => console.error('❌ Supabase checkin Error:', e));
