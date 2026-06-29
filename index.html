@@ -874,9 +874,24 @@
         }
 
         // ==================== Break Tab Logic ====================
+        // 🌙 วันพักแบบรองรับกะดึก: ก่อน 08:00 (เวลาไทย) นับเป็นเมื่อวาน
+        function getBreakDateThai() {
+            const t = new Date(new Date().getTime() + 7*3600000); // เวลาไทย(UTC base)
+            if (t.getUTCHours() < 8) {
+                t.setTime(t.getTime() - 24*3600000);
+            }
+            return t.toISOString().split('T')[0];
+        }
+        function getBreakDateLabelThai() {
+            const t = new Date(new Date().getTime() + 7*3600000);
+            if (t.getUTCHours() < 8) {
+                t.setTime(t.getTime() - 24*3600000);
+            }
+            return t.toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+        }
+
         function initBreakDate() {
-            const today = new Date(new Date().getTime() + 7*3600000);
-            document.getElementById('breakDateLabel').textContent = today.toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+            document.getElementById('breakDateLabel').textContent = getBreakDateLabelThai();
         }
 
         function diffMin(start, end) {
@@ -896,7 +911,7 @@
             if (!pin) { document.getElementById('breakTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</td></tr>'; return; }
             document.getElementById('breakTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</td></tr>';
 
-            const today = new Date(new Date().getTime() + 7*3600000).toISOString().split('T')[0];
+            const today = getBreakDateThai();
             try {
                 const res = await fetch('/api/break-summary', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
