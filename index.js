@@ -57,7 +57,8 @@ const userCooldowns = {};
 if (fs.existsSync(DATA_FILE)) {
     try { 
         const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        dataStore.checkinChannels = loaded.checkinChannels || [];
+        client.on('messageCreate', async (message) => {     if (message.author.bot) return;     const channelId = message.channel.id; || [];
+        dataStore.breakChannels = loaded.breakChannels || [];    // ← เพิ่ม
         dataStore.lastCheckinDates = loaded.lastCheckinDates || {};
         dataStore.autoCheckinEnabled = loaded.autoCheckinEnabled !== undefined ? loaded.autoCheckinEnabled : true;
         dataStore.autoCheckinTimes = loaded.autoCheckinTimes || []; 
@@ -196,15 +197,31 @@ app.post('/api/ping-active', async (req, res) => {
             let newAfkCount = existingData.afk_count || 0;
 
             if (diffFromLastPing >= 10) {
-                newAfkCount += 1;
-                await supabase.from('tracker_remarks').insert([{
-                    staff_name: sessionProfile,
-                    afk_date: todayYYYYMMDD,
-                    start_time: new Date(lastPing).toISOString(),
-                    end_time: new Date(currentPing).toISOString(),
-                    remark: ''
-                }]);
-            }
+    // เช็คก่อนว่าช่วงนั้นพนักงานอยู่ในช่วงพักหรือเปล่า
+    const { data: breakData } = await supabase
+        .from('break_sessions')
+        .select('id')
+        .eq('staff_name', sessionProfile.toUpperCase())
+        .eq('break_date', todayYYYYMMDD)
+        .gte('break_start', new Date(lastPing).toISOString())
+        .lte('break_start', new Date(currentPing).toISOString())
+        .limit(1);
+
+    const isOnBreak = breakData && breakData.length > 0;
+
+    if (!isOnBreak) {
+        newAfkCount += 1;
+        await supabase.from('tracker_remarks').insert([{
+            staff_name: sessionProfile,
+            afk_date: todayYYYYMMDD,
+            start_time: new Date(lastPing).toISOString(),
+            end_time: new Date(currentPing).toISOString(),
+            remark: ''
+        }]);
+    } else {
+        console.log(`[Tracker] ${sessionProfile} ไม่นับ AFK เพราะอยู่ในช่วงพัก`);
+    }
+}
 
             if (diffFromBucketStart >= 10 || diffFromLastPing >= 10) {
                 const { error: insertError } = await supabase.from('line_activity').insert([{
@@ -903,10 +920,6 @@ const client = new Client({
     intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent ]
 });
 
-client.on('messageCreate', async (message) => {
-    if (message.author.bot) return;
-    const channelId = message.channel.id;
-
     if (message.content === '!autoon') {
         const hasPermission = message.member.roles.cache.some(role => ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase()));
         if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
@@ -1070,6 +1083,28 @@ client.on('messageCreate', async (message) => {
             dataStore.checkinChannels.splice(index, 1); saveData();
             return message.reply(`🗑️ **ยกเลิก**การตั้งค่าห้อง <#${channelId}> เป็นจุดเช็คชื่อเรียบร้อยแล้วค่ะ`);
         } else { return message.reply('⚠️ ห้องนี้ไม่ได้ตั้งเป็นจุดเช็คชื่ออยู่แล้วค่ะ'); }
+    }
+
+    if (message.content === '!addbreakchannel') {
+        const hasPermission = message.member.roles.cache.some(role =>
+            ['PTT', 'TT HAED', 'TT HEAD'].includes(role.name.toUpperCase())
+        );
+        if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
+        if (dataStore.breakChannels.includes(channelId))
+            return message.reply('⚠️ ห้องนี้ลงทะเบียนเป็นห้องแจ้งพักไว้แล้วค่ะ');
+        dataStore.breakChannels.push(channelId);
+        saveData();
+        return message.reply(`✅ ตั้งค่าห้อง <#${channelId}> เป็นห้องแจ้งพักเรียบร้อยแล้วค่ะ`);
+    }
+
+    if (message.content === '!removebreakchannel') {
+        const index = dataStore.breakChannels.indexOf(channelId);
+        if (index > -1) {
+            dataStore.breakChannels.splice(index, 1);
+            saveData();
+            return message.reply(`🗑️ ยกเลิกห้อง <#${channelId}> จากระบบแจ้งพักเรียบร้อยแล้วค่ะ`);
+        }
+        return message.reply('⚠️ ห้องนี้ไม่ได้ลงทะเบียนเป็นห้องแจ้งพักอยู่ค่ะ');
     }
 
     if (message.content.startsWith('!startcheckin')) {
