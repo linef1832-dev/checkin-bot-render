@@ -57,8 +57,8 @@ const userCooldowns = {};
 if (fs.existsSync(DATA_FILE)) {
     try { 
         const loaded = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-        client.on('messageCreate', async (message) => {     if (message.author.bot) return;     const channelId = message.channel.id; || [];
-        dataStore.breakChannels = loaded.breakChannels || [];    // ← เพิ่ม
+        dataStore.checkinChannels = loaded.checkinChannels || [];
+        dataStore.breakChannels = loaded.breakChannels || [];
         dataStore.lastCheckinDates = loaded.lastCheckinDates || {};
         dataStore.autoCheckinEnabled = loaded.autoCheckinEnabled !== undefined ? loaded.autoCheckinEnabled : true;
         dataStore.autoCheckinTimes = loaded.autoCheckinTimes || []; 
