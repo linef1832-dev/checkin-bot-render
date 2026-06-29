@@ -436,6 +436,23 @@ app.post('/api/kpi-team', async (req, res) => {
     }
 });
 
+app.post('/api/break-summary', async (req, res) => {
+    const { pin, date } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+    try {
+        const targetDate = date || getSupabaseDateStr();
+        const { data, error } = await supabase
+            .from('break_sessions')
+            .select('staff_name, break_start, break_end, break_date')
+            .eq('break_date', targetDate)
+            .order('break_start', { ascending: true });
+        if (error) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้' });
+        res.json({ success: true, data: data || [], date: targetDate });
+    } catch (err) {
+        res.status(500).json({ success: false });
+    }
+});
+
 // ==========================================
 // 🛠️ Functions
 // ==========================================
@@ -477,7 +494,8 @@ async function syncConfigToGitHub() {
                 const isSameTimes = JSON.stringify(githubData.autoCheckinTimes) === JSON.stringify(dataStore.autoCheckinTimes);
                 const isSameStatus = githubData.autoCheckinEnabled === dataStore.autoCheckinEnabled;
                 const isSameChannels = JSON.stringify(githubData.checkinChannels) === JSON.stringify(dataStore.checkinChannels);
-                if (isSameTimes && isSameStatus && isSameChannels) return;
+                const isSameBreak = JSON.stringify(githubData.breakChannels) === JSON.stringify(dataStore.breakChannels);
+                if (isSameTimes && isSameStatus && isSameChannels && isSameBreak) return;
             } catch (err) {}
         }
         const contentBase64 = Buffer.from(JSON.stringify(dataStore, null, 2)).toString('base64');
@@ -525,6 +543,74 @@ function getThaiDateStr() {
 function getSupabaseDateStr() {
     const localTime = getThaiTime();
     return `${localTime.getFullYear()}-${String(localTime.getMonth() + 1).padStart(2, '0')}-${String(localTime.getDate()).padStart(2, '0')}`;
+}
+
+// ==========================================
+// ☕ Break detection helper (รองรับ emoji หลายแบบ + custom emoji <:name:id>)
+// ==========================================
+const BREAK_START_WORDS = ['ไปปวดหนัก','ปวดหนัก','ไปปวดน้อย','ปวดน้อย','ไปกินข้าว','กินข้าว','ไปเข้าห้องน้ำ','เข้าห้องน้ำ','ไปพัก','พักเบรก','พักสักครู่','ไปทำธุระ','ทำธุระ','ไปสูบบุหรี่','สูบบุหรี่'];
+const BREAK_END_WORDS = ['กลับที่นั่งแล้ว','กลับที่นั่ง','กลับมาแล้ว','กลับมา','พร้อมแล้ว','มาแล้ว','เข้างานแล้ว'];
+
+// ลบ emoji / custom emoji / สัญลักษณ์นำหน้า ออกให้เหลือแต่ข้อความ
+function stripLeadingSymbols(text) {
+    let t = text;
+    // ลบ custom discord emoji <:name:123> และ <a:name:123>
+    t = t.replace(/<a?:\w+:\d+>/g, ' ');
+    // ลบอักขระที่ไม่ใช่ ตัวอักษร/ตัวเลข ที่อยู่หน้าสุด (emoji, เว้นวรรค, สัญลักษณ์)
+    t = t.replace(/^[^A-Za-z0-9ก-๙]+/u, '');
+    return t.trim();
+}
+
+// ดึงชื่อพนักงาน (token ตัวแรก) จากข้อความที่ลบ emoji แล้ว
+function extractBreakName(cleanText) {
+    const m = cleanText.match(/^([A-Za-z0-9ก-๙]+)/u);
+    return m ? m[1].toUpperCase() : null;
+}
+
+function matchBreakStart(cleanText) {
+    return BREAK_START_WORDS.some(w => cleanText.includes(w));
+}
+function matchBreakEnd(cleanText) {
+    return BREAK_END_WORDS.some(w => cleanText.includes(w));
+}
+
+async function handleBreakMessage(rawText) {
+    const cleanText = stripLeadingSymbols(rawText);
+    const staffName = extractBreakName(cleanText);
+    if (!staffName) return;
+    const nowThai = getThaiTime();
+    const todayStr = getSupabaseDateStr();
+
+    // เช็คคำว่า "กลับ/พร้อม" ก่อน (กันเคสข้อความมีทั้งสองคำ)
+    if (matchBreakEnd(cleanText)) {
+        const { data: openBreak } = await supabase
+            .from('break_sessions')
+            .select('*')
+            .eq('staff_name', staffName)
+            .eq('break_date', todayStr)
+            .is('break_end', null)
+            .order('break_start', { ascending: false })
+            .limit(1);
+        if (openBreak && openBreak.length > 0) {
+            await supabase.from('break_sessions')
+                .update({ break_end: nowThai.toISOString() })
+                .eq('id', openBreak[0].id);
+            console.log(`[Break] ✅ ${staffName} กลับมาแล้ว ${nowThai.toTimeString().slice(0,5)}`);
+        } else {
+            console.log(`[Break] ⚠️ ${staffName} แจ้งกลับ แต่ไม่เจอ record พักที่เปิดอยู่`);
+        }
+        return;
+    }
+
+    if (matchBreakStart(cleanText)) {
+        await supabase.from('break_sessions').insert([{
+            staff_name: staffName,
+            break_start: nowThai.toISOString(),
+            break_date: todayStr
+        }]);
+        console.log(`[Break] 🍱 ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)}`);
+        return;
+    }
 }
 
 function resolveShiftKey(raw) {
@@ -969,46 +1055,15 @@ const client = new Client({
 client.on('messageCreate', async (message) => {
     const channelId = message.channel.id;
 
-    // ── ดักข้อความพักจากบอทอื่น ──────────────────────────────────────────
-    if (message.author.bot) {
+    // ── ดักข้อความพักจากบอทอื่น / webhook ──────────────────────────────────
+    if (message.author.bot || message.webhookId) {
         if (dataStore.breakChannels.includes(channelId)) {
-            const text = message.content.trim();
-            const nowThai = getThaiTime();
-            const todayStr = getSupabaseDateStr();
-
-            const breakStartMatch = text.match(
-                /^[\p{Emoji}\s]*([A-Z0-9ก-๙]+)\s+(ไปปวดหนัก|ปวดหนัก|ไปปวดน้อย|ปวดน้อย|ไปกินข้าว|กินข้าว|ไปเข้าห้องน้ำ|ไปพัก|พักสักครู่|ไปทำธุระ)/u
-            );
-            if (breakStartMatch) {
-                const staffName = breakStartMatch[1].trim().toUpperCase();
-                await supabase.from('break_sessions').insert([{
-                    staff_name: staffName,
-                    break_start: nowThai.toISOString(),
-                    break_date: todayStr
-                }]);
-                console.log(`[Break] ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)}`);
-            }
-
-            const breakEndMatch = text.match(
-                /^[\p{Emoji}\s]*([A-Z0-9ก-๙]+)\s+(กลับที่นั่งแล้ว|กลับที่นั่ง|กลับมาแล้ว|กลับมา|พร้อมแล้ว)/u
-            );
-            if (breakEndMatch) {
-                const staffName = breakEndMatch[1].trim().toUpperCase();
-                const { data: openBreak } = await supabase
-                    .from('break_sessions')
-                    .select('*')
-                    .eq('staff_name', staffName)
-                    .eq('break_date', todayStr)
-                    .is('break_end', null)
-                    .order('break_start', { ascending: false })
-                    .limit(1);
-                if (openBreak && openBreak.length > 0) {
-                    await supabase
-                        .from('break_sessions')
-                        .update({ break_end: nowThai.toISOString() })
-                        .eq('id', openBreak[0].id);
-                    console.log(`[Break] ${staffName} กลับมาแล้ว ${nowThai.toTimeString().slice(0,5)}`);
-                }
+            // 🔍 DEBUG: log ทุกข้อความที่เข้ามาในห้องแจ้งพัก
+            console.log(`[Break-DEBUG] ห้อง=${channelId} | user=${message.author?.username || '?'} | webhookId=${message.webhookId || '-'} | content="${message.content}"`);
+            try {
+                await handleBreakMessage(message.content || '');
+            } catch (e) {
+                console.error('[Break] handle error:', e);
             }
         }
         return;
@@ -1027,6 +1082,23 @@ client.on('messageCreate', async (message) => {
         if (!hasPermission) return message.reply('❌ ไม่มีสิทธิ์ใช้งานคำสั่งนี้ค่ะ');
         dataStore.autoCheckinEnabled = false; saveData();
         return message.reply('🛑 **ปิด** ระบบแจ้งเตือนเช็คชื่ออัตโนมัติแล้วค่ะ');
+    }
+
+    // ── !testbreak : ทดสอบระบบดักพักด้วยตัวเอง ──
+    if (message.content.startsWith('!testbreak')) {
+        const arg = message.content.replace('!testbreak', '').trim();
+        const sample = arg || 'TESTUSER ไปกินข้าว';
+        await message.reply(`🧪 ทดสอบดักข้อความพัก: \`${sample}\`\nกำลังประมวลผล... (ดู Log)`);
+        const isReg = dataStore.breakChannels.includes(channelId);
+        await handleBreakMessage(sample);
+        return message.channel.send(`ℹ️ ห้องนี้ ${isReg ? '✅ เป็นห้องแจ้งพัก' : '❌ ยังไม่ได้ลงทะเบียนห้องแจ้งพัก'} | breakChannels = [${dataStore.breakChannels.join(', ') || 'ว่าง'}]`);
+    }
+
+    // ── !listbreak : ดูว่าห้องไหนลงทะเบียนแจ้งพักบ้าง ──
+    if (message.content === '!listbreak') {
+        if (dataStore.breakChannels.length === 0) return message.reply('📭 ยังไม่มีห้องแจ้งพักที่ลงทะเบียนค่ะ');
+        const list = dataStore.breakChannels.map((id, i) => `${i+1}. <#${id}> (\`${id}\`)`).join('\n');
+        return message.reply(`📋 **ห้องแจ้งพักที่ลงทะเบียน:**\n${list}`);
     }
 
     if (message.content.startsWith('!removestaff')) {
@@ -1381,6 +1453,7 @@ client.on('messageCreate', async (message) => {
 
 client.once('ready', () => { 
     console.log(`🚀 บอทพร้อม! ล็อกอินในชื่อ ${client.user.tag}`); 
+    console.log(`📋 [Init] breakChannels ที่โหลดมา: [${dataStore.breakChannels.join(', ') || 'ว่าง'}]`);
 
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
@@ -1517,22 +1590,6 @@ cron.schedule('0 8 1 * *', async () => {
     } catch (e) { console.error('❌ [KPI Monthly]', e); }
 }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
-app.post('/api/break-summary', async (req, res) => {
-    const { pin, date } = req.body;
-    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
-    try {
-        const targetDate = date || getSupabaseDateStr();
-        const { data, error } = await supabase
-            .from('break_sessions')
-            .select('staff_name, break_start, break_end, break_date')
-            .eq('break_date', targetDate)
-            .order('break_start', { ascending: true });
-        if (error) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้' });
-        res.json({ success: true, data: data || [], date: targetDate });
-    } catch (err) {
-        res.status(500).json({ success: false });
-    }
-});
 app.listen(PORT, '0.0.0.0', () => { console.log(`🌐 Server web port is open and listening on port ${PORT}!`); });
 
 client.login(process.env.TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
