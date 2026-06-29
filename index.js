@@ -545,6 +545,23 @@ function getSupabaseDateStr() {
     return `${localTime.getFullYear()}-${String(localTime.getMonth() + 1).padStart(2, '0')}-${String(localTime.getDate()).padStart(2, '0')}`;
 }
 
+// แปลง Date เป็น YYYY-MM-DD
+function toDateStr(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 🌙 วันที่สำหรับ "เวลาพัก" — รองรับกะดึกข้ามเที่ยงคืน
+// ถ้าตอนนี้เป็นช่วง 00:00-07:59 (ยังอยู่ในกะดึกที่เริ่มเมื่อวาน) → นับเป็นวันเมื่อวาน
+// ช่วงอื่น (08:00 เป็นต้นไป) → นับเป็นวันปัจจุบันตามปกติ
+function getBreakDateStr() {
+    const t = getThaiTime();
+    if (t.getHours() < 8) {
+        const y = new Date(t.getTime() - 24 * 60 * 60 * 1000);
+        return toDateStr(y);
+    }
+    return toDateStr(t);
+}
+
 // ==========================================
 // ☕ Break detection helper (รองรับ emoji หลายแบบ + custom emoji <:name:id>)
 // ==========================================
@@ -579,23 +596,39 @@ async function handleBreakMessage(rawText) {
     const staffName = extractBreakName(cleanText);
     if (!staffName) return;
     const nowThai = getThaiTime();
-    const todayStr = getSupabaseDateStr();
+    const breakDate = getBreakDateStr();        // วันสำหรับบันทึก (กะดึกข้ามคืน = วันที่เริ่มกะ)
+    const prevDate = toDateStr(new Date(getThaiTime().getTime() - 24 * 60 * 60 * 1000));
 
     // เช็คคำว่า "กลับ/พร้อม" ก่อน (กันเคสข้อความมีทั้งสองคำ)
     if (matchBreakEnd(cleanText)) {
-        const { data: openBreak } = await supabase
+        // หา record พักที่ยังเปิดอยู่ ของ "วันพักปัจจุบัน" ก่อน
+        let { data: openBreak } = await supabase
             .from('break_sessions')
             .select('*')
             .eq('staff_name', staffName)
-            .eq('break_date', todayStr)
+            .eq('break_date', breakDate)
             .is('break_end', null)
             .order('break_start', { ascending: false })
             .limit(1);
+
+        // ถ้าไม่เจอ ลองหาของเมื่อวาน (เผื่อ break_start บันทึกคนละ key ตอนเปลี่ยนวัน)
+        if (!openBreak || openBreak.length === 0) {
+            const r2 = await supabase
+                .from('break_sessions')
+                .select('*')
+                .eq('staff_name', staffName)
+                .eq('break_date', prevDate)
+                .is('break_end', null)
+                .order('break_start', { ascending: false })
+                .limit(1);
+            openBreak = r2.data;
+        }
+
         if (openBreak && openBreak.length > 0) {
             await supabase.from('break_sessions')
                 .update({ break_end: nowThai.toISOString() })
                 .eq('id', openBreak[0].id);
-            console.log(`[Break] ✅ ${staffName} กลับมาแล้ว ${nowThai.toTimeString().slice(0,5)}`);
+            console.log(`[Break] ✅ ${staffName} กลับมาแล้ว ${nowThai.toTimeString().slice(0,5)} (วันพัก=${openBreak[0].break_date})`);
         } else {
             console.log(`[Break] ⚠️ ${staffName} แจ้งกลับ แต่ไม่เจอ record พักที่เปิดอยู่`);
         }
@@ -606,9 +639,9 @@ async function handleBreakMessage(rawText) {
         await supabase.from('break_sessions').insert([{
             staff_name: staffName,
             break_start: nowThai.toISOString(),
-            break_date: todayStr
+            break_date: breakDate
         }]);
-        console.log(`[Break] 🍱 ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)}`);
+        console.log(`[Break] 🍱 ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)} (วันพัก=${breakDate})`);
         return;
     }
 }
