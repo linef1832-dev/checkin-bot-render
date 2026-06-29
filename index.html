@@ -1000,14 +1000,45 @@
                 tbody.appendChild(tr);
 
                 // detail rows
-                s.details.forEach(d => {
+                const sortedDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+
+                // header ของรายละเอียด
+                const hdr = document.createElement('tr');
+                hdr.className = 'break-detail-body ' + dtId;
+                hdr.innerHTML = `
+                    <td></td>
+                    <td colspan="6" style="padding:4px 14px 0 14px;">
+                        <div style="display:flex; gap:10px; font-size:11px; color:#64748b; border-bottom:1px dashed #383852; padding-bottom:4px;">
+                            <span style="width:38px;">รอบ</span>
+                            <span style="width:60px;">เริ่มพัก</span>
+                            <span style="width:60px;">กลับมา</span>
+                            <span style="width:70px; text-align:right;">รวมเวลา</span>
+                            <span style="flex:1; padding-left:10px;">สถานะ</span>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(hdr);
+
+                sortedDetails.forEach((d, di) => {
                     const dtr = document.createElement('tr');
                     dtr.className = 'break-detail-body ' + dtId;
+                    const ongoing = !d.end;
+                    const durTxt = d.dur !== null ? `${d.dur} นาที` : '—';
+                    const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
+                    const statusTxt = ongoing
+                        ? '<span style="color:#f39c12; font-weight:600;">🟡 ยังพักอยู่</span>'
+                        : '<span style="color:#34d399;">✅ กลับแล้ว</span>';
                     dtr.innerHTML = `
                         <td></td>
-                        <td colspan="2" style="font-size:12px; color:#aaa;">⏰ ${fmtTime(d.start)} → ${d.end ? fmtTime(d.end) : '<span style="color:#f39c12;">ยังพักอยู่</span>'}</td>
-                        <td style="font-size:12px; color:#a78bfa;">${d.dur !== null ? d.dur + ' นาที' : '—'}</td>
-                        <td colspan="3"></td>
+                        <td colspan="6" style="padding:3px 14px;">
+                            <div style="display:flex; gap:10px; align-items:center; font-size:12px;">
+                                <span style="width:38px; color:#64748b;">#${di + 1}</span>
+                                <span style="width:60px; color:#cbd5e1;">⏰ ${fmtTime(d.start)}</span>
+                                <span style="width:60px; color:#cbd5e1;">${ongoing ? '—' : fmtTime(d.end)}</span>
+                                <span style="width:70px; text-align:right; font-weight:600; color:${durColor};">${durTxt}</span>
+                                <span style="flex:1; padding-left:10px;">${statusTxt}</span>
+                            </div>
+                        </td>
                     `;
                     tbody.appendChild(dtr);
                 });
