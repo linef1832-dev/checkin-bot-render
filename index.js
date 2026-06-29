@@ -724,11 +724,19 @@ function startSummaryTimer(channelId) {
             if (guild && tChannel) {
                 let summary = `📊 **สรุปรายชื่อพนักงาน แผนก: ${session.department === 'ALL' ? tChannel.name : session.department}**\n📅 วันที่: ${dateTh}\n──────────────────────────\n`;
 
-                summary += `✅ **เช็คชื่อสำเร็จ:**\n`;
-                if (session.members.length > 0) {
-                    const morningShift = session.members.filter(m => m.shift.includes("กะเช้า"));
-                    const noonShift = session.members.filter(m => m.shift.includes("กะเที่ยง")); // 🌟 เพิ่มกะเที่ยง
-                    const nightShift = session.members.filter(m => m.shift.includes("กะดึก"));
+                  // กรองชื่อซ้ำออก (กันกรณีเช็คซ้ำก่อนแก้บั๊ก)
+                const seenIds = new Set();
+                const uniqueMembers = session.members.filter(m => {
+                    if (seenIds.has(m.id)) return false;
+                    seenIds.add(m.id);
+                    return true;
+                });
+
+              summary += `✅ **เช็คชื่อสำเร็จ:**\n`;
+                if (uniqueMembers.length > 0) {
+                    const morningShift = uniqueMembers.filter(m => m.shift.includes("กะเช้า"));
+                    const noonShift = uniqueMembers.filter(m => m.shift.includes("กะเที่ยง")); // 🌟 เพิ่มกะเที่ยง
+                    const nightShift = uniqueMembers.filter(m => m.shift.includes("กะดึก"));
 
                     if (morningShift.length > 0) {
                         summary += `\n☀️ **กะเช้า:**\n`;
@@ -874,7 +882,7 @@ function startSummaryTimer(channelId) {
                 }
 
                 summary += `──────────────────────────\n`;
-                summary += `**รวมทั้งสิ้น: ${session.members.length} ท่าน**\n`;
+                summary += `**รวมทั้งสิ้น: ${uniqueMembers.length} ท่าน**\n`;
 
                 await sendLongMessage(tChannel, summary);
             }
@@ -1204,6 +1212,17 @@ client.on('messageCreate', async (message) => {
                 // บันทึกเข้า session
                 if (session && !session.members.some(m => m.id === memberId))
                     session.members.push({ id: memberId, name: staffName, time: checkinTime, shift: shiftName, voiceChannelId: voiceChId, lateMin });
+
+                // ตรวจซ้ำอีกครั้งก่อนบันทึก กันกรณีกดสองครั้งเร็วมาก
+                const { data: doubleCheck } = await supabase
+                    .from('checkins').select('id')
+                    .eq('discord_id', memberId)
+                    .gte('checkin_time', new Date(checkinTime.getTime() - 30*60*1000).toISOString())
+                    .lte('checkin_time', new Date(checkinTime.getTime() + 1000).toISOString())
+                    .limit(1);
+                if (doubleCheck && doubleCheck.length > 0) {
+                    return statusMsg.edit('✅ คุณเช็คอินกะนี้ไปแล้วค่ะ ไม่สามารถเช็คซ้ำได้');
+                }
 
                 // บันทึกลง Supabase
                 try {
