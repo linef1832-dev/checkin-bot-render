@@ -636,6 +636,35 @@ async function handleBreakMessage(rawText) {
     }
 
     if (matchBreakStart(cleanText)) {
+        // 🛡️ กันแจ้งพักซ้ำ #1: มี record ที่ยังเปิดอยู่ (ยังไม่กลับ) → ข้าม
+        const { data: stillOpen } = await supabase
+            .from('break_sessions')
+            .select('id, break_start')
+            .eq('staff_name', staffName)
+            .in('break_date', [breakDate, prevDate])
+            .is('break_end', null)
+            .order('break_start', { ascending: false })
+            .limit(1);
+        if (stillOpen && stillOpen.length > 0) {
+            console.log(`[Break] ⏭️ ${staffName} แจ้งพักซ้ำ (ยังพักค้างอยู่ตั้งแต่ ${new Date(stillOpen[0].break_start).toISOString().slice(11,16)}) → ข้าม`);
+            return;
+        }
+
+        // 🛡️ กันแจ้งพักซ้ำ #2: เพิ่งเริ่มพักไป < 3 นาที (กันข้อความ forward ซ้ำจาก Telegram)
+        const threeMinAgo = new Date(nowThai.getTime() - 3 * 60 * 1000).toISOString();
+        const { data: recent } = await supabase
+            .from('break_sessions')
+            .select('id, break_start')
+            .eq('staff_name', staffName)
+            .eq('break_date', breakDate)
+            .gte('break_start', threeMinAgo)
+            .order('break_start', { ascending: false })
+            .limit(1);
+        if (recent && recent.length > 0) {
+            console.log(`[Break] ⏭️ ${staffName} แจ้งพักซ้ำภายใน 3 นาที (ข้อความซ้ำ) → ข้าม`);
+            return;
+        }
+
         await supabase.from('break_sessions').insert([{
             staff_name: staffName,
             break_start: nowThai.toISOString(),
