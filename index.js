@@ -43,6 +43,7 @@ const LEAVE_FILE = 'leaves.json';
 
 let dataStore = {
     checkinChannels: [],
+    breakChannels: [],           // ← เพิ่ม
     lastCheckinDates: {},
     autoCheckinEnabled: true,
     autoCheckinTimes: []
