@@ -896,14 +896,18 @@
 
         function diffMin(start, end) {
             if (!start) return null;
-            const s = new Date(start), e = end ? new Date(end) : new Date();
+            const s = new Date(start);
+            // ถ้ายังพักอยู่ (ไม่มี end) ใช้เวลาไทยปัจจุบัน (เทียบฐานเดียวกับที่บันทึก = Thai-labeled-as-UTC)
+            const e = end ? new Date(end) : new Date(new Date().getTime() + 7*3600000);
             return Math.max(0, Math.round((e - s) / 60000));
         }
 
         function fmtTime(isoStr) {
             if (!isoStr) return '—';
+            // break_start/break_end ถูกบันทึกเป็นเวลาไทยอยู่แล้ว แต่ติด label เป็น Z (UTC)
+            // จึงอ่าน UTC fields ตรงๆ เพื่อให้ได้ตัวเลขเวลาไทยที่ถูกต้อง (ไม่ให้ browser แปลงซ้ำ)
             const d = new Date(isoStr);
-            return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+            return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
         }
 
         async function loadBreakData() {
