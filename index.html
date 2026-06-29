@@ -274,24 +274,9 @@
                 </div>
             </div>
 
-            <!-- table -->
-            <div style="overflow-x:auto;">
-                <table class="tracker-table" id="breakTable">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>ชื่อพนักงาน</th>
-                            <th style="text-align:center;">รวม (นาที)</th>
-                            <th style="text-align:center;">ครั้ง</th>
-                            <th style="min-width:120px;">สัดส่วน</th>
-                            <th style="text-align:center;">สถานะ</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="breakTableBody">
-                        <tr><td colspan="7" style="text-align:center; color:#aaa; padding:30px;">กดรีเฟรชเพื่อโหลดข้อมูลค่ะ</td></tr>
-                    </tbody>
-                </table>
+            <!-- staff break list (card layout) -->
+            <div id="breakList" style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
+                <div style="text-align:center; color:#aaa; padding:30px;">กดรีเฟรชเพื่อโหลดข้อมูลค่ะ</div>
             </div>
         </div>
     </div>
@@ -912,8 +897,8 @@
 
         async function loadBreakData() {
             const pin = document.getElementById('adminPin').value;
-            if (!pin) { document.getElementById('breakTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</td></tr>'; return; }
-            document.getElementById('breakTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</td></tr>';
+            if (!pin) { document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</div>'; return; }
+            document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</div>';
 
             const today = getBreakDateThai();
             try {
@@ -923,14 +908,14 @@
                 });
                 if (!res.ok) {
                     const err = await res.json().catch(()=>({}));
-                    document.getElementById('breakTableBody').innerHTML = `<tr><td colspan="7" style="text-align:center; color:#ED4245; padding:20px;">${err.message||'❌ โหลดไม่ได้'}</td></tr>`;
+                    document.getElementById('breakList').innerHTML = `<div style="text-align:center; color:#ED4245; padding:20px;">${err.message||'❌ โหลดไม่ได้'}</div>`;
                     return;
                 }
                 const json = await res.json();
                 renderBreakTable(json.data || []);
                 document.getElementById('breakLastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
             } catch(e) {
-                document.getElementById('breakTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:#ED4245; padding:20px;">❌ เชื่อมต่อ Server ไม่ได้</td></tr>';
+                document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#ED4245; padding:20px;">❌ เชื่อมต่อ Server ไม่ได้</div>';
             }
         }
 
@@ -975,7 +960,7 @@
                 document.getElementById('bStatAvg').textContent = '0 นาที';
                 document.getElementById('bStatMax').textContent = '0 นาที';
                 document.getElementById('bStatOver').textContent = '0 คน';
-                document.getElementById('breakTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักวันนี้ค่ะ</td></tr>';
+                document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักวันนี้ค่ะ</div>';
                 return;
             }
 
@@ -988,85 +973,72 @@
             document.getElementById('bStatMax').textContent = maxMin + ' นาที';
             document.getElementById('bStatOver').textContent = overCount + ' คน';
 
-            const tbody = document.getElementById('breakTableBody');
-            tbody.innerHTML = '';
+            const list = document.getElementById('breakList');
+            list.innerHTML = '';
 
             staffList.forEach((s, idx) => {
                 const pct = maxMin > 0 ? Math.round((s.totalMin / maxMin) * 100) : 0;
                 const barColor = s.totalMin <= 30 ? '#34d399' : s.totalMin <= 60 ? '#fbbf24' : '#f87171';
                 const badgeCls = s.totalMin <= 30 ? 'ok' : s.totalMin <= 60 ? 'warn' : 'over';
                 const badgeTxt = s.totalMin <= 30 ? 'ปกติ' : s.totalMin <= 60 ? 'เฝ้าระวัง' : 'เกินกำหนด';
+                const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
                 const dtId = `bdt-${idx}`;
 
-                // main row
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td style="color:#aaa; font-size:12px;">${idx+1}</td>
-                    <td style="font-weight:bold; color:#FEE75C;">${s.name}</td>
-                    <td style="text-align:center; font-weight:bold; color:${barColor}; font-size:16px;">${s.totalMin}<span style="font-size:11px; color:#aaa;"> นาที</span></td>
-                    <td style="text-align:center; color:#aaa;">${s.count} ครั้ง</td>
-                    <td>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <div class="break-bar-bg"><div class="break-bar-fill" style="width:${pct}%; background:${barColor};"></div></div>
-                            <span style="font-size:11px; color:#aaa; min-width:28px;">${pct}%</span>
-                        </div>
-                    </td>
-                    <td style="text-align:center;"><span class="bbadge ${badgeCls}">${badgeTxt}</span></td>
-                    <td><button class="btn-small" style="background:#383852;" onclick="toggleBreakDetail('${dtId}',this)">▼ ดู</button></td>
-                `;
-                tbody.appendChild(tr);
-
-                // detail rows
                 const sortedDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
-
-                // header ของรายละเอียด
-                const hdr = document.createElement('tr');
-                hdr.className = 'break-detail-body ' + dtId;
-                hdr.innerHTML = `
-                    <td></td>
-                    <td colspan="6" style="padding:4px 14px 0 14px;">
-                        <div style="display:flex; gap:10px; font-size:11px; color:#64748b; border-bottom:1px dashed #383852; padding-bottom:4px;">
-                            <span style="width:38px;">รอบ</span>
-                            <span style="width:60px;">เริ่มพัก</span>
-                            <span style="width:60px;">กลับมา</span>
-                            <span style="width:70px; text-align:right;">รวมเวลา</span>
-                            <span style="flex:1; padding-left:10px;">สถานะ</span>
-                        </div>
-                    </td>
-                `;
-                tbody.appendChild(hdr);
-
+                let chipsHtml = '';
                 sortedDetails.forEach((d, di) => {
-                    const dtr = document.createElement('tr');
-                    dtr.className = 'break-detail-body ' + dtId;
                     const ongoing = !d.end;
                     const durTxt = d.dur !== null ? `${d.dur} นาที` : '—';
                     const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
-                    const statusTxt = ongoing
-                        ? '<span style="color:#f39c12; font-weight:600;">🟡 ยังพักอยู่</span>'
-                        : '<span style="color:#34d399;">✅ กลับแล้ว</span>';
-                    dtr.innerHTML = `
-                        <td></td>
-                        <td colspan="6" style="padding:3px 14px;">
-                            <div style="display:flex; gap:10px; align-items:center; font-size:12px;">
-                                <span style="width:38px; color:#64748b;">#${di + 1}</span>
-                                <span style="width:60px; color:#cbd5e1;">⏰ ${fmtTime(d.start)}</span>
-                                <span style="width:60px; color:#cbd5e1;">${ongoing ? '—' : fmtTime(d.end)}</span>
-                                <span style="width:70px; text-align:right; font-weight:600; color:${durColor};">${durTxt}</span>
-                                <span style="flex:1; padding-left:10px;">${statusTxt}</span>
-                            </div>
-                        </td>
-                    `;
-                    tbody.appendChild(dtr);
+                    const endTxt = ongoing ? '<span style="color:#f39c12; font-weight:600;">ยังพักอยู่</span>' : fmtTime(d.end);
+                    const dotColor = ongoing ? '#f39c12' : '#34d399';
+                    chipsHtml += `
+                        <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${dotColor};">
+                            <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
+                            <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
+                            <span style="color:#64748b; font-size:12px;">→</span>
+                            <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
+                            <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
+                        </div>`;
                 });
+
+                const card = document.createElement('div');
+                card.style.cssText = 'background:#2a2a40; border-radius:10px; overflow:hidden; border:1px solid #383852;';
+                card.innerHTML = `
+                    <div onclick="toggleBreakDetail('${dtId}', this)" style="display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer;">
+                        <div style="width:26px; height:26px; border-radius:50%; background:${rankColor}22; color:${rankColor}; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;">${idx+1}</div>
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:700; color:#fff; font-size:15px; margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <div style="flex:1; max-width:160px; height:6px; background:#1e1e2f; border-radius:3px; overflow:hidden;">
+                                    <div style="width:${pct}%; height:100%; background:${barColor}; border-radius:3px; transition:width .4s;"></div>
+                                </div>
+                                <span style="font-size:11px; color:#64748b;">${s.count} รอบ</span>
+                            </div>
+                        </div>
+                        <div style="text-align:right; flex-shrink:0;">
+                            <div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${s.totalMin}<span style="font-size:11px; color:#888; font-weight:400;"> นาที</span></div>
+                            <span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>
+                        </div>
+                        <div style="color:#64748b; font-size:12px; flex-shrink:0; width:14px; text-align:center;" id="${dtId}-arrow">▼</div>
+                    </div>
+                    <div class="break-detail-body ${dtId}" style="display:none; padding:0 16px 14px 16px;">
+                        <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px; border-top:1px solid #383852;">
+                            <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${sortedDetails.length} รอบ</div>
+                            ${chipsHtml}
+                        </div>
+                    </div>`;
+                list.appendChild(card);
             });
         }
 
-        function toggleBreakDetail(cls, btn) {
-            const rows = document.querySelectorAll('.' + cls);
-            const isOpen = rows[0] && rows[0].classList.contains('open');
-            rows.forEach(r => r.classList.toggle('open', !isOpen));
-            btn.textContent = isOpen ? '▼ ดู' : '▲ ซ่อน';
+        function toggleBreakDetail(dtId, headerEl) {
+            const panel = document.querySelector('.' + dtId);
+            const arrow = document.getElementById(dtId + '-arrow');
+            if (!panel) return;
+            const isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'block';
+            if (arrow) arrow.textContent = isOpen ? '▼' : '▲';
         }
     </script>
 </body>
