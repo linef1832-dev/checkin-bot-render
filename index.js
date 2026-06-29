@@ -157,7 +157,7 @@ app.post('/api/ping-active', async (req, res) => {
         return res.status(200).json({ success: true, status: 'ignored_race_condition' });
     }
 
-    if (chats === 0 && userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 45000)) {
+    if (chats === 0 && userCooldowns[sessionProfile] && (now - userCooldowns[sessionProfile] < 25000)) {
         return res.status(200).json({ success: true, status: 'ignored_spam' });
     }
 
