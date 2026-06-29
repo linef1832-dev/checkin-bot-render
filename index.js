@@ -1517,5 +1517,22 @@ cron.schedule('0 8 1 * *', async () => {
     } catch (e) { console.error('❌ [KPI Monthly]', e); }
 }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
+app.post('/api/break-summary', async (req, res) => {
+    const { pin, date } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+    try {
+        const targetDate = date || getSupabaseDateStr();
+        const { data, error } = await supabase
+            .from('break_sessions')
+            .select('staff_name, break_start, break_end, break_date')
+            .eq('break_date', targetDate)
+            .order('break_start', { ascending: true });
+        if (error) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้' });
+        res.json({ success: true, data: data || [], date: targetDate });
+    } catch (err) {
+        res.status(500).json({ success: false });
+    }
+});
 app.listen(PORT, '0.0.0.0', () => { console.log(`🌐 Server web port is open and listening on port ${PORT}!`); });
+
 client.login(process.env.TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
