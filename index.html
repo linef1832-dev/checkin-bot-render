@@ -943,13 +943,30 @@
             });
 
             const staffList = Object.entries(grouped).map(([name, sessions]) => {
+                // เรียงตามเวลาเริ่ม
+                const sorted = sessions.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
+                // 🧹 รวม record ซ้ำ: ถ้าเริ่มพักห่างกัน < 3 นาที ถือเป็นรอบเดียว (กันข้อมูลซ้ำเก่า)
+                const merged = [];
+                for (const s of sorted) {
+                    const last = merged[merged.length - 1];
+                    if (last) {
+                        const gap = Math.abs(new Date(s.break_start) - new Date(last.break_start)) / 60000;
+                        if (gap < 3) {
+                            // รวมเข้ารอบเดิม: ใช้ break_end ที่มีค่า (อันไหนปิดแล้วก็เอาอันนั้น)
+                            if (!last.break_end && s.break_end) last.break_end = s.break_end;
+                            continue;
+                        }
+                    }
+                    merged.push({ break_start: s.break_start, break_end: s.break_end });
+                }
+
                 let totalMin = 0;
-                const details = sessions.map(s => {
+                const details = merged.map(s => {
                     const dur = diffMin(s.break_start, s.break_end);
                     if (dur && dur > 0) totalMin += dur;
                     return { start: s.break_start, end: s.break_end, dur };
                 });
-                return { name, totalMin, count: sessions.length, details };
+                return { name, totalMin, count: merged.length, details };
             }).sort((a,b) => b.totalMin - a.totalMin);
 
             // summary
