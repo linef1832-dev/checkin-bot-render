@@ -247,18 +247,41 @@
     <div id="breakMenu" class="tab-content">
         <div class="card" style="border-left: 4px solid #f39c12;">
             <h3 style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
-                ☕ สรุปเวลาพักวันนี้
+                ☕ สรุปเวลาพัก
                 <button class="btn-small" style="background:#f39c12; color:#1e1e2f;" onclick="loadBreakData()">🔄 รีเฟรช</button>
             </h3>
+
+            <!-- ตัวกรอง: ช่วงเวลา / แผนก / กะ -->
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center;">
+                <select id="breakRange" onchange="onBreakRangeChange()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                    <option value="today">📅 วันนี้</option>
+                    <option value="7">7 วันล่าสุด</option>
+                    <option value="30">30 วันล่าสุด</option>
+                    <option value="custom">เลือกวันเอง</option>
+                </select>
+                <input type="date" id="breakCustomDate" onchange="loadBreakData()" style="display:none; padding:6px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                <select id="breakDept" onchange="loadBreakData()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                    <option value="ALL">🏢 ทุกแผนก</option>
+                    <option value="AMOL">AMOL</option>
+                    <option value="ODOL">ODOL</option>
+                </select>
+                <select id="breakShift" onchange="loadBreakData()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                    <option value="ALL">⏰ ทุกกะ</option>
+                    <option value="morning">☀️ กะเช้า</option>
+                    <option value="noon">🕛 กะเที่ยง</option>
+                    <option value="night">🌙 กะดึก</option>
+                </select>
+            </div>
+
             <p style="font-size:12px; color:#aaa; margin:0 0 12px 0;">
-                วันที่: <strong id="breakDateLabel">—</strong> &nbsp;|&nbsp; อัปเดต: <span id="breakLastUpdate">-</span>
+                ช่วง: <strong id="breakDateLabel">—</strong> &nbsp;|&nbsp; อัปเดต: <span id="breakLastUpdate">-</span>
             </p>
 
             <!-- summary cards -->
             <div class="break-stat-grid">
                 <div class="break-stat-card">
                     <div class="bval" id="bStatTotal">—</div>
-                    <div class="blbl">พนักงานที่พักวันนี้</div>
+                    <div class="blbl">พนักงานที่พัก (คน)</div>
                 </div>
                 <div class="break-stat-card" style="border-left-color:#34d399;">
                     <div class="bval" style="color:#34d399;" id="bStatAvg">—</div>
@@ -895,16 +918,48 @@
             return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
         }
 
+        // toggle ช่องเลือกวันเองเมื่อเลือก "custom"
+        function onBreakRangeChange() {
+            const range = document.getElementById('breakRange').value;
+            document.getElementById('breakCustomDate').style.display = (range === 'custom') ? 'inline-block' : 'none';
+            loadBreakData();
+        }
+
+        // คำนวณช่วงวันที่ (YYYY-MM-DD) ตามตัวเลือก รองรับกะดึก (ก่อน 8 โมงนับเป็นเมื่อวาน)
+        function getBreakRange() {
+            const range = document.getElementById('breakRange').value;
+            const todayStr = getBreakDateThai(); // วันนี้ (รองรับกะดึก)
+            if (range === 'today') {
+                return { start: todayStr, end: todayStr, label: getBreakDateLabelThai() };
+            }
+            if (range === 'custom') {
+                const d = document.getElementById('breakCustomDate').value || todayStr;
+                const lbl = new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+                return { start: d, end: d, label: lbl };
+            }
+            // 7 หรือ 30 วันล่าสุด
+            const days = parseInt(range);
+            const endD = new Date(todayStr + 'T00:00:00');
+            const startD = new Date(endD.getTime() - (days - 1) * 24 * 3600000);
+            const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const lbl = `${startD.toLocaleDateString('th-TH',{day:'numeric',month:'short'})} - ${endD.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'})} (${days} วัน)`;
+            return { start: fmt(startD), end: fmt(endD), label: lbl };
+        }
+
         async function loadBreakData() {
             const pin = document.getElementById('adminPin').value;
             if (!pin) { document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</div>'; return; }
             document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</div>';
 
-            const today = getBreakDateThai();
+            const { start, end, label } = getBreakRange();
+            document.getElementById('breakDateLabel').textContent = label;
+            const deptFilter = document.getElementById('breakDept').value;
+            const shiftFilter = document.getElementById('breakShift').value;
+
             try {
                 const res = await fetch('/api/break-summary', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pin, date: today })
+                    body: JSON.stringify({ pin, startDate: start, endDate: end })
                 });
                 if (!res.ok) {
                     const err = await res.json().catch(()=>({}));
@@ -912,7 +967,11 @@
                     return;
                 }
                 const json = await res.json();
-                renderBreakTable(json.data || []);
+                let rows = json.data || [];
+                // กรองตามแผนก/กะ ที่ฝั่งเว็บ
+                if (deptFilter !== 'ALL') rows = rows.filter(r => (r.department||'') === deptFilter);
+                if (shiftFilter !== 'ALL') rows = rows.filter(r => (r.shift||'') === shiftFilter);
+                renderBreakTable(rows);
                 document.getElementById('breakLastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
             } catch(e) {
                 document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#ED4245; padding:20px;">❌ เชื่อมต่อ Server ไม่ได้</div>';
@@ -920,38 +979,38 @@
         }
 
         function renderBreakTable(rows) {
-            // group by staff_name
+            // group by staff_name (เก็บ dept/shift ไว้ด้วย)
             const grouped = {};
+            const meta = {};
             rows.forEach(r => {
-                if (!grouped[r.staff_name]) grouped[r.staff_name] = [];
+                if (!grouped[r.staff_name]) { grouped[r.staff_name] = []; meta[r.staff_name] = { dept: r.department || '', shift: r.shift || '' }; }
                 grouped[r.staff_name].push(r);
             });
 
             const staffList = Object.entries(grouped).map(([name, sessions]) => {
-                // เรียงตามเวลาเริ่ม
+                // เรียงตามเวลาเริ่มจริง
                 const sorted = sessions.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
-                // 🧹 รวม record ซ้ำ: ถ้าเริ่มพักห่างกัน < 3 นาที ถือเป็นรอบเดียว (กันข้อมูลซ้ำเก่า)
+                // 🧹 รวม record ซ้ำ: เริ่มห่างกัน < 3 นาที = รอบเดียว (เทียบ timestamp เต็ม กันข้ามวันมารวมผิด)
                 const merged = [];
                 for (const s of sorted) {
                     const last = merged[merged.length - 1];
                     if (last) {
                         const gap = Math.abs(new Date(s.break_start) - new Date(last.break_start)) / 60000;
                         if (gap < 3) {
-                            // รวมเข้ารอบเดิม: ใช้ break_end ที่มีค่า (อันไหนปิดแล้วก็เอาอันนั้น)
                             if (!last.break_end && s.break_end) last.break_end = s.break_end;
                             continue;
                         }
                     }
-                    merged.push({ break_start: s.break_start, break_end: s.break_end });
+                    merged.push({ break_start: s.break_start, break_end: s.break_end, break_date: s.break_date, break_reason: s.break_reason });
                 }
 
                 let totalMin = 0;
                 const details = merged.map(s => {
                     const dur = diffMin(s.break_start, s.break_end);
                     if (dur && dur > 0) totalMin += dur;
-                    return { start: s.break_start, end: s.break_end, dur };
+                    return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur };
                 });
-                return { name, totalMin, count: merged.length, details };
+                return { name, totalMin, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
             }).sort((a,b) => b.totalMin - a.totalMin);
 
             // summary
@@ -985,6 +1044,9 @@
                 const dtId = `bdt-${idx}`;
 
                 const sortedDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+                // แสดงวันที่ในรายละเอียดเมื่อดูแบบหลายวัน
+                const showDate = (new Set(sortedDetails.map(d => d.date)).size > 1) ||
+                                 (document.getElementById('breakRange').value !== 'today' && document.getElementById('breakRange').value !== 'custom');
                 let chipsHtml = '';
                 sortedDetails.forEach((d, di) => {
                     const ongoing = !d.end;
@@ -992,15 +1054,30 @@
                     const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
                     const endTxt = ongoing ? '<span style="color:#f39c12; font-weight:600;">ยังพักอยู่</span>' : fmtTime(d.end);
                     const dotColor = ongoing ? '#f39c12' : '#34d399';
+                    const dateBadge = showDate && d.date
+                        ? `<span style="color:#64748b; font-size:11px; min-width:48px;">${new Date(d.date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</span>`
+                        : '';
+                    const reasonBadge = d.reason
+                        ? `<span style="font-size:11px; color:#c4b5fd; background:#2e2640; padding:2px 8px; border-radius:10px; white-space:nowrap;">${d.reason}</span>`
+                        : '';
                     chipsHtml += `
-                        <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${dotColor};">
+                        <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${dotColor}; flex-wrap:wrap;">
                             <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
+                            ${dateBadge}
                             <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
                             <span style="color:#64748b; font-size:12px;">→</span>
                             <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
+                            ${reasonBadge}
                             <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
                         </div>`;
                 });
+
+                // ป้ายแผนก/กะ
+                const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
+                const deptLabel = (s.dept && s.dept !== 'UNKNOWN') ? s.dept : '';
+                let metaBadges = '';
+                if (deptLabel) metaBadges += `<span style="font-size:10px; background:#1e3a5f; color:#7dd3fc; padding:1px 7px; border-radius:10px;">${deptLabel}</span>`;
+                if (shiftLabel) metaBadges += `<span style="font-size:10px; background:#3a2f1e; color:#fcd34d; padding:1px 7px; border-radius:10px;">${shiftLabel}</span>`;
 
                 const card = document.createElement('div');
                 card.style.cssText = 'background:#2a2a40; border-radius:10px; overflow:hidden; border:1px solid #383852;';
@@ -1008,7 +1085,10 @@
                     <div onclick="toggleBreakDetail('${dtId}', this)" style="display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer;">
                         <div style="width:26px; height:26px; border-radius:50%; background:${rankColor}22; color:${rankColor}; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;">${idx+1}</div>
                         <div style="flex:1; min-width:0;">
-                            <div style="font-weight:700; color:#fff; font-size:15px; margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</div>
+                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
+                                <span style="font-weight:700; color:#fff; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</span>
+                                ${metaBadges}
+                            </div>
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <div style="flex:1; max-width:160px; height:6px; background:#1e1e2f; border-radius:3px; overflow:hidden;">
                                     <div style="width:${pct}%; height:100%; background:${barColor}; border-radius:3px; transition:width .4s;"></div>
