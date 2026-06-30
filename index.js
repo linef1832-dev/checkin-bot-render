@@ -778,6 +778,22 @@ const lastAlertTime = new Map();
 const LONG_BREAK_LIMIT_MIN = 30;   // เกินกี่นาทีถึงเริ่มแจ้งเตือน
 const ALERT_REPEAT_MIN = 2;        // แจ้งซ้ำทุกกี่นาที
 
+// 📊 แจ้งเตือนยอดพักสะสมต่อวัน
+const DAILY_WARN_MIN = 110;        // ยอดสะสมถึงกี่นาทีถึงแจ้งเตือน
+const DAILY_LIMIT_MIN = 120;       // เกณฑ์ที่อาจโดนปรับ
+const dailyWarnedStaff = new Set(); // กันแจ้งซ้ำ: เก็บ "staffName|breakDate" ที่แจ้งไปแล้ว
+
+// 🌙 ตรวจ record คร่อมเวลา 01:01 (เหมือน Dashboard) — กะดึก บอท Telegram รีเซ็ตตอน 01:01
+function crossesOneAMBot(start, end) {
+    if (!start || !end) return false;
+    const s = new Date(start), e = new Date(end);
+    const sMin = s.getUTCHours() * 60 + s.getUTCMinutes();
+    const eMin = e.getUTCHours() * 60 + e.getUTCMinutes();
+    const RESET = 61; // 01:01
+    if (sMin < RESET && eMin >= RESET && eMin >= sMin) return true;
+    return false;
+}
+
 // แปลงชื่อในตารางพัก → หากะของพนักงานจาก staff_list (คืน 'morning'/'noon'/'night' หรือ null)
 async function getStaffShift(breakName) {
     try {
@@ -868,6 +884,86 @@ async function checkLongBreaks() {
         }
     } catch (err) {
         console.error('[LongBreak] error:', err);
+    }
+}
+
+// 📊 ตรวจยอดพักสะสมต่อวัน → ถ้าถึง 110 นาที แจ้งเตือนเตือนใกล้โดนปรับ (แจ้งครั้งเดียวต่อคนต่อวัน)
+async function checkDailyTotalBreaks() {
+    try {
+        if (!dataStore.breakChannels || dataStore.breakChannels.length === 0) return;
+        const breakDate = getBreakDateStr();
+        const prevDate = toDateStr(new Date(getThaiTime().getTime() - 24 * 60 * 60 * 1000));
+        const nowThai = getThaiTime();
+        const nowMs = nowThai.getTime();
+
+        // ดึงทุก record ของวันนี้ + เมื่อวาน (กันกะดึกข้ามคืน)
+        const { data: allBreaks } = await supabase
+            .from('break_sessions')
+            .select('id, staff_name, break_start, break_end, break_date')
+            .in('break_date', [breakDate, prevDate])
+            .order('break_start', { ascending: true });
+        if (!allBreaks || allBreaks.length === 0) return;
+
+        // จัดกลุ่มตาม staff_name + break_date (แยกยอดแต่ละวัน)
+        const byStaffDay = {};
+        for (const b of allBreaks) {
+            const key = `${b.staff_name}|${b.break_date}`;
+            if (!byStaffDay[key]) byStaffDay[key] = [];
+            byStaffDay[key].push(b);
+        }
+
+        for (const [key, sessions] of Object.entries(byStaffDay)) {
+            if (dailyWarnedStaff.has(key)) continue; // แจ้งไปแล้ววันนี้ ข้าม
+
+            const [staffName] = key.split('|');
+            const shift = await getStaffShift(staffName);
+
+            // ตัด record คร่อม 01:01 (เฉพาะกะดึก) ให้ตรงกับ Dashboard
+            const cleaned = sessions.filter(s => {
+                if (shift === 'night' && crossesOneAMBot(s.break_start, s.break_end)) return false;
+                return true;
+            });
+            // เรียง + รวม record ซ้ำ (เริ่มห่าง < 3 นาที = รอบเดียว)
+            const sorted = cleaned.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
+            const merged = [];
+            for (const s of sorted) {
+                const last = merged[merged.length - 1];
+                if (last) {
+                    const gap = Math.abs(new Date(s.break_start) - new Date(last.break_start)) / 60000;
+                    if (gap < 3) { if (!last.break_end && s.break_end) last.break_end = s.break_end; continue; }
+                }
+                merged.push({ break_start: s.break_start, break_end: s.break_end });
+            }
+            // รวมเวลา (รอบที่ยังไม่กลับ นับถึงเวลาปัจจุบัน)
+            let totalMin = 0;
+            for (const s of merged) {
+                const startMs = new Date(s.break_start).getTime();
+                const endMs = s.break_end ? new Date(s.break_end).getTime() : nowMs;
+                const dur = Math.floor((endMs - startMs) / 60000);
+                if (dur > 0 && dur < 24 * 60) totalMin += dur;
+            }
+
+            // ถึงเกณฑ์ 110 นาที → แจ้งเตือน
+            if (totalMin >= DAILY_WARN_MIN) {
+                const msg = `📊 **แจ้งเตือนเวลาพักสะสม**\n👤 **${staffName}** วันนี้ใช้เวลาพักไป **${totalMin} นาที** แล้ว\n⚠️ หากเกิน ${DAILY_LIMIT_MIN} นาทีอาจทำให้โดนปรับ\n💚 บริหารเวลากันดีๆ นะจ๊ะ`;
+                for (const chId of dataStore.breakChannels) {
+                    try {
+                        const ch = await client.channels.fetch(chId).catch(() => null);
+                        if (ch) await ch.send(msg);
+                    } catch (e) { console.error('[DailyBreak] ส่งแจ้งเตือนไม่ได้:', e.message); }
+                }
+                dailyWarnedStaff.add(key);
+                console.log(`[DailyBreak] 📊 แจ้งเตือน ${staffName} ยอดสะสม ${totalMin} นาที (${key})`);
+            }
+        }
+
+        // เคลียร์ key เก่าที่ไม่ใช่วันนี้/เมื่อวาน ออกจาก Set (กัน memory โต)
+        for (const key of dailyWarnedStaff) {
+            const d = key.split('|')[1];
+            if (d !== breakDate && d !== prevDate) dailyWarnedStaff.delete(key);
+        }
+    } catch (err) {
+        console.error('[DailyBreak] error:', err);
     }
 }
 
@@ -1716,6 +1812,7 @@ client.once('ready', () => {
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
         await checkLongBreaks();
+        await checkDailyTotalBreaks();
         if (!dataStore.autoCheckinEnabled) return;
         const localTime = getThaiTime();
         const currentHour = localTime.getHours();
