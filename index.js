@@ -444,13 +444,28 @@ app.post('/api/break-summary', async (req, res) => {
         const sDate = startDate || date || getSupabaseDateStr();
         const eDate = endDate || date || getSupabaseDateStr();
 
-        const { data: breaks, error } = await supabase
+        // ลองดึงพร้อม break_reason ก่อน ถ้าคอลัมน์ยังไม่มีให้ fallback ดึงแบบไม่มี reason
+        let breaks = null, error = null, hasReason = true;
+        ({ data: breaks, error } = await supabase
             .from('break_sessions')
             .select('staff_name, break_start, break_end, break_date, break_reason')
             .gte('break_date', sDate)
             .lte('break_date', eDate)
-            .order('break_start', { ascending: true });
-        if (error) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้' });
+            .order('break_start', { ascending: true }));
+        if (error) {
+            // คอลัมน์ break_reason อาจยังไม่มี → ลองใหม่แบบไม่ดึง reason
+            hasReason = false;
+            ({ data: breaks, error } = await supabase
+                .from('break_sessions')
+                .select('staff_name, break_start, break_end, break_date')
+                .gte('break_date', sDate)
+                .lte('break_date', eDate)
+                .order('break_start', { ascending: true }));
+        }
+        if (error) {
+            console.error('[break-summary] query error:', error.message || error);
+            return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้: ' + (error.message || 'unknown') });
+        }
 
         // ดึงรายชื่อพนักงาน + แผนก + กะ มา map เข้ากับชื่อในตารางพัก
         const { data: staffRows } = await supabase
@@ -492,7 +507,7 @@ app.post('/api/break-summary', async (req, res) => {
                 break_start: b.break_start,
                 break_end: b.break_end,
                 break_date: b.break_date,
-                break_reason: b.break_reason || '☕ พัก',
+                break_reason: b.break_reason || null,
                 department: m ? m.dept : 'UNKNOWN',
                 shift: m ? m.shift : 'unknown'
             };
@@ -644,12 +659,13 @@ function matchBreakEnd(cleanText) {
 }
 
 // 📝 ดึง "เหตุผลการพัก" จากข้อความ → คืนค่าเป็นป้ายอ่านง่าย
+// ตรงกับปุ่มจริงในระบบ: กินข้าว / ปวดหนัก / ปวดน้อย
 // เรียงจากคำเฉพาะเจาะจงไปกว้าง เพื่อให้จับคำที่ตรงที่สุดก่อน
 const BREAK_REASON_MAP = [
     { words: ['ไปปวดหนัก','ปวดหนัก'],            label: '🚽 ปวดหนัก' },
     { words: ['ไปปวดน้อย','ปวดน้อย'],            label: '🚾 ปวดน้อย' },
-    { words: ['ไปเข้าห้องน้ำ','เข้าห้องน้ำ'],     label: '🚻 เข้าห้องน้ำ' },
     { words: ['ไปกินข้าว','กินข้าว'],            label: '🍱 กินข้าว' },
+    { words: ['ไปเข้าห้องน้ำ','เข้าห้องน้ำ'],     label: '🚻 เข้าห้องน้ำ' },
     { words: ['ไปสูบบุหรี่','สูบบุหรี่'],          label: '🚬 สูบบุหรี่' },
     { words: ['ไปทำธุระ','ทำธุระ'],              label: '📋 ทำธุระ' },
     { words: ['พักเบรก','พักสักครู่','ไปพัก'],     label: '☕ พักเบรก' },
@@ -736,12 +752,22 @@ async function handleBreakMessage(rawText) {
         }
 
         const reason = extractBreakReason(cleanText);
-        await supabase.from('break_sessions').insert([{
+        // ลอง insert พร้อม break_reason ถ้าคอลัมน์ยังไม่มีให้ insert แบบไม่มี reason
+        let insErr = null;
+        ({ error: insErr } = await supabase.from('break_sessions').insert([{
             staff_name: staffName,
             break_start: nowThai.toISOString(),
             break_date: breakDate,
             break_reason: reason
-        }]);
+        }]));
+        if (insErr) {
+            await supabase.from('break_sessions').insert([{
+                staff_name: staffName,
+                break_start: nowThai.toISOString(),
+                break_date: breakDate
+            }]);
+            console.log(`[Break] ⚠️ insert reason ไม่ได้ (คอลัมน์ break_reason อาจยังไม่มี) → บันทึกแบบไม่มีเหตุผล`);
+        }
         console.log(`[Break] ${reason} ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)} (วันพัก=${breakDate})`);
         return;
     }
