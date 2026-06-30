@@ -293,7 +293,7 @@
                 </div>
                 <div class="break-stat-card" style="border-left-color:#f87171;">
                     <div class="bval" style="color:#f87171;" id="bStatOver">—</div>
-                    <div class="blbl">พักเกิน 60 นาที</div>
+                    <div class="blbl">พักเกิน 120 นาที</div>
                 </div>
             </div>
 
@@ -1011,7 +1011,7 @@
             const allStaff = aggregateStaff(rows);
             const grandMax = allStaff.length ? allStaff[0].totalMin : 0;
             const grandAvg = allStaff.length ? Math.round(allStaff.reduce((a,x)=>a+x.totalMin,0)/allStaff.length) : 0;
-            const grandOver = allStaff.filter(x=>x.totalMin > 60).length;
+            const grandOver = allStaff.filter(x=>x.totalMin > 120).length;
             document.getElementById('bStatTotal').textContent = allStaff.length + ' คน';
             document.getElementById('bStatAvg').textContent = grandAvg + ' นาที';
             document.getElementById('bStatMax').textContent = grandMax + ' นาที';
@@ -1107,9 +1107,9 @@
         // สร้างการ์ดพนักงาน 1 ใบ (prefix ใช้กันชน id ซ้ำระหว่างวัน)
         function buildStaffCard(s, idx, maxMin, prefix) {
             const pct = maxMin > 0 ? Math.round((s.totalMin / maxMin) * 100) : 0;
-            const barColor = s.totalMin <= 30 ? '#34d399' : s.totalMin <= 60 ? '#fbbf24' : '#f87171';
-            const badgeCls = s.totalMin <= 30 ? 'ok' : s.totalMin <= 60 ? 'warn' : 'over';
-            const badgeTxt = s.totalMin <= 30 ? 'ปกติ' : s.totalMin <= 60 ? 'เฝ้าระวัง' : 'เกินกำหนด';
+            const barColor = s.totalMin <= 90 ? '#34d399' : s.totalMin <= 120 ? '#fbbf24' : '#f87171';
+            const badgeCls = s.totalMin <= 90 ? 'ok' : s.totalMin <= 120 ? 'warn' : 'over';
+            const badgeTxt = s.totalMin <= 90 ? 'ปกติ' : s.totalMin <= 120 ? 'เฝ้าระวัง' : 'เกินกำหนด';
             const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
             const dtId = `bdt-${prefix}-${idx}`;
 
