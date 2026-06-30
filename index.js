@@ -437,18 +437,70 @@ app.post('/api/kpi-team', async (req, res) => {
 });
 
 app.post('/api/break-summary', async (req, res) => {
-    const { pin, date } = req.body;
+    const { pin, date, startDate, endDate } = req.body;
     if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
     try {
-        const targetDate = date || getSupabaseDateStr();
-        const { data, error } = await supabase
+        // รองรับทั้งแบบวันเดียว (date) และช่วงวัน (startDate-endDate)
+        const sDate = startDate || date || getSupabaseDateStr();
+        const eDate = endDate || date || getSupabaseDateStr();
+
+        const { data: breaks, error } = await supabase
             .from('break_sessions')
-            .select('staff_name, break_start, break_end, break_date')
-            .eq('break_date', targetDate)
+            .select('staff_name, break_start, break_end, break_date, break_reason')
+            .gte('break_date', sDate)
+            .lte('break_date', eDate)
             .order('break_start', { ascending: true });
         if (error) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้' });
-        res.json({ success: true, data: data || [], date: targetDate });
+
+        // ดึงรายชื่อพนักงาน + แผนก + กะ มา map เข้ากับชื่อในตารางพัก
+        const { data: staffRows } = await supabase
+            .from('staff_list')
+            .select('staff_name, department, shift');
+
+        // สร้าง index: token ของชื่อ → {dept, shift}
+        const staffIndex = [];
+        (staffRows || []).forEach(r => {
+            const full = (r.staff_name || '').toUpperCase().trim();
+            // ตัด prefix แผนกออก (AMOL-/ODOL-) แล้วแตก token
+            const short = full.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
+            const tokens = short.split(/[-_/\s]+/).filter(Boolean);
+            staffIndex.push({
+                full, short, tokens,
+                dept: (r.department || '').toUpperCase(),
+                shift: (r.shift || '').toLowerCase()
+            });
+        });
+
+        function matchStaff(breakName) {
+            const bn = (breakName || '').toUpperCase().trim();
+            const bnTokens = bn.split(/[-_/\s]+/).filter(Boolean);
+            // 1) ตรงเป๊ะกับ short หรือ full
+            let hit = staffIndex.find(s => s.short === bn || s.full === bn);
+            if (hit) return hit;
+            // 2) token ตรงกัน
+            hit = staffIndex.find(s =>
+                s.tokens.some(t => bnTokens.includes(t)) || bnTokens.some(t => s.tokens.includes(t))
+            );
+            return hit || null;
+        }
+
+        // แนบ dept/shift ให้แต่ละ record
+        const enriched = (breaks || []).map(b => {
+            const m = matchStaff(b.staff_name);
+            return {
+                staff_name: b.staff_name,
+                break_start: b.break_start,
+                break_end: b.break_end,
+                break_date: b.break_date,
+                break_reason: b.break_reason || '☕ พัก',
+                department: m ? m.dept : 'UNKNOWN',
+                shift: m ? m.shift : 'unknown'
+            };
+        });
+
+        res.json({ success: true, data: enriched, startDate: sDate, endDate: eDate });
     } catch (err) {
+        console.error('[break-summary]', err);
         res.status(500).json({ success: false });
     }
 });
@@ -591,6 +643,24 @@ function matchBreakEnd(cleanText) {
     return BREAK_END_WORDS.some(w => cleanText.includes(w));
 }
 
+// 📝 ดึง "เหตุผลการพัก" จากข้อความ → คืนค่าเป็นป้ายอ่านง่าย
+// เรียงจากคำเฉพาะเจาะจงไปกว้าง เพื่อให้จับคำที่ตรงที่สุดก่อน
+const BREAK_REASON_MAP = [
+    { words: ['ไปปวดหนัก','ปวดหนัก'],            label: '🚽 ปวดหนัก' },
+    { words: ['ไปปวดน้อย','ปวดน้อย'],            label: '🚾 ปวดน้อย' },
+    { words: ['ไปเข้าห้องน้ำ','เข้าห้องน้ำ'],     label: '🚻 เข้าห้องน้ำ' },
+    { words: ['ไปกินข้าว','กินข้าว'],            label: '🍱 กินข้าว' },
+    { words: ['ไปสูบบุหรี่','สูบบุหรี่'],          label: '🚬 สูบบุหรี่' },
+    { words: ['ไปทำธุระ','ทำธุระ'],              label: '📋 ทำธุระ' },
+    { words: ['พักเบรก','พักสักครู่','ไปพัก'],     label: '☕ พักเบรก' },
+];
+function extractBreakReason(cleanText) {
+    for (const r of BREAK_REASON_MAP) {
+        if (r.words.some(w => cleanText.includes(w))) return r.label;
+    }
+    return '☕ พัก';
+}
+
 async function handleBreakMessage(rawText) {
     const cleanText = stripLeadingSymbols(rawText);
     const staffName = extractBreakName(cleanText);
@@ -665,12 +735,14 @@ async function handleBreakMessage(rawText) {
             return;
         }
 
+        const reason = extractBreakReason(cleanText);
         await supabase.from('break_sessions').insert([{
             staff_name: staffName,
             break_start: nowThai.toISOString(),
-            break_date: breakDate
+            break_date: breakDate,
+            break_reason: reason
         }]);
-        console.log(`[Break] 🍱 ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)} (วันพัก=${breakDate})`);
+        console.log(`[Break] ${reason} ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)} (วันพัก=${breakDate})`);
         return;
     }
 }
