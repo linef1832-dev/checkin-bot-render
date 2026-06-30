@@ -918,18 +918,18 @@
             return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
         }
 
-        // 🌙 ตรวจ record ที่ "คร่อมเวลาตี 1 (01:00)" — บอท Telegram รีเซ็ตตอนตี 1
-        // ถ้ากดพักก่อน 01:00 แล้วกดกลับหลัง 01:00 = ข้อมูลเพี้ยน ต้องตัดทิ้ง
+        // 🌙 ตรวจ record ที่ "คร่อมเวลาตี 1 (01:01)" — บอท Telegram รีเซ็ตตอน 01:01
+        // ถ้ากดพักก่อน 01:01 แล้วกดกลับตั้งแต่ 01:01 = ข้อมูลเพี้ยน ต้องตัดทิ้ง
         // อ่านเป็นเวลาไทยด้วย getUTCHours (เพราะ timestamp เก็บแบบ Thai-labeled-as-UTC)
         function crossesOneAM(start, end) {
             if (!start || !end) return false;
             const s = new Date(start), e = new Date(end);
             const sMin = s.getUTCHours() * 60 + s.getUTCMinutes();
             const eMin = e.getUTCHours() * 60 + e.getUTCMinutes();
-            const ONE_AM = 60; // 01:00 = 60 นาทีจากเที่ยงคืน
-            // เริ่มก่อนตี 1 (00:00-00:59) และจบตั้งแต่ตี 1 เป็นต้นไป (วันเดียวกันในมุมกะดึก)
-            // กรณีคร่อม: start < 01:00 <= end  (เวลาเดินไปข้างหน้าปกติ ไม่ใช่ข้ามวันถอยหลัง)
-            if (sMin < ONE_AM && eMin >= ONE_AM && eMin >= sMin) return true;
+            const RESET = 61; // 01:01 = 61 นาทีจากเที่ยงคืน
+            // เริ่มก่อน 01:01 (00:00-01:00) และจบตั้งแต่ 01:01 เป็นต้นไป
+            // กรณีคร่อม: start < 01:01 <= end  (เวลาเดินไปข้างหน้าปกติ ไม่ใช่ข้ามวันถอยหลัง)
+            if (sMin < RESET && eMin >= RESET && eMin >= sMin) return true;
             return false;
         }
 
