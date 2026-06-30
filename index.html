@@ -994,37 +994,106 @@
         }
 
         function renderBreakTable(rows) {
-            // group by staff_name (เก็บ dept/shift ไว้ด้วย)
+            const list = document.getElementById('breakList');
+            const range = document.getElementById('breakRange').value;
+            const isMultiDay = (range === '7' || range === '30');
+
+            if (!rows || rows.length === 0) {
+                document.getElementById('bStatTotal').textContent = '0';
+                document.getElementById('bStatAvg').textContent = '0 นาที';
+                document.getElementById('bStatMax').textContent = '0 นาที';
+                document.getElementById('bStatOver').textContent = '0 คน';
+                list.innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักในช่วงนี้ค่ะ</div>';
+                return;
+            }
+
+            // ===== สรุปรวมทั้งช่วง (ใช้ทุก record) =====
+            const allStaff = aggregateStaff(rows);
+            const grandMax = allStaff.length ? allStaff[0].totalMin : 0;
+            const grandAvg = allStaff.length ? Math.round(allStaff.reduce((a,x)=>a+x.totalMin,0)/allStaff.length) : 0;
+            const grandOver = allStaff.filter(x=>x.totalMin > 60).length;
+            document.getElementById('bStatTotal').textContent = allStaff.length + ' คน';
+            document.getElementById('bStatAvg').textContent = grandAvg + ' นาที';
+            document.getElementById('bStatMax').textContent = grandMax + ' นาที';
+            document.getElementById('bStatOver').textContent = grandOver + ' คน';
+
+            list.innerHTML = '';
+
+            if (!isMultiDay) {
+                // ===== โหมดวันเดียว: แสดงรายชื่อคนเลย =====
+                if (allStaff.length === 0) { list.innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักค่ะ</div>'; return; }
+                const maxMin = allStaff[0].totalMin;
+                allStaff.forEach((s, idx) => list.appendChild(buildStaffCard(s, idx, maxMin, 's')));
+                return;
+            }
+
+            // ===== โหมดหลายวัน: จัดกลุ่มตามวัน =====
+            const byDate = {};
+            rows.forEach(r => {
+                const d = r.break_date || '—';
+                if (!byDate[d]) byDate[d] = [];
+                byDate[d].push(r);
+            });
+            // เรียงวันล่าสุดอยู่บน
+            const dates = Object.keys(byDate).sort((a,b) => b.localeCompare(a));
+
+            dates.forEach((dateStr, dayIdx) => {
+                const dayStaff = aggregateStaff(byDate[dateStr]);
+                if (dayStaff.length === 0) return;
+                const dayMax = dayStaff[0].totalMin;
+                const dayTotal = dayStaff.reduce((a,x)=>a+x.totalMin, 0);
+                const dayId = `day-${dayIdx}`;
+                const dateLabel = (dateStr !== '—')
+                    ? new Date(dateStr+'T00:00:00').toLocaleDateString('th-TH', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+                    : 'ไม่ระบุวันที่';
+
+                // หัวข้อวัน (พับได้) — วันแรกสุด (ล่าสุด) เปิดไว้, ที่เหลือพับ
+                const openByDefault = (dayIdx === 0);
+                const dayWrap = document.createElement('div');
+                dayWrap.style.cssText = 'background:#23233a; border-radius:12px; overflow:hidden; border:1px solid #383852;';
+                dayWrap.innerHTML = `
+                    <div onclick="toggleDaySection('${dayId}', this)" style="display:flex; align-items:center; gap:10px; padding:14px 16px; cursor:pointer; background:#2a2a44;">
+                        <span style="font-size:16px;">📅</span>
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:700; color:#fff; font-size:15px;">${dateLabel}</div>
+                            <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${dayStaff.length} คน · รวม ${dayTotal} นาที</div>
+                        </div>
+                        <span id="${dayId}-arrow" style="color:#64748b; font-size:13px;">${openByDefault ? '▲' : '▼'}</span>
+                    </div>
+                    <div class="day-section ${dayId}" style="display:${openByDefault ? 'flex' : 'none'}; flex-direction:column; gap:8px; padding:12px;"></div>
+                `;
+                list.appendChild(dayWrap);
+
+                const dayContainer = dayWrap.querySelector('.' + dayId);
+                dayStaff.forEach((s, idx) => dayContainer.appendChild(buildStaffCard(s, idx, dayMax, dayId)));
+            });
+        }
+
+        // รวมข้อมูลพักของแต่ละคน (ตัดคร่อมตี1, รวมซ้ำ, คำนวณเวลา) จากชุด record ที่ส่งเข้ามา
+        function aggregateStaff(rows) {
             const grouped = {};
             const meta = {};
             rows.forEach(r => {
                 if (!grouped[r.staff_name]) { grouped[r.staff_name] = []; meta[r.staff_name] = { dept: r.department || '', shift: r.shift || '' }; }
                 grouped[r.staff_name].push(r);
             });
-
-            const staffList = Object.entries(grouped).map(([name, sessions]) => {
-                // 🌙 ตัด record ที่คร่อมเวลาตี 1 ทิ้งก่อน (เฉพาะกะดึก — บอท Telegram รีเซ็ตตอน 01:00)
+            return Object.entries(grouped).map(([name, sessions]) => {
+                // 🌙 ตัด record คร่อมตี 1 (เฉพาะกะดึก)
                 const cleaned = sessions.filter(s => {
                     const isNight = (meta[name].shift === 'night');
-                    if (isNight && crossesOneAM(s.break_start, s.break_end)) return false; // ทิ้งรอบที่เพี้ยน
+                    if (isNight && crossesOneAM(s.break_start, s.break_end)) return false;
                     return true;
                 });
-                // เรียงตามเวลาเริ่มจริง
                 const sorted = cleaned.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
-                // 🧹 รวม record ซ้ำ: เริ่มห่างกัน < 3 นาที = รอบเดียว (เทียบ timestamp เต็ม กันข้ามวันมารวมผิด)
                 const merged = [];
                 for (const s of sorted) {
                     const last = merged[merged.length - 1];
                     if (last) {
                         const gap = Math.abs(new Date(s.break_start) - new Date(last.break_start)) / 60000;
-                        if (gap < 3) {
-                            if (!last.break_end && s.break_end) last.break_end = s.break_end;
-                            continue;
-                        }
+                        if (gap < 3) { if (!last.break_end && s.break_end) last.break_end = s.break_end; continue; }
                     }
                     merged.push({ break_start: s.break_start, break_end: s.break_end, break_date: s.break_date, break_reason: s.break_reason });
                 }
-
                 let totalMin = 0;
                 const details = merged.map(s => {
                     const dur = diffMin(s.break_start, s.break_end);
@@ -1032,106 +1101,82 @@
                     return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur };
                 });
                 return { name, totalMin, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
-            }).filter(s => s.count > 0)
-              .sort((a,b) => b.totalMin - a.totalMin);
+            }).filter(s => s.count > 0).sort((a,b) => b.totalMin - a.totalMin);
+        }
 
-            // summary
-            if (staffList.length === 0) {
-                document.getElementById('bStatTotal').textContent = '0';
-                document.getElementById('bStatAvg').textContent = '0 นาที';
-                document.getElementById('bStatMax').textContent = '0 นาที';
-                document.getElementById('bStatOver').textContent = '0 คน';
-                document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักวันนี้ค่ะ</div>';
-                return;
-            }
+        // สร้างการ์ดพนักงาน 1 ใบ (prefix ใช้กันชน id ซ้ำระหว่างวัน)
+        function buildStaffCard(s, idx, maxMin, prefix) {
+            const pct = maxMin > 0 ? Math.round((s.totalMin / maxMin) * 100) : 0;
+            const barColor = s.totalMin <= 30 ? '#34d399' : s.totalMin <= 60 ? '#fbbf24' : '#f87171';
+            const badgeCls = s.totalMin <= 30 ? 'ok' : s.totalMin <= 60 ? 'warn' : 'over';
+            const badgeTxt = s.totalMin <= 30 ? 'ปกติ' : s.totalMin <= 60 ? 'เฝ้าระวัง' : 'เกินกำหนด';
+            const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
+            const dtId = `bdt-${prefix}-${idx}`;
 
-            const maxMin = staffList[0].totalMin;
-            const avgMin = Math.round(staffList.reduce((s,x)=>s+x.totalMin,0) / staffList.length);
-            const overCount = staffList.filter(x=>x.totalMin > 60).length;
-
-            document.getElementById('bStatTotal').textContent = staffList.length + ' คน';
-            document.getElementById('bStatAvg').textContent = avgMin + ' นาที';
-            document.getElementById('bStatMax').textContent = maxMin + ' นาที';
-            document.getElementById('bStatOver').textContent = overCount + ' คน';
-
-            const list = document.getElementById('breakList');
-            list.innerHTML = '';
-
-            staffList.forEach((s, idx) => {
-                const pct = maxMin > 0 ? Math.round((s.totalMin / maxMin) * 100) : 0;
-                const barColor = s.totalMin <= 30 ? '#34d399' : s.totalMin <= 60 ? '#fbbf24' : '#f87171';
-                const badgeCls = s.totalMin <= 30 ? 'ok' : s.totalMin <= 60 ? 'warn' : 'over';
-                const badgeTxt = s.totalMin <= 30 ? 'ปกติ' : s.totalMin <= 60 ? 'เฝ้าระวัง' : 'เกินกำหนด';
-                const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
-                const dtId = `bdt-${idx}`;
-
-                const sortedDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
-                // แสดงวันที่ในรายละเอียดเมื่อดูแบบหลายวัน
-                const showDate = (new Set(sortedDetails.map(d => d.date)).size > 1) ||
-                                 (document.getElementById('breakRange').value !== 'today' && document.getElementById('breakRange').value !== 'custom');
-                let chipsHtml = '';
-                sortedDetails.forEach((d, di) => {
-                    const ongoing = !d.end;
-                    const durTxt = d.dur !== null ? `${d.dur} นาที` : '—';
-                    const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
-                    const endTxt = ongoing ? '<span style="color:#f39c12; font-weight:600;">ยังพักอยู่</span>' : fmtTime(d.end);
-                    const dotColor = ongoing ? '#f39c12' : '#34d399';
-                    const dateBadge = showDate && d.date
-                        ? `<span style="color:#64748b; font-size:11px; min-width:48px;">${new Date(d.date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</span>`
-                        : '';
-                    const reasonBadge = d.reason
-                        ? `<span style="font-size:11px; color:#c4b5fd; background:#2e2640; padding:2px 8px; border-radius:10px; white-space:nowrap;">${d.reason}</span>`
-                        : '';
-                    chipsHtml += `
-                        <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${dotColor}; flex-wrap:wrap;">
-                            <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
-                            ${dateBadge}
-                            <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
-                            <span style="color:#64748b; font-size:12px;">→</span>
-                            <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
-                            ${reasonBadge}
-                            <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
-                        </div>`;
-                });
-
-                // ป้ายแผนก/กะ
-                const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
-                const deptLabel = (s.dept && s.dept !== 'UNKNOWN') ? s.dept : '';
-                let metaBadges = '';
-                if (deptLabel) metaBadges += `<span style="font-size:10px; background:#1e3a5f; color:#7dd3fc; padding:1px 7px; border-radius:10px;">${deptLabel}</span>`;
-                if (shiftLabel) metaBadges += `<span style="font-size:10px; background:#3a2f1e; color:#fcd34d; padding:1px 7px; border-radius:10px;">${shiftLabel}</span>`;
-
-                const card = document.createElement('div');
-                card.style.cssText = 'background:#2a2a40; border-radius:10px; overflow:hidden; border:1px solid #383852;';
-                card.innerHTML = `
-                    <div onclick="toggleBreakDetail('${dtId}', this)" style="display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer;">
-                        <div style="width:26px; height:26px; border-radius:50%; background:${rankColor}22; color:${rankColor}; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;">${idx+1}</div>
-                        <div style="flex:1; min-width:0;">
-                            <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
-                                <span style="font-weight:700; color:#fff; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</span>
-                                ${metaBadges}
-                            </div>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                <div style="flex:1; max-width:160px; height:6px; background:#1e1e2f; border-radius:3px; overflow:hidden;">
-                                    <div style="width:${pct}%; height:100%; background:${barColor}; border-radius:3px; transition:width .4s;"></div>
-                                </div>
-                                <span style="font-size:11px; color:#64748b;">${s.count} รอบ</span>
-                            </div>
-                        </div>
-                        <div style="text-align:right; flex-shrink:0;">
-                            <div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${s.totalMin}<span style="font-size:11px; color:#888; font-weight:400;"> นาที</span></div>
-                            <span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>
-                        </div>
-                        <div style="color:#64748b; font-size:12px; flex-shrink:0; width:14px; text-align:center;" id="${dtId}-arrow">▼</div>
-                    </div>
-                    <div class="break-detail-body ${dtId}" style="display:none; padding:0 16px 14px 16px;">
-                        <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px; border-top:1px solid #383852;">
-                            <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${sortedDetails.length} รอบ</div>
-                            ${chipsHtml}
-                        </div>
+            const sortedDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+            // แสดงวันที่ในรายละเอียดเมื่อรอบของคนนี้คร่อมหลายวัน
+            const showDate = (new Set(sortedDetails.map(d => d.date)).size > 1);
+            let chipsHtml = '';
+            sortedDetails.forEach((d, di) => {
+                const ongoing = !d.end;
+                const durTxt = d.dur !== null ? `${d.dur} นาที` : '—';
+                const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
+                const endTxt = ongoing ? '<span style="color:#f39c12; font-weight:600;">ยังพักอยู่</span>' : fmtTime(d.end);
+                const dotColor = ongoing ? '#f39c12' : '#34d399';
+                const dateBadge = showDate && d.date
+                    ? `<span style="color:#64748b; font-size:11px; min-width:48px;">${new Date(d.date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</span>`
+                    : '';
+                const reasonBadge = d.reason
+                    ? `<span style="font-size:11px; color:#c4b5fd; background:#2e2640; padding:2px 8px; border-radius:10px; white-space:nowrap;">${d.reason}</span>`
+                    : '';
+                chipsHtml += `
+                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${dotColor}; flex-wrap:wrap;">
+                        <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
+                        ${dateBadge}
+                        <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
+                        <span style="color:#64748b; font-size:12px;">→</span>
+                        <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
+                        ${reasonBadge}
+                        <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
                     </div>`;
-                list.appendChild(card);
             });
+
+            const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
+            const deptLabel = (s.dept && s.dept !== 'UNKNOWN') ? s.dept : '';
+            let metaBadges = '';
+            if (deptLabel) metaBadges += `<span style="font-size:10px; background:#1e3a5f; color:#7dd3fc; padding:1px 7px; border-radius:10px;">${deptLabel}</span>`;
+            if (shiftLabel) metaBadges += `<span style="font-size:10px; background:#3a2f1e; color:#fcd34d; padding:1px 7px; border-radius:10px;">${shiftLabel}</span>`;
+
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#2a2a40; border-radius:10px; overflow:hidden; border:1px solid #383852;';
+            card.innerHTML = `
+                <div onclick="toggleBreakDetail('${dtId}', this)" style="display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer;">
+                    <div style="width:26px; height:26px; border-radius:50%; background:${rankColor}22; color:${rankColor}; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;">${idx+1}</div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
+                            <span style="font-weight:700; color:#fff; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</span>
+                            ${metaBadges}
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <div style="flex:1; max-width:160px; height:6px; background:#1e1e2f; border-radius:3px; overflow:hidden;">
+                                <div style="width:${pct}%; height:100%; background:${barColor}; border-radius:3px; transition:width .4s;"></div>
+                            </div>
+                            <span style="font-size:11px; color:#64748b;">${s.count} รอบ</span>
+                        </div>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        <div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${s.totalMin}<span style="font-size:11px; color:#888; font-weight:400;"> นาที</span></div>
+                        <span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>
+                    </div>
+                    <div style="color:#64748b; font-size:12px; flex-shrink:0; width:14px; text-align:center;" id="${dtId}-arrow">▼</div>
+                </div>
+                <div class="break-detail-body ${dtId}" style="display:none; padding:0 16px 14px 16px;">
+                    <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px; border-top:1px solid #383852;">
+                        <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${sortedDetails.length} รอบ</div>
+                        ${chipsHtml}
+                    </div>
+                </div>`;
+            return card;
         }
 
         function toggleBreakDetail(dtId, headerEl) {
@@ -1140,6 +1185,15 @@
             if (!panel) return;
             const isOpen = panel.style.display !== 'none';
             panel.style.display = isOpen ? 'none' : 'block';
+            if (arrow) arrow.textContent = isOpen ? '▼' : '▲';
+        }
+
+        function toggleDaySection(dayId, headerEl) {
+            const panel = document.querySelector('.day-section.' + dayId);
+            const arrow = document.getElementById(dayId + '-arrow');
+            if (!panel) return;
+            const isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'flex';
             if (arrow) arrow.textContent = isOpen ? '▼' : '▲';
         }
     </script>
