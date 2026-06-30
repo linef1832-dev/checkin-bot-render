@@ -918,6 +918,21 @@
             return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
         }
 
+        // 🌙 ตรวจ record ที่ "คร่อมเวลาตี 1 (01:00)" — บอท Telegram รีเซ็ตตอนตี 1
+        // ถ้ากดพักก่อน 01:00 แล้วกดกลับหลัง 01:00 = ข้อมูลเพี้ยน ต้องตัดทิ้ง
+        // อ่านเป็นเวลาไทยด้วย getUTCHours (เพราะ timestamp เก็บแบบ Thai-labeled-as-UTC)
+        function crossesOneAM(start, end) {
+            if (!start || !end) return false;
+            const s = new Date(start), e = new Date(end);
+            const sMin = s.getUTCHours() * 60 + s.getUTCMinutes();
+            const eMin = e.getUTCHours() * 60 + e.getUTCMinutes();
+            const ONE_AM = 60; // 01:00 = 60 นาทีจากเที่ยงคืน
+            // เริ่มก่อนตี 1 (00:00-00:59) และจบตั้งแต่ตี 1 เป็นต้นไป (วันเดียวกันในมุมกะดึก)
+            // กรณีคร่อม: start < 01:00 <= end  (เวลาเดินไปข้างหน้าปกติ ไม่ใช่ข้ามวันถอยหลัง)
+            if (sMin < ONE_AM && eMin >= ONE_AM && eMin >= sMin) return true;
+            return false;
+        }
+
         // toggle ช่องเลือกวันเองเมื่อเลือก "custom"
         function onBreakRangeChange() {
             const range = document.getElementById('breakRange').value;
@@ -988,8 +1003,14 @@
             });
 
             const staffList = Object.entries(grouped).map(([name, sessions]) => {
+                // 🌙 ตัด record ที่คร่อมเวลาตี 1 ทิ้งก่อน (เฉพาะกะดึก — บอท Telegram รีเซ็ตตอน 01:00)
+                const cleaned = sessions.filter(s => {
+                    const isNight = (meta[name].shift === 'night');
+                    if (isNight && crossesOneAM(s.break_start, s.break_end)) return false; // ทิ้งรอบที่เพี้ยน
+                    return true;
+                });
                 // เรียงตามเวลาเริ่มจริง
-                const sorted = sessions.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
+                const sorted = cleaned.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
                 // 🧹 รวม record ซ้ำ: เริ่มห่างกัน < 3 นาที = รอบเดียว (เทียบ timestamp เต็ม กันข้ามวันมารวมผิด)
                 const merged = [];
                 for (const s of sorted) {
@@ -1011,7 +1032,8 @@
                     return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur };
                 });
                 return { name, totalMin, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
-            }).sort((a,b) => b.totalMin - a.totalMin);
+            }).filter(s => s.count > 0)
+              .sort((a,b) => b.totalMin - a.totalMin);
 
             // summary
             if (staffList.length === 0) {
