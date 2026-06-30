@@ -195,16 +195,24 @@ app.post('/api/ping-active', async (req, res) => {
             let newAfkCount = existingData.afk_count || 0;
 
             if (diffFromLastPing >= 10) {
-                const { data: breakData } = await supabase
+                // 🌙 หาพักทั้งวันนี้และเมื่อวาน (กันกะดึกข้ามคืน ที่ break_date อาจเป็นเมื่อวาน)
+                const yesterdayYYYYMMDD = new Date(new Date(currentPing).getTime() - 24*60*60*1000).toISOString().split('T')[0];
+                const { data: breakRows } = await supabase
                     .from('break_sessions')
-                    .select('id')
+                    .select('break_start, break_end')
                     .eq('staff_name', sessionProfile.toUpperCase())
-                    .eq('break_date', todayYYYYMMDD)
-                    .gte('break_start', new Date(lastPing).toISOString())
-                    .lte('break_start', new Date(currentPing).toISOString())
-                    .limit(1);
+                    .in('break_date', [todayYYYYMMDD, yesterdayYYYYMMDD]);
 
-                const isOnBreak = breakData && breakData.length > 0;
+                // เช็คว่าช่วงที่หายไป (lastPing → currentPing) "ทับ" กับช่วงพักใดๆ ไหม
+                // ทับ = พักเริ่มก่อน currentPing  และ  พักจบหลัง lastPing (พักที่ยังไม่จบ = ยังพักอยู่ ถือว่าทับ)
+                let isOnBreak = false;
+                if (breakRows && breakRows.length > 0) {
+                    for (const br of breakRows) {
+                        const bStart = new Date(br.break_start).getTime();
+                        const bEnd = br.break_end ? new Date(br.break_end).getTime() : currentPing; // ยังไม่จบ = ถือว่าพักถึงตอนนี้
+                        if (bStart <= currentPing && bEnd >= lastPing) { isOnBreak = true; break; }
+                    }
+                }
 
                 if (!isOnBreak) {
                     newAfkCount += 1;
