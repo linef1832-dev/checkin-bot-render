@@ -918,6 +918,9 @@ async function checkDailyTotalBreaks() {
             const [staffName] = key.split('|');
             const shift = await getStaffShift(staffName);
 
+            // ⏰ ถ้าเลยเวลาเลิกกะของคนนั้นแล้ว → ไม่แจ้ง (กันแจ้งคนที่เลิกงานไปแล้ว)
+            if (!isWithinShift(shift, nowThai)) continue;
+
             // ตัด record คร่อม 01:01 (เฉพาะกะดึก) ให้ตรงกับ Dashboard
             const cleaned = sessions.filter(s => {
                 if (shift === 'night' && crossesOneAMBot(s.break_start, s.break_end)) return false;
