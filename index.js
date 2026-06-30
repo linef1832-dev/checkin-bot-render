@@ -773,6 +773,104 @@ async function handleBreakMessage(rawText) {
     }
 }
 
+// ⏰ เก็บเวลาแจ้งเตือนล่าสุดของแต่ละ record (id → timestamp ms) เพื่อแจ้งซ้ำทุก 2 นาที
+const lastAlertTime = new Map();
+const LONG_BREAK_LIMIT_MIN = 30;   // เกินกี่นาทีถึงเริ่มแจ้งเตือน
+const ALERT_REPEAT_MIN = 2;        // แจ้งซ้ำทุกกี่นาที
+
+// แปลงชื่อในตารางพัก → หากะของพนักงานจาก staff_list (คืน 'morning'/'noon'/'night' หรือ null)
+async function getStaffShift(breakName) {
+    try {
+        const bn = (breakName || '').toUpperCase().trim();
+        const bnTokens = bn.split(/[-_/\s]+/).filter(Boolean);
+        const { data: staffRows } = await supabase.from('staff_list').select('staff_name, shift');
+        if (!staffRows) return null;
+        for (const r of staffRows) {
+            const full = (r.staff_name || '').toUpperCase().trim();
+            const short = full.replace(/^(AMOL|ODOL)[-\s]/i, '').trim();
+            const tokens = short.split(/[-_/\s]+/).filter(Boolean);
+            if (short === bn || full === bn ||
+                tokens.some(t => bnTokens.includes(t)) || bnTokens.some(t => tokens.includes(t))) {
+                return (r.shift || '').toLowerCase();
+            }
+        }
+    } catch (e) {}
+    return null;
+}
+
+// เช็คว่าเวลาไทยปัจจุบันยังอยู่ในเวลาทำงานของกะนั้นไหม
+// เช้า 08:00-20:00 | เที่ยง 11:00-23:00 | ดึก 20:00-08:00 (ข้ามคืน)
+function isWithinShift(shift, thaiTime) {
+    const totalMin = thaiTime.getHours() * 60 + thaiTime.getMinutes();
+    if (shift === 'morning') return totalMin >= 8*60 && totalMin < 20*60;
+    if (shift === 'noon')    return totalMin >= 11*60 && totalMin < 23*60;
+    if (shift === 'night')   return (totalMin >= 20*60) || (totalMin < 8*60); // ข้ามเที่ยงคืน
+    return true; // ไม่รู้กะ → แจ้งไปก่อน (ปลอดภัยไว้)
+}
+
+// ตรวจว่ามีใครพักเกิน 30 นาทีและยังไม่กลับ → แจ้งเตือนเข้าห้องแจ้งพัก (ซ้ำทุก 2 นาที)
+async function checkLongBreaks() {
+    try {
+        if (!dataStore.breakChannels || dataStore.breakChannels.length === 0) return;
+        const breakDate = getBreakDateStr();
+        const prevDate = toDateStr(new Date(getThaiTime().getTime() - 24 * 60 * 60 * 1000));
+        const nowThai = getThaiTime();
+        const nowMs = nowThai.getTime();
+
+        const { data: openBreaks } = await supabase
+            .from('break_sessions')
+            .select('id, staff_name, break_start, break_reason, break_date')
+            .in('break_date', [breakDate, prevDate])
+            .is('break_end', null)
+            .order('break_start', { ascending: true });
+
+        if (!openBreaks || openBreaks.length === 0) {
+            lastAlertTime.clear();
+            return;
+        }
+
+        for (const b of openBreaks) {
+            const startMs = new Date(b.break_start).getTime();
+            const elapsedMin = Math.floor((nowMs - startMs) / 60000);
+
+            // ยังไม่ถึง 30 นาที หรือค่าเพี้ยนข้ามวัน → ข้าม
+            if (elapsedMin < LONG_BREAK_LIMIT_MIN || elapsedMin >= 24 * 60) continue;
+
+            // เช็คว่ายังอยู่ในเวลาทำงานของกะคนนั้นไหม ถ้าเลยเวลาเลิกกะแล้ว → ไม่แจ้ง
+            const shift = await getStaffShift(b.staff_name);
+            if (!isWithinShift(shift, nowThai)) {
+                lastAlertTime.delete(b.id); // เลยกะแล้ว ล้างออก ไม่แจ้งต่อ
+                continue;
+            }
+
+            // แจ้งซ้ำทุก 2 นาที: เช็คว่าแจ้งครั้งล่าสุดเกิน 2 นาทีหรือยัง
+            const last = lastAlertTime.get(b.id) || 0;
+            if (nowMs - last < ALERT_REPEAT_MIN * 60000) continue;
+
+            const startStr = new Date(b.break_start).toISOString().slice(11, 16); // HH:MM (เวลาไทย)
+            const reasonStr = b.break_reason || '☕ พัก';
+            const msg = `⚠️ **แจ้งเตือนพักนาน**\n👤 **${b.staff_name}** พักเกิน ${LONG_BREAK_LIMIT_MIN} นาทีแล้ว!\n${reasonStr} · เริ่มพักเวลา ${startStr} น. (ผ่านมา ${elapsedMin} นาที)\n⏰ ยังไม่กดกลับที่นั่ง`;
+
+            for (const chId of dataStore.breakChannels) {
+                try {
+                    const ch = await client.channels.fetch(chId).catch(() => null);
+                    if (ch) await ch.send(msg);
+                } catch (e) { console.error('[LongBreak] ส่งแจ้งเตือนไม่ได้:', e.message); }
+            }
+            lastAlertTime.set(b.id, nowMs);
+            console.log(`[LongBreak] 🔔 แจ้งเตือน ${b.staff_name} พัก ${elapsedMin} นาที (id=${b.id})`);
+        }
+
+        // เคลียร์ id ที่ปิดไปแล้วออกจาก Map (กัน memory โต)
+        const openIds = new Set(openBreaks.map(b => b.id));
+        for (const id of lastAlertTime.keys()) {
+            if (!openIds.has(id)) lastAlertTime.delete(id);
+        }
+    } catch (err) {
+        console.error('[LongBreak] error:', err);
+    }
+}
+
 function resolveShiftKey(raw) {
     const s = (raw || '').toString().trim().toLowerCase();
     if (!s || s === 'คงเดิม' || s === 'same' || s === 'keep') return null;
@@ -1617,6 +1715,7 @@ client.once('ready', () => {
 
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
+        await checkLongBreaks();
         if (!dataStore.autoCheckinEnabled) return;
         const localTime = getThaiTime();
         const currentHour = localTime.getHours();
