@@ -677,13 +677,16 @@ function extractBreakReason(cleanText) {
     return '☕ พัก';
 }
 
-async function handleBreakMessage(rawText) {
+async function handleBreakMessage(rawText, message) {
     const cleanText = stripLeadingSymbols(rawText);
     const staffName = extractBreakName(cleanText);
     if (!staffName) return;
     const nowThai = getThaiTime();
     const breakDate = getBreakDateStr();        // วันสำหรับบันทึก (กะดึกข้ามคืน = วันที่เริ่มกะ)
     const prevDate = toDateStr(new Date(getThaiTime().getTime() - 24 * 60 * 60 * 1000));
+    // เก็บ channel/message id ของข้อความพัก เพื่อใช้ reply ตอนแจ้งเตือน
+    const srcChannelId = message ? message.channel.id : null;
+    const srcMessageId = message ? message.id : null;
 
     // เช็คคำว่า "กลับ/พร้อม" ก่อน (กันเคสข้อความมีทั้งสองคำ)
     if (matchBreakEnd(cleanText)) {
@@ -752,21 +755,37 @@ async function handleBreakMessage(rawText) {
         }
 
         const reason = extractBreakReason(cleanText);
-        // ลอง insert พร้อม break_reason ถ้าคอลัมน์ยังไม่มีให้ insert แบบไม่มี reason
-        let insErr = null;
-        ({ error: insErr } = await supabase.from('break_sessions').insert([{
+        // ลอง insert พร้อมข้อมูลครบ (reason + channel/message id) ถ้าคอลัมน์ยังไม่มีให้ fallback
+        const fullRow = {
             staff_name: staffName,
             break_start: nowThai.toISOString(),
             break_date: breakDate,
-            break_reason: reason
-        }]));
+            break_reason: reason,
+            channel_id: srcChannelId,
+            message_id: srcMessageId
+        };
+        let insErr = null;
+        ({ error: insErr } = await supabase.from('break_sessions').insert([fullRow]));
         if (insErr) {
-            await supabase.from('break_sessions').insert([{
+            // ลองแบบมี reason แต่ไม่มี channel/message id
+            let insErr2 = null;
+            ({ error: insErr2 } = await supabase.from('break_sessions').insert([{
                 staff_name: staffName,
                 break_start: nowThai.toISOString(),
-                break_date: breakDate
-            }]);
-            console.log(`[Break] ⚠️ insert reason ไม่ได้ (คอลัมน์ break_reason อาจยังไม่มี) → บันทึกแบบไม่มีเหตุผล`);
+                break_date: breakDate,
+                break_reason: reason
+            }]));
+            if (insErr2) {
+                // ลองแบบพื้นฐานสุด (ไม่มี reason เลย)
+                await supabase.from('break_sessions').insert([{
+                    staff_name: staffName,
+                    break_start: nowThai.toISOString(),
+                    break_date: breakDate
+                }]);
+                console.log(`[Break] ⚠️ insert แบบเต็มไม่ได้ → บันทึกแบบพื้นฐาน (คอลัมน์ channel_id/message_id/break_reason อาจยังไม่มี)`);
+            } else {
+                console.log(`[Break] ⚠️ insert channel/message id ไม่ได้ (คอลัมน์อาจยังไม่มี) → บันทึกแบบมีเหตุผลอย่างเดียว`);
+            }
         }
         console.log(`[Break] ${reason} ${staffName} เริ่มพัก ${nowThai.toTimeString().slice(0,5)} (วันพัก=${breakDate})`);
         return;
@@ -795,6 +814,36 @@ function crossesOneAMBot(start, end) {
 }
 
 // แปลงชื่อในตารางพัก → หากะของพนักงานจาก staff_list (คืน 'morning'/'noon'/'night' หรือ null)
+// 💬 ส่งข้อความแจ้งเตือนโดย "ตอบกลับ" ข้อความพักของพนักงานคนนั้น
+// ถ้าไม่มี channel_id/message_id หรือหาไม่เจอ → fallback ส่งเข้าห้องแจ้งพักห้องแรก
+async function sendBreakAlert(channelId, messageId, msg) {
+    // มี channel + message id → ลอง reply ที่ข้อความนั้นโดยตรง
+    if (channelId && messageId) {
+        try {
+            const ch = await client.channels.fetch(channelId).catch(() => null);
+            if (ch) {
+                const targetMsg = await ch.messages.fetch(messageId).catch(() => null);
+                if (targetMsg) {
+                    await targetMsg.reply(msg);
+                    return true;
+                }
+                // หาข้อความไม่เจอ (อาจถูกลบ) แต่ยังรู้ห้อง → ส่งเข้าห้องนั้น
+                await ch.send(msg);
+                return true;
+            }
+        } catch (e) { console.error('[Alert] reply ไม่ได้:', e.message); }
+    }
+    // fallback: ส่งเข้าห้องแจ้งพักห้องแรกที่ลงทะเบียน
+    try {
+        const fallbackId = (dataStore.breakChannels && dataStore.breakChannels[0]) || channelId;
+        if (fallbackId) {
+            const ch = await client.channels.fetch(fallbackId).catch(() => null);
+            if (ch) { await ch.send(msg); return true; }
+        }
+    } catch (e) { console.error('[Alert] fallback ส่งไม่ได้:', e.message); }
+    return false;
+}
+
 async function getStaffShift(breakName) {
     try {
         const bn = (breakName || '').toUpperCase().trim();
@@ -833,12 +882,22 @@ async function checkLongBreaks() {
         const nowThai = getThaiTime();
         const nowMs = nowThai.getTime();
 
-        const { data: openBreaks } = await supabase
+        let openBreaks = null;
+        ({ data: openBreaks } = await supabase
             .from('break_sessions')
-            .select('id, staff_name, break_start, break_reason, break_date')
+            .select('id, staff_name, break_start, break_reason, break_date, channel_id, message_id')
             .in('break_date', [breakDate, prevDate])
             .is('break_end', null)
-            .order('break_start', { ascending: true });
+            .order('break_start', { ascending: true }));
+        if (openBreaks === null) {
+            // คอลัมน์ channel_id/message_id อาจยังไม่มี → ดึงแบบไม่มี
+            ({ data: openBreaks } = await supabase
+                .from('break_sessions')
+                .select('id, staff_name, break_start, break_reason, break_date')
+                .in('break_date', [breakDate, prevDate])
+                .is('break_end', null)
+                .order('break_start', { ascending: true }));
+        }
 
         if (!openBreaks || openBreaks.length === 0) {
             lastAlertTime.clear();
@@ -867,12 +926,8 @@ async function checkLongBreaks() {
             const reasonStr = b.break_reason || '☕ พัก';
             const msg = `⚠️ **แจ้งเตือนพักนาน**\n👤 **${b.staff_name}** พักเกิน ${LONG_BREAK_LIMIT_MIN} นาทีแล้ว!\n${reasonStr} · เริ่มพักเวลา ${startStr} น. (ผ่านมา ${elapsedMin} นาที)\n⏰ ยังไม่กดกลับที่นั่ง`;
 
-            for (const chId of dataStore.breakChannels) {
-                try {
-                    const ch = await client.channels.fetch(chId).catch(() => null);
-                    if (ch) await ch.send(msg);
-                } catch (e) { console.error('[LongBreak] ส่งแจ้งเตือนไม่ได้:', e.message); }
-            }
+            // ตอบกลับข้อความพักของคนนั้น (ถ้ามี) ไม่งั้น fallback เข้าห้องแจ้งพัก
+            await sendBreakAlert(b.channel_id, b.message_id, msg);
             lastAlertTime.set(b.id, nowMs);
             console.log(`[LongBreak] 🔔 แจ้งเตือน ${b.staff_name} พัก ${elapsedMin} นาที (id=${b.id})`);
         }
@@ -897,11 +952,19 @@ async function checkDailyTotalBreaks() {
         const nowMs = nowThai.getTime();
 
         // ดึงทุก record ของวันนี้ + เมื่อวาน (กันกะดึกข้ามคืน)
-        const { data: allBreaks } = await supabase
+        let allBreaks = null;
+        ({ data: allBreaks } = await supabase
             .from('break_sessions')
-            .select('id, staff_name, break_start, break_end, break_date')
+            .select('id, staff_name, break_start, break_end, break_date, channel_id, message_id')
             .in('break_date', [breakDate, prevDate])
-            .order('break_start', { ascending: true });
+            .order('break_start', { ascending: true }));
+        if (allBreaks === null) {
+            ({ data: allBreaks } = await supabase
+                .from('break_sessions')
+                .select('id, staff_name, break_start, break_end, break_date')
+                .in('break_date', [breakDate, prevDate])
+                .order('break_start', { ascending: true }));
+        }
         if (!allBreaks || allBreaks.length === 0) return;
 
         // จัดกลุ่มตาม staff_name + break_date (แยกยอดแต่ละวัน)
@@ -946,15 +1009,13 @@ async function checkDailyTotalBreaks() {
                 if (dur > 0 && dur < 24 * 60) totalMin += dur;
             }
 
-            // ถึงเกณฑ์ 110 นาที → แจ้งเตือน
+            // ถึงเกณฑ์ 110 นาที → แจ้งเตือน (ตอบกลับข้อความพักล่าสุดของคนนั้น)
             if (totalMin >= DAILY_WARN_MIN) {
                 const msg = `📊 **แจ้งเตือนเวลาพักสะสม**\n👤 **${staffName}** วันนี้ใช้เวลาพักไป **${totalMin} นาที** แล้ว\n⚠️ หากเกิน ${DAILY_LIMIT_MIN} นาทีอาจทำให้โดนปรับ\n💚 บริหารเวลากันดีๆ นะจ๊ะ`;
-                for (const chId of dataStore.breakChannels) {
-                    try {
-                        const ch = await client.channels.fetch(chId).catch(() => null);
-                        if (ch) await ch.send(msg);
-                    } catch (e) { console.error('[DailyBreak] ส่งแจ้งเตือนไม่ได้:', e.message); }
-                }
+                // หา record ล่าสุดของคนนี้ที่มี message id เพื่อ reply
+                const withMsg = sessions.filter(s => s.channel_id && s.message_id)
+                    .sort((a, b) => new Date(b.break_start) - new Date(a.break_start))[0];
+                await sendBreakAlert(withMsg ? withMsg.channel_id : null, withMsg ? withMsg.message_id : null, msg);
                 dailyWarnedStaff.add(key);
                 console.log(`[DailyBreak] 📊 แจ้งเตือน ${staffName} ยอดสะสม ${totalMin} นาที (${key})`);
             }
@@ -1418,7 +1479,7 @@ client.on('messageCreate', async (message) => {
             // 🔍 DEBUG: log ทุกข้อความที่เข้ามาในห้องแจ้งพัก
             console.log(`[Break-DEBUG] ห้อง=${channelId} | user=${message.author?.username || '?'} | webhookId=${message.webhookId || '-'} | content="${message.content}"`);
             try {
-                await handleBreakMessage(message.content || '');
+                await handleBreakMessage(message.content || '', message);
             } catch (e) {
                 console.error('[Break] handle error:', e);
             }
