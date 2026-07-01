@@ -1129,7 +1129,7 @@
                     if (durSec) completedSec += durSec.mins * 60 + durSec.secs;
                     return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur, durSec };
                 });
-                return { name, totalMin, completedSec, ongoingStart, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
+                return { name, totalMin, completedSec, ongoingStart, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift, totalSec: completedSec };
             }).filter(s => s.count > 0).sort((a,b) => b.totalMin - a.totalMin);
         }
 
@@ -1173,7 +1173,7 @@
             const startEpochMs = s.ongoingStart ? new Date(s.ongoingStart).getTime() : null;
             const timerHtml = s.ongoingStart
                 ? `<span class="live-timer" data-completed-sec="${s.completedSec}" data-start-epoch="${startEpochMs}" style="font-size:20px; font-weight:700; color:#f39c12; line-height:1;">กำลังนับ...</span>`
-                : `<div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${s.totalMin}<span style="font-size:11px; color:#888; font-weight:400;"> นาที</span></div>`;
+                : `<div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${Math.floor(s.totalSec/60)}<span style="font-size:14px; font-weight:400; color:${barColor};"> นาที</span> ${s.totalSec%60 > 0 ? `<span style="font-size:14px; font-weight:400; color:#aaa;">${s.totalSec%60} วิ</span>` : ''}</div>`;
             const badgeHtml = s.ongoingStart
                 ? `<span class="bbadge warn" style="margin-top:4px;">กำลังพัก</span>`
                 : `<span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>`;
