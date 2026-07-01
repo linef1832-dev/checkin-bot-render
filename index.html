@@ -905,9 +905,18 @@
         function diffMin(start, end) {
             if (!start) return null;
             const s = new Date(start);
-            // ถ้ายังพักอยู่ (ไม่มี end) ใช้เวลาไทยปัจจุบัน (เทียบฐานเดียวกับที่บันทึก = Thai-labeled-as-UTC)
             const e = end ? new Date(end) : new Date(new Date().getTime() + 7*3600000);
-            return Math.max(0, Math.round((e - s) / 60000));
+            return Math.max(0, Math.floor((e - s) / 60000));
+        }
+
+        function diffMinSec(start, end) {
+            if (!start) return null;
+            const s = new Date(start);
+            const e = end ? new Date(end) : new Date(new Date().getTime() + 7*3600000);
+            const totalSec = Math.max(0, Math.floor((e - s) / 1000));
+            const mins = Math.floor(totalSec / 60);
+            const secs = totalSec % 60;
+            return { mins, secs };
         }
 
         function fmtTime(isoStr) {
@@ -1097,8 +1106,9 @@
                 let totalMin = 0;
                 const details = merged.map(s => {
                     const dur = diffMin(s.break_start, s.break_end);
+                    const durSec = diffMinSec(s.break_start, s.break_end);
                     if (dur && dur > 0) totalMin += dur;
-                    return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur };
+                    return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur, durSec };
                 });
                 return { name, totalMin, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
             }).filter(s => s.count > 0).sort((a,b) => b.totalMin - a.totalMin);
@@ -1119,7 +1129,9 @@
             let chipsHtml = '';
             sortedDetails.forEach((d, di) => {
                 const ongoing = !d.end;
-                const durTxt = d.dur !== null ? `${d.dur} นาที` : '—';
+                const durTxt = d.durSec !== null
+                    ? (d.durSec.secs > 0 ? `${d.durSec.mins} นาที ${d.durSec.secs} วินาที` : `${d.durSec.mins} นาที`)
+                    : '—';
                 const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
                 const endTxt = ongoing ? '<span style="color:#f39c12; font-weight:600;">ยังพักอยู่</span>' : fmtTime(d.end);
                 const dotColor = ongoing ? '#f39c12' : '#34d399';
