@@ -1177,7 +1177,6 @@
             const badgeHtml = s.ongoingStart
                 ? `<span class="bbadge warn" style="margin-top:4px;">กำลังพัก</span>`
                 : `<span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>`;
-            });
 
             const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
             const deptLabel = (s.dept && s.dept !== 'UNKNOWN') ? s.dept : '';
