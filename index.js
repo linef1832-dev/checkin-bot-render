@@ -1936,6 +1936,21 @@ cron.schedule('0 8 1 * *', async () => {
     } catch (e) { console.error('❌ [KPI Monthly]', e); }
 }, { scheduled: true, timezone: 'Asia/Bangkok' });
 
+// ลบข้อมูล break_sessions ที่เก่ากว่า 7 วัน ทุกเที่ยงคืน (เวลาไทย)
+cron.schedule('0 0 * * *', async () => {
+    try {
+        const now = new Date(new Date().getTime() + 7 * 3600000); // Thai time
+        const cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const cutoffStr = cutoff.toISOString().split('T')[0];
+        const { error, count } = await supabase
+            .from('break_sessions')
+            .delete()
+            .lt('break_date', cutoffStr);
+        if (error) { console.error('❌ [BreakCleanup] Error:', error); }
+        else { console.log(`🧹 [BreakCleanup] ลบข้อมูลพักก่อน ${cutoffStr} เรียบร้อย`); }
+    } catch (e) { console.error('❌ [BreakCleanup] System error:', e); }
+}, { scheduled: true, timezone: 'Asia/Bangkok' });
+
 app.listen(PORT, '0.0.0.0', () => { console.log(`🌐 Server web port is open and listening on port ${PORT}!`); });
 
 client.login(process.env.TOKEN).catch(error => { console.error("❌ ล็อกอินล้มเหลว โปรดตรวจสอบ TOKEN อีกครั้ง:", error); });
