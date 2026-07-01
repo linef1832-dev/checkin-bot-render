@@ -921,10 +921,22 @@
 
         function fmtTime(isoStr) {
             if (!isoStr) return '—';
-            // break_start/break_end ถูกบันทึกเป็นเวลาไทยอยู่แล้ว แต่ติด label เป็น Z (UTC)
-            // จึงอ่าน UTC fields ตรงๆ เพื่อให้ได้ตัวเลขเวลาไทยที่ถูกต้อง (ไม่ให้ browser แปลงซ้ำ)
             const d = new Date(isoStr);
-            return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+            // ถ้า timestamp มี offset +07:00 (จาก botlink) → ใช้ getHours() ของ browser ตามปกติ
+            // ถ้า timestamp ไม่มี offset หรือเป็น Z (จากระบบเดิม) → บวก 7 ชั่วโมงเอง
+            const hasOffset = /[+-]\d{2}:\d{2}$/.test(isoStr.trim());
+            let h, m;
+            if (hasOffset) {
+                // มี offset จริง → แปลงเป็นเวลาไทย (UTC+7)
+                const thai = new Date(d.getTime() + 7 * 3600000);
+                h = thai.getUTCHours();
+                m = thai.getUTCMinutes();
+            } else {
+                // ไม่มี offset → เวลาไทยอยู่แล้ว อ่าน UTC fields ตรงๆ
+                h = d.getUTCHours();
+                m = d.getUTCMinutes();
+            }
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
         }
 
         // 🌙 ตรวจ record ที่ "คร่อมเวลาตี 1 (01:01)" — บอท Telegram รีเซ็ตตอน 01:01
@@ -1104,13 +1116,20 @@
                     merged.push({ break_start: s.break_start, break_end: s.break_end, break_date: s.break_date, break_reason: s.break_reason });
                 }
                 let totalMin = 0;
+                let completedSec = 0;
+                let ongoingStart = null;
                 const details = merged.map(s => {
+                    if (!s.break_end) {
+                        ongoingStart = s.break_start;
+                        return { start: s.break_start, end: null, date: s.break_date, reason: s.break_reason, dur: null, durSec: null };
+                    }
                     const dur = diffMin(s.break_start, s.break_end);
                     const durSec = diffMinSec(s.break_start, s.break_end);
                     if (dur && dur > 0) totalMin += dur;
+                    if (durSec) completedSec += durSec.mins * 60 + durSec.secs;
                     return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur, durSec };
                 });
-                return { name, totalMin, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
+                return { name, totalMin, completedSec, ongoingStart, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift };
             }).filter(s => s.count > 0).sort((a,b) => b.totalMin - a.totalMin);
         }
 
@@ -1123,18 +1142,15 @@
             const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
             const dtId = `bdt-${prefix}-${idx}`;
 
-            const sortedDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
-            // แสดงวันที่ในรายละเอียดเมื่อรอบของคนนี้คร่อมหลายวัน
-            const showDate = (new Set(sortedDetails.map(d => d.date)).size > 1);
+            // แสดงเฉพาะรอบที่กดกลับแล้ว (มี break_end)
+            const completedDetails = s.details.filter(d => d.end).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+            const showDate = (new Set(completedDetails.map(d => d.date)).size > 1);
             let chipsHtml = '';
-            sortedDetails.forEach((d, di) => {
-                const ongoing = !d.end;
+            completedDetails.forEach((d, di) => {
                 const durTxt = d.durSec !== null
                     ? (d.durSec.secs > 0 ? `${d.durSec.mins} นาที ${d.durSec.secs} วินาที` : `${d.durSec.mins} นาที`)
                     : '—';
-                const durColor = ongoing ? '#f39c12' : (d.dur > 30 ? '#f87171' : '#a78bfa');
-                const endTxt = ongoing ? '<span style="color:#f39c12; font-weight:600;">ยังพักอยู่</span>' : fmtTime(d.end);
-                const dotColor = ongoing ? '#f39c12' : '#34d399';
+                const durColor = d.dur > 30 ? '#f87171' : '#a78bfa';
                 const dateBadge = showDate && d.date
                     ? `<span style="color:#64748b; font-size:11px; min-width:48px;">${new Date(d.date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</span>`
                     : '';
@@ -1142,15 +1158,25 @@
                     ? `<span style="font-size:11px; color:#c4b5fd; background:#2e2640; padding:2px 8px; border-radius:10px; white-space:nowrap;">${d.reason}</span>`
                     : '';
                 chipsHtml += `
-                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${dotColor}; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid #34d399; flex-wrap:wrap;">
                         <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
                         ${dateBadge}
                         <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
                         <span style="color:#64748b; font-size:12px;">→</span>
-                        <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
+                        <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.end)}</span>
                         ${reasonBadge}
                         <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
                     </div>`;
+            });
+
+            // แสดง live timer ถ้ายังออกไปทำกิจกรรมอยู่
+            const startEpochMs = s.ongoingStart ? new Date(s.ongoingStart).getTime() : null;
+            const timerHtml = s.ongoingStart
+                ? `<span class="live-timer" data-completed-sec="${s.completedSec}" data-start-epoch="${startEpochMs}" style="font-size:20px; font-weight:700; color:#f39c12; line-height:1;">กำลังนับ...</span>`
+                : `<div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${s.totalMin}<span style="font-size:11px; color:#888; font-weight:400;"> นาที</span></div>`;
+            const badgeHtml = s.ongoingStart
+                ? `<span class="bbadge warn" style="margin-top:4px;">กำลังพัก</span>`
+                : `<span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>`;
             });
 
             const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
@@ -1177,19 +1203,33 @@
                         </div>
                     </div>
                     <div style="text-align:right; flex-shrink:0;">
-                        <div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${s.totalMin}<span style="font-size:11px; color:#888; font-weight:400;"> นาที</span></div>
-                        <span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>
+                        ${timerHtml}
+                        ${badgeHtml}
                     </div>
                     <div style="color:#64748b; font-size:12px; flex-shrink:0; width:14px; text-align:center;" id="${dtId}-arrow">▼</div>
                 </div>
                 <div class="break-detail-body ${dtId}" style="display:none; padding:0 16px 14px 16px;">
                     <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px; border-top:1px solid #383852;">
-                        <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${sortedDetails.length} รอบ</div>
-                        ${chipsHtml}
+                        <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${completedDetails.length} รอบ</div>
+                        ${chipsHtml || '<div style="color:#64748b; font-size:12px; padding:8px 0;">ยังไม่มีรอบที่เสร็จสิ้น</div>'}
                     </div>
                 </div>`;
             return card;
         }
+
+        // อัปเดต live timer ทุก 1 วินาที
+        setInterval(() => {
+            document.querySelectorAll('.live-timer').forEach(el => {
+                const completedSec = parseInt(el.dataset.completedSec || '0');
+                const startEpoch = parseInt(el.dataset.startEpoch || '0');
+                if (!startEpoch) return;
+                const ongoingSec = Math.max(0, Math.floor((Date.now() - startEpoch) / 1000));
+                const totalSec = completedSec + ongoingSec;
+                const mins = Math.floor(totalSec / 60);
+                const secs = totalSec % 60;
+                el.textContent = secs > 0 ? `${mins} นาที ${secs} วินาที` : `${mins} นาที`;
+            });
+        }, 1000);
 
         function toggleBreakDetail(dtId, headerEl) {
             const panel = document.querySelector('.' + dtId);
