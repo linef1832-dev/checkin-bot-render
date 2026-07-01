@@ -254,9 +254,8 @@
             <!-- ตัวกรอง: ช่วงเวลา / แผนก / กะ -->
             <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center;">
                 <select id="breakRange" onchange="onBreakRangeChange()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
-                    <option value="today">📅 วันนี้</option>
+                    <option value="today">📅 กะปัจจุบัน</option>
                     <option value="7">7 วันล่าสุด</option>
-                    <option value="30">30 วันล่าสุด</option>
                     <option value="custom">เลือกวันเอง</option>
                 </select>
                 <input type="date" id="breakCustomDate" onchange="loadBreakData()" style="display:none; padding:6px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
@@ -954,10 +953,41 @@
             return false;
         }
 
+        // คืนกะปัจจุบัน (morning = 08:00-19:59, night = 20:00-07:59) ตามเวลาไทย
+        function getCurrentShift() {
+            const h = new Date(new Date().getTime() + 7*3600000).getUTCHours();
+            return (h >= 8 && h < 20) ? 'morning' : 'night';
+        }
+
+        // คืนเวลาเริ่มต้นของกะปัจจุบัน (Thai time ISO string)
+        function getCurrentShiftStart() {
+            const now = new Date(new Date().getTime() + 7*3600000);
+            const h = now.getUTCHours();
+            const isMorning = (h >= 8 && h < 20);
+            const y = now.getUTCFullYear(), mo = now.getUTCMonth(), d = now.getUTCDate();
+            if (isMorning) {
+                return new Date(Date.UTC(y, mo, d, 1, 0, 0)).toISOString(); // 08:00 Thai = 01:00 UTC
+            } else {
+                // กะดึก: ถ้าตอนนี้ก่อนเที่ยงคืน (20:00-23:59) → เริ่มวันนี้ 20:00 Thai = 13:00 UTC
+                // ถ้าหลังเที่ยงคืน (00:00-07:59) → เริ่มเมื่อวาน 20:00 Thai = 13:00 UTC
+                const baseD = (h < 8) ? new Date(Date.UTC(y, mo, d-1)) : new Date(Date.UTC(y, mo, d));
+                return new Date(baseD.getTime() + 13*3600000).toISOString(); // 20:00 Thai = 13:00 UTC
+            }
+        }
+
         // toggle ช่องเลือกวันเองเมื่อเลือก "custom"
         function onBreakRangeChange() {
             const range = document.getElementById('breakRange').value;
             document.getElementById('breakCustomDate').style.display = (range === 'custom') ? 'inline-block' : 'none';
+            // จำกัด custom date ไม่เกิน 7 วันย้อนหลัง
+            if (range === 'custom') {
+                const today = getBreakDateThai();
+                const minDate = new Date(new Date(today+'T00:00:00').getTime() - 6*24*3600000);
+                const minStr = minDate.toISOString().split('T')[0];
+                const el = document.getElementById('breakCustomDate');
+                el.max = today;
+                el.min = minStr;
+            }
             loadBreakData();
         }
 
@@ -966,15 +996,15 @@
             const range = document.getElementById('breakRange').value;
             const todayStr = getBreakDateThai(); // วันนี้ (รองรับกะดึก)
             if (range === 'today') {
-                return { start: todayStr, end: todayStr, label: getBreakDateLabelThai() };
+                return { start: todayStr, end: todayStr, label: getBreakDateLabelThai(), shiftStart: getCurrentShiftStart(), currentShift: getCurrentShift() };
             }
             if (range === 'custom') {
                 const d = document.getElementById('breakCustomDate').value || todayStr;
                 const lbl = new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
                 return { start: d, end: d, label: lbl };
             }
-            // 7 หรือ 30 วันล่าสุด
-            const days = parseInt(range);
+            // 7 วันล่าสุด
+            const days = 7;
             const endD = new Date(todayStr + 'T00:00:00');
             const startD = new Date(endD.getTime() - (days - 1) * 24 * 3600000);
             const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -987,10 +1017,11 @@
             if (!pin) { document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</div>'; return; }
             document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</div>';
 
-            const { start, end, label } = getBreakRange();
+            const { start, end, label, shiftStart, currentShift } = getBreakRange();
             document.getElementById('breakDateLabel').textContent = label;
             const deptFilter = document.getElementById('breakDept').value;
             const shiftFilter = document.getElementById('breakShift').value;
+            const range = document.getElementById('breakRange').value;
 
             try {
                 const res = await fetch('/api/break-summary', {
@@ -1004,20 +1035,40 @@
                 }
                 const json = await res.json();
                 let rows = json.data || [];
-                // กรองตามแผนก/กะ ที่ฝั่งเว็บ
+
+                // กะปัจจุบัน: กรองเฉพาะ record ที่ break_start อยู่ในกะนี้
+                if (range === 'today' && shiftStart) {
+                    const shiftStartMs = new Date(shiftStart).getTime();
+                    rows = rows.filter(r => new Date(r.break_start).getTime() >= shiftStartMs);
+                }
+
+                // กรองตามแผนก
                 if (deptFilter !== 'ALL') rows = rows.filter(r => (r.department||'') === deptFilter);
-                if (shiftFilter !== 'ALL') rows = rows.filter(r => (r.shift||'') === shiftFilter);
-                renderBreakTable(rows);
+                // กรองตามกะ — ใช้ getRecordShift เพื่อรองรับทั้งคนที่มีและไม่มีใน staff_list
+                if (shiftFilter !== 'ALL') rows = rows.filter(r => getRecordShift(r) === shiftFilter);
+                renderBreakTable(rows, currentShift, shiftFilter);
                 document.getElementById('breakLastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
             } catch(e) {
                 document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#ED4245; padding:20px;">❌ เชื่อมต่อ Server ไม่ได้</div>';
             }
         }
 
-        function renderBreakTable(rows) {
+        // ฟังก์ชันช่วยหากะของ record จาก shift ใน staff_list หรือ break_start
+        function getRecordShift(r) {
+            const s = (r.shift || '').toLowerCase();
+            if (s === 'morning') return 'morning';
+            if (s === 'night') return 'night';
+            // fallback: ดูจาก break_start
+            const h = new Date(r.break_start).getUTCHours(); // UTC hours (Thai time = UTC+7)
+            const thaiH = (h + 7) % 24;
+            return (thaiH >= 8 && thaiH < 20) ? 'morning' : 'night';
+        }
+
+        function renderBreakTable(rows, currentShift, shiftFilter) {
+            shiftFilter = shiftFilter || 'ALL';
             const list = document.getElementById('breakList');
             const range = document.getElementById('breakRange').value;
-            const isMultiDay = (range === '7' || range === '30');
+            const isMultiDay = (range === '7');
 
             if (!rows || rows.length === 0) {
                 document.getElementById('bStatTotal').textContent = '0';
@@ -1041,34 +1092,38 @@
             list.innerHTML = '';
 
             if (!isMultiDay) {
-                // ===== โหมดวันเดียว: แสดงรายชื่อคนเลย =====
-                if (allStaff.length === 0) { list.innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักค่ะ</div>'; return; }
+                // ===== โหมดวันเดียว/กะปัจจุบัน: แสดงรายชื่อคนเลย =====
+                const shiftLabel = (currentShift === 'morning') ? '☀️ กะเช้า (08:00 - 20:00)' : '🌙 กะดึก (20:00 - 08:00)';
+                const header = document.createElement('div');
+                header.style.cssText = 'font-size:13px; color:#94a3b8; font-weight:600; padding:8px 4px 4px 4px;';
+                header.textContent = shiftLabel;
+                list.appendChild(header);
+                if (allStaff.length === 0) { list.innerHTML += '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักค่ะ</div>'; return; }
                 const maxMin = allStaff[0].totalMin;
                 allStaff.forEach((s, idx) => list.appendChild(buildStaffCard(s, idx, maxMin, 's')));
                 return;
             }
 
-            // ===== โหมดหลายวัน: จัดกลุ่มตามวัน =====
+            // ===== โหมดหลายวัน: จัดกลุ่มตามวัน แล้วแยกกะเช้า/ดึกในแต่ละวัน =====
             const byDate = {};
             rows.forEach(r => {
                 const d = r.break_date || '—';
                 if (!byDate[d]) byDate[d] = [];
                 byDate[d].push(r);
             });
-            // เรียงวันล่าสุดอยู่บน
             const dates = Object.keys(byDate).sort((a,b) => b.localeCompare(a));
 
             dates.forEach((dateStr, dayIdx) => {
-                const dayStaff = aggregateStaff(byDate[dateStr]);
-                if (dayStaff.length === 0) return;
-                const dayMax = dayStaff[0].totalMin;
+                const dayRows = byDate[dateStr];
+                const morningRows = dayRows.filter(r => getRecordShift(r) === 'morning');
+                const nightRows = dayRows.filter(r => getRecordShift(r) === 'night');
+                const dayStaff = aggregateStaff(dayRows);
                 const dayTotal = dayStaff.reduce((a,x)=>a+x.totalMin, 0);
                 const dayId = `day-${dayIdx}`;
                 const dateLabel = (dateStr !== '—')
                     ? new Date(dateStr+'T00:00:00').toLocaleDateString('th-TH', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
                     : 'ไม่ระบุวันที่';
 
-                // หัวข้อวัน (พับได้) — วันแรกสุด (ล่าสุด) เปิดไว้, ที่เหลือพับ
                 const openByDefault = (dayIdx === 0);
                 const dayWrap = document.createElement('div');
                 dayWrap.style.cssText = 'background:#23233a; border-radius:12px; overflow:hidden; border:1px solid #383852;';
@@ -1084,9 +1139,29 @@
                     <div class="day-section ${dayId}" style="display:${openByDefault ? 'flex' : 'none'}; flex-direction:column; gap:8px; padding:12px;"></div>
                 `;
                 list.appendChild(dayWrap);
-
                 const dayContainer = dayWrap.querySelector('.' + dayId);
-                dayStaff.forEach((s, idx) => dayContainer.appendChild(buildStaffCard(s, idx, dayMax, dayId)));
+
+                // กะเช้า
+                if (morningRows.length > 0 && (shiftFilter === 'ALL' || shiftFilter === 'morning')) {
+                    const mStaff = aggregateStaff(morningRows);
+                    const shiftHeader = document.createElement('div');
+                    shiftHeader.style.cssText = 'font-size:12px; color:#fcd34d; font-weight:700; padding:4px 2px; margin-top:4px;';
+                    shiftHeader.textContent = '☀️ กะเช้า (08:00 - 20:00)';
+                    dayContainer.appendChild(shiftHeader);
+                    const mMax = mStaff[0].totalMin;
+                    mStaff.forEach((s, idx) => dayContainer.appendChild(buildStaffCard(s, idx, mMax, `${dayId}-m`)));
+                }
+
+                // กะดึก
+                if (nightRows.length > 0 && (shiftFilter === 'ALL' || shiftFilter === 'night')) {
+                    const nStaff = aggregateStaff(nightRows);
+                    const shiftHeader = document.createElement('div');
+                    shiftHeader.style.cssText = 'font-size:12px; color:#7dd3fc; font-weight:700; padding:4px 2px; margin-top:8px;';
+                    shiftHeader.textContent = '🌙 กะดึก (20:00 - 08:00)';
+                    dayContainer.appendChild(shiftHeader);
+                    const nMax = nStaff[0].totalMin;
+                    nStaff.forEach((s, idx) => dayContainer.appendChild(buildStaffCard(s, idx, nMax, `${dayId}-n`)));
+                }
             });
         }
 
