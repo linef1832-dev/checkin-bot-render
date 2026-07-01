@@ -698,34 +698,22 @@ async function handleBreakMessage(rawText, message) {
 
     // เช็คคำว่า "กลับ/พร้อม" ก่อน (กันเคสข้อความมีทั้งสองคำ)
     if (matchBreakEnd(cleanText)) {
-        // หา record พักที่ยังเปิดอยู่ ของ "วันพักปัจจุบัน" ก่อน
-        let { data: openBreak } = await supabase
+        // 🔧 ปิด "ทุก" record ที่ยังเปิดค้างอยู่ของคนนี้ (วันนี้ + เมื่อวาน) กันแจ้งเตือนซ้ำ
+        const { data: openBreaks } = await supabase
             .from('break_sessions')
-            .select('*')
+            .select('id, break_start, break_date')
             .eq('staff_name', staffName)
-            .eq('break_date', breakDate)
+            .in('break_date', [breakDate, prevDate])
             .is('break_end', null)
-            .order('break_start', { ascending: false })
-            .limit(1);
+            .order('break_start', { ascending: false });
 
-        // ถ้าไม่เจอ ลองหาของเมื่อวาน (เผื่อ break_start บันทึกคนละ key ตอนเปลี่ยนวัน)
-        if (!openBreak || openBreak.length === 0) {
-            const r2 = await supabase
-                .from('break_sessions')
-                .select('*')
-                .eq('staff_name', staffName)
-                .eq('break_date', prevDate)
-                .is('break_end', null)
-                .order('break_start', { ascending: false })
-                .limit(1);
-            openBreak = r2.data;
-        }
-
-        if (openBreak && openBreak.length > 0) {
+        if (openBreaks && openBreaks.length > 0) {
+            const ids = openBreaks.map(b => b.id);
+            // ปิดทุก record ที่ค้างในครั้งเดียว
             await supabase.from('break_sessions')
                 .update({ break_end: nowThai.toISOString() })
-                .eq('id', openBreak[0].id);
-            console.log(`[Break] ✅ ${staffName} กลับมาแล้ว ${nowThai.toTimeString().slice(0,5)} (วันพัก=${openBreak[0].break_date})`);
+                .in('id', ids);
+            console.log(`[Break] ✅ ${staffName} กลับมาแล้ว ${nowThai.toTimeString().slice(0,5)} (ปิด ${ids.length} record ค้าง)`);
         } else {
             console.log(`[Break] ⚠️ ${staffName} แจ้งกลับ แต่ไม่เจอ record พักที่เปิดอยู่`);
         }
