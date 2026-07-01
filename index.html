@@ -70,7 +70,7 @@
         <button class="tab-btn" onclick="openTab(event, 'trackerMenu')">🟢 แชท LINE</button>
         <button class="tab-btn" onclick="openTab(event, 'staffMenu')">👥 พนักงาน</button>
         <button class="tab-btn" onclick="openTab(event, 'kpiMenu'); loadKPI()">📊 KPI</button>
-        <button class="tab-btn" onclick="openTab(event, 'breakMenu'); loadBreakData()">☕ เวลาพัก</button>
+        <button class="tab-btn" onclick="openTab(event, 'breakMenu'); loadBreakData()">⏱️ เวลาทำกิจกรรม</button>
     </div>
 
     <!-- ==================== TAB เช็คชื่อ ==================== -->
@@ -247,7 +247,7 @@
     <div id="breakMenu" class="tab-content">
         <div class="card" style="border-left: 4px solid #f39c12;">
             <h3 style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
-                ☕ สรุปเวลาพัก
+                ⏱️ สรุปเวลาทำกิจกรรม
                 <button class="btn-small" style="background:#f39c12; color:#1e1e2f;" onclick="loadBreakData()">🔄 รีเฟรช</button>
             </h3>
 
@@ -1204,7 +1204,9 @@
                     if (durSec) completedSec += durSec.mins * 60 + durSec.secs;
                     return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur, durSec };
                 });
-                return { name, totalMin, completedSec, ongoingStart, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift, totalSec: completedSec };
+                let ongoingReason = null;
+                details.forEach(d => { if (!d.end && d.reason) ongoingReason = d.reason; });
+                return { name, totalMin, completedSec, ongoingStart, ongoingReason, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift, totalSec: completedSec };
             }).filter(s => s.count > 0).sort((a,b) => b.totalMin - a.totalMin);
         }
 
@@ -1217,23 +1219,39 @@
             const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
             const dtId = `bdt-${prefix}-${idx}`;
 
-            // แสดงเฉพาะรอบที่กดกลับแล้ว (มี break_end)
-            const completedDetails = s.details.filter(d => d.end).slice().sort((a, b) => new Date(a.start) - new Date(b.start));
-            const showDate = (new Set(completedDetails.map(d => d.date)).size > 1);
+            // แสดงทุกรอบ — รอบที่กดกลับแล้วสีม่วง, รอบที่ยังทำอยู่นับเวลาสดสีส้ม
+            const allDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+            const showDate = (new Set(allDetails.map(d => d.date)).size > 1);
             let chipsHtml = '';
-            completedDetails.forEach((d, di) => {
-                const durTxt = d.durSec !== null
-                    ? (d.durSec.secs > 0 ? `${d.durSec.mins} นาที ${d.durSec.secs} วินาที` : `${d.durSec.mins} นาที`)
-                    : '—';
-                const durColor = d.dur > 30 ? '#f87171' : '#a78bfa';
+            allDetails.forEach((d, di) => {
+                const ongoing = !d.end;
                 const dateBadge = showDate && d.date
                     ? `<span style="color:#64748b; font-size:11px; min-width:48px;">${new Date(d.date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</span>`
                     : '';
                 const reasonBadge = d.reason
                     ? `<span style="font-size:11px; color:#c4b5fd; background:#2e2640; padding:2px 8px; border-radius:10px; white-space:nowrap;">${d.reason}</span>`
                     : '';
-                chipsHtml += `
-                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid #34d399; flex-wrap:wrap;">
+                const endTxt = ongoing ? '...' : fmtTime(d.end);
+                const borderColor = ongoing ? '#f39c12' : '#34d399';
+                if (ongoing) {
+                    const startEpoch = new Date(d.start).getTime();
+                    chipsHtml += `
+                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${borderColor}; flex-wrap:wrap;">
+                        <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
+                        ${dateBadge}
+                        <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
+                        <span style="color:#64748b; font-size:12px;">→</span>
+                        <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
+                        ${reasonBadge}
+                        <span class="live-timer-detail" data-start-epoch="${startEpoch}" style="color:#f39c12; font-weight:700; font-size:13px; margin-left:auto;">0 นาที 0 วินาที</span>
+                    </div>`;
+                } else {
+                    const durTxt = d.durSec !== null
+                        ? (d.durSec.secs > 0 ? `${d.durSec.mins} นาที ${d.durSec.secs} วินาที` : `${d.durSec.mins} นาที`)
+                        : '—';
+                    const durColor = d.dur > 30 ? '#f87171' : '#a78bfa';
+                    chipsHtml += `
+                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${borderColor}; flex-wrap:wrap;">
                         <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
                         ${dateBadge}
                         <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
@@ -1242,15 +1260,20 @@
                         ${reasonBadge}
                         <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
                     </div>`;
+                }
             });
 
-            // แสดง live timer ถ้ายังออกไปทำกิจกรรมอยู่
-            const startEpochMs = s.ongoingStart ? new Date(s.ongoingStart).getTime() : null;
-            const timerHtml = s.ongoingStart
-                ? `<span class="live-timer" data-completed-sec="${s.completedSec}" data-start-epoch="${startEpochMs}" style="font-size:20px; font-weight:700; color:#f39c12; line-height:1;">กำลังนับ...</span>`
-                : `<div style="font-size:20px; font-weight:700; color:${barColor}; line-height:1;">${Math.floor(s.totalSec/60)}<span style="font-size:14px; font-weight:400; color:${barColor};"> นาที</span> ${s.totalSec%60 > 0 ? `<span style="font-size:14px; font-weight:400; color:#aaa;">${s.totalSec%60} วิ</span>` : ''}</div>`;
+            // แสดงเวลาสะสมของรอบที่กดกลับแล้ว (ไม่รวมรอบที่กำลังทำอยู่)
+            const completedMins = Math.floor(s.totalSec / 60);
+            const completedSecs = s.totalSec % 60;
+            const completedTxt = completedSecs > 0 ? `${completedMins} นาที ${completedSecs} วินาที` : `${completedMins} นาที`;
+            const timeColor = s.totalMin <= 90 ? barColor : s.totalMin <= 120 ? '#fbbf24' : '#f87171';
+            const timerHtml = `<div style="font-size:16px; font-weight:700; color:${timeColor}; line-height:1;">${completedTxt}</div>`;
+
+            // badge: ถ้ากำลังทำกิจกรรมอยู่ → แสดงชื่อกิจกรรม ถ้าเสร็จแล้ว → แสดงสถานะปกติ
+            const activityLabel = s.ongoingReason ? s.ongoingReason.replace(/^[^\s]+\s/, '') : null;
             const badgeHtml = s.ongoingStart
-                ? `<span class="bbadge warn" style="margin-top:4px;">กำลังพัก</span>`
+                ? `<span class="bbadge warn" style="margin-top:4px;">${activityLabel || 'กำลังทำกิจกรรม'}</span>`
                 : `<span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>`;
 
             const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
@@ -1284,24 +1307,22 @@
                 </div>
                 <div class="break-detail-body ${dtId}" style="display:none; padding:0 16px 14px 16px;">
                     <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px; border-top:1px solid #383852;">
-                        <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${completedDetails.length} รอบ</div>
+                        <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${allDetails.length} รอบ</div>
                         ${chipsHtml || '<div style="color:#64748b; font-size:12px; padding:8px 0;">ยังไม่มีรอบที่เสร็จสิ้น</div>'}
                     </div>
                 </div>`;
             return card;
         }
 
-        // อัปเดต live timer ทุก 1 วินาที
+        // อัปเดต live timer ในรายละเอียดทุก 1 วินาที
         setInterval(() => {
-            document.querySelectorAll('.live-timer').forEach(el => {
-                const completedSec = parseInt(el.dataset.completedSec || '0');
+            document.querySelectorAll('.live-timer-detail').forEach(el => {
                 const startEpoch = parseInt(el.dataset.startEpoch || '0');
                 if (!startEpoch) return;
-                const ongoingSec = Math.max(0, Math.floor((Date.now() - startEpoch) / 1000));
-                const totalSec = completedSec + ongoingSec;
+                const totalSec = Math.max(0, Math.floor((Date.now() - startEpoch) / 1000));
                 const mins = Math.floor(totalSec / 60);
                 const secs = totalSec % 60;
-                el.textContent = secs > 0 ? `${mins} นาที ${secs} วินาที` : `${mins} นาที`;
+                el.textContent = `${mins} นาที ${secs} วินาที`;
             });
         }, 1000);
 
