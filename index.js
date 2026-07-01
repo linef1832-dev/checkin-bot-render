@@ -1900,8 +1900,6 @@ client.once('ready', () => {
 
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
-        await checkLongBreaks();
-        await checkDailyTotalBreaks();
         if (!dataStore.autoCheckinEnabled) return;
         const localTime = getThaiTime();
         const currentHour = localTime.getHours();
