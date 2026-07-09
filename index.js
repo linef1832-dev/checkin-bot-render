@@ -264,23 +264,23 @@ app.post('/api/ping-active', async (req, res) => {
             let newAfkCount = existingData.afk_count || 0;
 
             if (diffFromLastPing >= 10) {
-                // 🌙 หาพักทั้งวันนี้และเมื่อวาน (กันกะดึกข้ามคืน ที่ break_date อาจเป็นเมื่อวาน)
-                const yesterdayYYYYMMDD = new Date(new Date(currentPing).getTime() - 24*60*60*1000).toISOString().split('T')[0];
-                const { data: breakRows } = await supabase
+                // 🌙 หาช่วงพักของคนนี้ — ดึงด้วย created_at (ถูกเสมอ) ครอบ 48 ชม.ล่าสุด
+                //    เผื่อ botlink เขียน break_date/break_start เป็นวัน-เดือนสลับ แล้ว normalize ให้ถูกก่อนเทียบ
+                const breakWinStart = new Date(currentPing - 48 * 60 * 60 * 1000).toISOString();
+                const { data: rawBreakRows } = await supabase
                     .from('break_sessions')
-                    .select('break_start, break_end')
+                    .select('break_start, break_end, break_date, created_at')
                     .eq('staff_name', sessionProfile.toUpperCase())
-                    .in('break_date', [todayYYYYMMDD, yesterdayYYYYMMDD]);
+                    .gte('created_at', breakWinStart);
+                const breakRows = (rawBreakRows || []).map(normalizeBreakRow);
 
                 // เช็คว่าช่วงที่หายไป (lastPing → currentPing) "ทับ" กับช่วงพักใดๆ ไหม
                 // ทับ = พักเริ่มก่อน currentPing  และ  พักจบหลัง lastPing (พักที่ยังไม่จบ = ยังพักอยู่ ถือว่าทับ)
                 let isOnBreak = false;
-                if (breakRows && breakRows.length > 0) {
-                    for (const br of breakRows) {
-                        const bStart = new Date(br.break_start).getTime();
-                        const bEnd = br.break_end ? new Date(br.break_end).getTime() : currentPing; // ยังไม่จบ = ถือว่าพักถึงตอนนี้
-                        if (bStart <= currentPing && bEnd >= lastPing) { isOnBreak = true; break; }
-                    }
+                for (const br of breakRows) {
+                    const bStart = new Date(br.break_start).getTime();
+                    const bEnd = br.break_end ? new Date(br.break_end).getTime() : currentPing; // ยังไม่จบ = ถือว่าพักถึงตอนนี้
+                    if (bStart <= currentPing && bEnd >= lastPing) { isOnBreak = true; break; }
                 }
 
                 if (!isOnBreak) {
@@ -1033,65 +1033,87 @@ function isWithinShift(shift, thaiTime) {
 async function checkLongBreaks() {
     try {
         if (!dataStore.breakChannels || dataStore.breakChannels.length === 0) return;
-        const breakDate = getBreakDateStr();
-        const prevDate = toDateStr(new Date(getThaiTime().getTime() - 24 * 60 * 60 * 1000));
         const nowThai = getThaiTime();
-        const nowMs = nowThai.getTime();
+        const realNow = Date.now(); // ⏱️ ใช้เวลาจริง (UTC) เทียบกับ break_start ที่เป็น UTC จริง
 
-        let openBreaks = null;
-        ({ data: openBreaks } = await supabase
+        // ดึงพักที่ยังไม่กลับ (break_end null) ด้วย created_at (ถูกเสมอ) ครอบ 48 ชม. — เผื่อ botlink เขียนวันสลับ
+        const winStart = new Date(realNow - 48 * 60 * 60 * 1000).toISOString();
+        let rawOpen = null;
+        ({ data: rawOpen } = await supabase
             .from('break_sessions')
-            .select('id, staff_name, break_start, break_reason, break_date, channel_id, message_id')
-            .in('break_date', [breakDate, prevDate])
+            .select('id, staff_name, break_start, break_reason, break_date, channel_id, message_id, created_at')
+            .gte('created_at', winStart)
             .is('break_end', null)
             .order('break_start', { ascending: true }));
-        if (openBreaks === null) {
+        if (rawOpen === null) {
             // คอลัมน์ channel_id/message_id อาจยังไม่มี → ดึงแบบไม่มี
-            ({ data: openBreaks } = await supabase
+            ({ data: rawOpen } = await supabase
                 .from('break_sessions')
-                .select('id, staff_name, break_start, break_reason, break_date')
-                .in('break_date', [breakDate, prevDate])
+                .select('id, staff_name, break_start, break_reason, break_date, created_at')
+                .gte('created_at', winStart)
                 .is('break_end', null)
                 .order('break_start', { ascending: true }));
         }
+        const openBreaks = (rawOpen || []).map(normalizeBreakRow);
 
-        if (!openBreaks || openBreaks.length === 0) {
+        if (openBreaks.length === 0) {
             lastAlertTime.clear();
             return;
         }
 
+        // รวม record ของคนเดียวกัน (botlink NULL-id + Discord มี-id อาจซ้ำ) → 1 คน 1 การแจ้ง
+        // ยึด created_at เป็นเวลาเริ่มพักจริง และเก็บ record ที่มี message id ไว้ reply ข้อความเดิม
+        const byStaff = new Map();
         for (const b of openBreaks) {
-            const startMs = new Date(b.break_start).getTime();
-            const elapsedMin = Math.floor((nowMs - startMs) / 60000);
+            const key = (b.staff_name || '').toUpperCase().trim();
+            if (!key) continue;
+            const startMs = new Date(b.created_at || b.break_start).getTime();
+            const cur = byStaff.get(key);
+            if (!cur) {
+                byStaff.set(key, {
+                    staff_name: b.staff_name, key, startMs,
+                    reason: b.break_reason || null,
+                    channel_id: b.channel_id || null, message_id: b.message_id || null,
+                });
+            } else {
+                if (startMs < cur.startMs) cur.startMs = startMs;           // พักจริงเริ่มเมื่อไหร่ = เร็วสุด
+                if (!cur.reason && b.break_reason) cur.reason = b.break_reason;
+                if ((!cur.channel_id || !cur.message_id) && b.channel_id && b.message_id) {
+                    cur.channel_id = b.channel_id; cur.message_id = b.message_id; // เก็บ id ไว้ reply
+                }
+            }
+        }
 
+        const activeKeys = new Set();
+        for (const p of byStaff.values()) {
+            const elapsedMin = Math.floor((realNow - p.startMs) / 60000);
             // ยังไม่ถึง 30 นาที หรือค่าเพี้ยนข้ามวัน → ข้าม
             if (elapsedMin < LONG_BREAK_LIMIT_MIN || elapsedMin >= 24 * 60) continue;
 
-            // เช็คว่ายังอยู่ในเวลาทำงานของกะคนนั้นไหม ถ้าเลยเวลาเลิกกะแล้ว → ไม่แจ้ง
-            const shift = await getStaffShift(b.staff_name);
-            if (!isWithinShift(shift, nowThai)) {
-                lastAlertTime.delete(b.id); // เลยกะแล้ว ล้างออก ไม่แจ้งต่อ
-                continue;
-            }
+            // เลยเวลาเลิกกะของคนนั้นแล้ว → ไม่แจ้ง
+            const shift = await getStaffShift(p.staff_name);
+            if (!isWithinShift(shift, nowThai)) { lastAlertTime.delete(p.key); continue; }
+            activeKeys.add(p.key);
 
-            // แจ้งซ้ำทุก 2 นาที: เช็คว่าแจ้งครั้งล่าสุดเกิน 2 นาทีหรือยัง
-            const last = lastAlertTime.get(b.id) || 0;
-            if (nowMs - last < ALERT_REPEAT_MIN * 60000) continue;
+            // แจ้งซ้ำทุก 2 นาที
+            const last = lastAlertTime.get(p.key) || 0;
+            if (realNow - last < ALERT_REPEAT_MIN * 60000) continue;
 
-            const startStr = new Date(b.break_start).toISOString().slice(11, 16); // HH:MM (เวลาไทย)
-            const reasonStr = b.break_reason || '☕ พัก';
-            const msg = `⚠️ **แจ้งเตือนพักนาน**\n👤 **${b.staff_name}** พักเกิน ${LONG_BREAK_LIMIT_MIN} นาทีแล้ว!\n${reasonStr} · เริ่มพักเวลา ${startStr} น. (ผ่านมา ${elapsedMin} นาที)\n⏰ ยังไม่กดกลับที่นั่ง`;
+            // เวลาเริ่มพัก แสดงเป็นเวลาไทย (created_at เป็น UTC จริง → +7 ชม.)
+            const st = new Date(p.startMs + 7 * 3600000);
+            const startStr = `${String(st.getUTCHours()).padStart(2, '0')}:${String(st.getUTCMinutes()).padStart(2, '0')}`;
+            const reasonStr = p.reason || '☕ พัก';
+            const msg = `⚠️ **แจ้งเตือนพักนาน**\n👤 **${p.staff_name}** พักเกิน ${LONG_BREAK_LIMIT_MIN} นาทีแล้ว!\n${reasonStr} · เริ่มพักเวลา ${startStr} น. (ผ่านมา ${elapsedMin} นาที)\n⏰ ยังไม่กดกลับที่นั่ง`;
 
-            // ตอบกลับข้อความพักของคนนั้น (ถ้ามี) ไม่งั้น fallback เข้าห้องแจ้งพัก
-            await sendBreakAlert(b.channel_id, b.message_id, msg);
-            lastAlertTime.set(b.id, nowMs);
-            console.log(`[LongBreak] 🔔 แจ้งเตือน ${b.staff_name} พัก ${elapsedMin} นาที (id=${b.id})`);
+            // 💬 ตอบกลับ (reply) ข้อความพักเดิมของคนนั้น ถ้ามี id — ไม่งั้น fallback เข้าห้องแจ้งพัก
+            await sendBreakAlert(p.channel_id, p.message_id, msg);
+            lastAlertTime.set(p.key, realNow);
+            console.log(`[LongBreak] 🔔 แจ้งเตือน ${p.staff_name} พัก ${elapsedMin} นาที (${p.key})`);
         }
 
-        // เคลียร์ id ที่ปิดไปแล้วออกจาก Map (กัน memory โต)
-        const openIds = new Set(openBreaks.map(b => b.id));
-        for (const id of lastAlertTime.keys()) {
-            if (!openIds.has(id)) lastAlertTime.delete(id);
+        // เคลียร์ key ที่ไม่ได้พักแล้วออกจาก Map (กัน memory โต)
+        for (const k of lastAlertTime.keys()) {
+            if (!activeKeys.has(k)) lastAlertTime.delete(k);
         }
     } catch (err) {
         console.error('[LongBreak] error:', err);
@@ -1105,27 +1127,31 @@ async function checkDailyTotalBreaks() {
         const breakDate = getBreakDateStr();
         const prevDate = toDateStr(new Date(getThaiTime().getTime() - 24 * 60 * 60 * 1000));
         const nowThai = getThaiTime();
-        const nowMs = nowThai.getTime();
+        const realNow = Date.now(); // ⏱️ เวลาจริง (UTC) เทียบกับ break_start ที่เป็น UTC จริง
 
-        // ดึงทุก record ของวันนี้ + เมื่อวาน (กันกะดึกข้ามคืน)
-        let allBreaks = null;
-        ({ data: allBreaks } = await supabase
+        // ดึงพักด้วย created_at (ถูกเสมอ) ครอบ 48 ชม. เผื่อ botlink เขียนวันสลับ แล้ว normalize + กรอง break_date
+        const winStart = new Date(realNow - 48 * 60 * 60 * 1000).toISOString();
+        let rawAll = null;
+        ({ data: rawAll } = await supabase
             .from('break_sessions')
-            .select('id, staff_name, break_start, break_end, break_date, channel_id, message_id')
-            .in('break_date', [breakDate, prevDate])
+            .select('id, staff_name, break_start, break_end, break_date, channel_id, message_id, created_at')
+            .gte('created_at', winStart)
             .order('break_start', { ascending: true }));
-        if (allBreaks === null) {
-            ({ data: allBreaks } = await supabase
+        if (rawAll === null) {
+            ({ data: rawAll } = await supabase
                 .from('break_sessions')
-                .select('id, staff_name, break_start, break_end, break_date')
-                .in('break_date', [breakDate, prevDate])
+                .select('id, staff_name, break_start, break_end, break_date, created_at')
+                .gte('created_at', winStart)
                 .order('break_start', { ascending: true }));
         }
-        if (!allBreaks || allBreaks.length === 0) return;
+        const allBreaks = (rawAll || []).map(normalizeBreakRow)
+            .filter(b => b.break_date === breakDate || b.break_date === prevDate);
+        if (allBreaks.length === 0) return;
 
         // จัดกลุ่มตาม staff_name + break_date (แยกยอดแต่ละวัน)
         const byStaffDay = {};
         for (const b of allBreaks) {
+            if (!b.staff_name || !b.staff_name.trim()) continue; // ข้ามชื่อว่าง
             const key = `${b.staff_name}|${b.break_date}`;
             if (!byStaffDay[key]) byStaffDay[key] = [];
             byStaffDay[key].push(b);
@@ -1160,7 +1186,7 @@ async function checkDailyTotalBreaks() {
             let totalMin = 0;
             for (const s of merged) {
                 const startMs = new Date(s.break_start).getTime();
-                const endMs = s.break_end ? new Date(s.break_end).getTime() : nowMs;
+                const endMs = s.break_end ? new Date(s.break_end).getTime() : realNow;
                 const dur = Math.floor((endMs - startMs) / 60000);
                 if (dur > 0 && dur < 24 * 60) totalMin += dur;
             }
@@ -2140,6 +2166,9 @@ client.once('ready', async () => {
 
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
+        // 🔔 ตรวจแจ้งเตือนพัก (พักนาน / ยอดสะสมต่อวัน) ทุก 1 นาที — reply ข้อความเดิมของคนที่ยังพักไม่กลับ
+        await checkLongBreaks();
+        await checkDailyTotalBreaks();
         if (!dataStore.autoCheckinEnabled) return;
         const localTime = getThaiTime();
         const currentHour = localTime.getHours();
