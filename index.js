@@ -2166,9 +2166,9 @@ client.once('ready', async () => {
 
     cron.schedule('* * * * *', async () => {
         await processAutoShiftSwaps();
-        // 🔔 ตรวจแจ้งเตือนพัก (พักนาน / ยอดสะสมต่อวัน) ทุก 1 นาที — reply ข้อความเดิมของคนที่ยังพักไม่กลับ
+        // 🔔 ตรวจแจ้งเตือนพักนาน (เกิน 30 นาที) ทุก 1 นาที — reply ข้อความเดิมของคนที่ยังพักไม่กลับ
+        // (ปิดแจ้งเตือนยอดสะสม 120 นาที/วัน ตามที่ผู้ใช้ต้องการ — ฟังก์ชัน checkDailyTotalBreaks ยังอยู่แต่ไม่ถูกเรียก)
         await checkLongBreaks();
-        await checkDailyTotalBreaks();
         if (!dataStore.autoCheckinEnabled) return;
         const localTime = getThaiTime();
         const currentHour = localTime.getHours();
