@@ -473,8 +473,10 @@
             for (const dept in globalStaffData) {
                 for (const shift in globalStaffData[dept]) {
                     for (const id in globalStaffData[dept][shift]) {
-                        const nameInDb = globalStaffData[dept][shift][id].toUpperCase();
-                        if (nameInDb.includes(cleanName) || cleanName.includes(nameInDb)) return shift;
+                        const _entry = globalStaffData[dept][shift][id];
+                        // entry เป็น object { name, telegram_id } (ไม่ใช่ string แล้ว) → ดึง name ออกมาก่อน
+                        const nameInDb = String(typeof _entry === 'object' ? (_entry?.name || '') : _entry).toUpperCase();
+                        if (nameInDb && (nameInDb.includes(cleanName) || cleanName.includes(nameInDb))) return shift;
                     }
                 }
             }
