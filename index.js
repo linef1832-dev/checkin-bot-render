@@ -614,28 +614,40 @@ app.post('/api/break-summary', async (req, res) => {
         const sDate = startDate || date || getSupabaseDateStr();
         const eDate = endDate || date || getSupabaseDateStr();
 
+        // 🩹 botlink เขียน break_date เป็น YYYY-DD-MM (วัน↔เดือนสลับ) → ดึงด้วย created_at (ถูกเสมอ)
+        //    เผื่อ buffer ±1 วัน แล้วค่อย normalize + กรองด้วย break_date ที่ซ่อมแล้วในโค้ด
+        const winStart = new Date(sDate + 'T00:00:00+07:00'); winStart.setUTCDate(winStart.getUTCDate() - 1);
+        const winEnd   = new Date(eDate + 'T23:59:59+07:00'); winEnd.setUTCDate(winEnd.getUTCDate() + 1);
+        const winStartISO = winStart.toISOString();
+        const winEndISO   = winEnd.toISOString();
+
         // ลองดึงพร้อม break_reason ก่อน ถ้าคอลัมน์ยังไม่มีให้ fallback ดึงแบบไม่มี reason
-        let breaks = null, error = null, hasReason = true;
-        ({ data: breaks, error } = await supabase
+        let rawBreaks = null, error = null, hasReason = true;
+        ({ data: rawBreaks, error } = await supabase
             .from('break_sessions')
-            .select('staff_name, break_start, break_end, break_date, break_reason')
-            .gte('break_date', sDate)
-            .lte('break_date', eDate)
+            .select('staff_name, break_start, break_end, break_date, break_reason, created_at')
+            .gte('created_at', winStartISO)
+            .lte('created_at', winEndISO)
             .order('break_start', { ascending: true }));
         if (error) {
             // คอลัมน์ break_reason อาจยังไม่มี → ลองใหม่แบบไม่ดึง reason
             hasReason = false;
-            ({ data: breaks, error } = await supabase
+            ({ data: rawBreaks, error } = await supabase
                 .from('break_sessions')
-                .select('staff_name, break_start, break_end, break_date')
-                .gte('break_date', sDate)
-                .lte('break_date', eDate)
+                .select('staff_name, break_start, break_end, break_date, created_at')
+                .gte('created_at', winStartISO)
+                .lte('created_at', winEndISO)
                 .order('break_start', { ascending: true }));
         }
         if (error) {
             console.error('[break-summary] query error:', error.message || error);
             return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้: ' + (error.message || 'unknown') });
         }
+
+        // ซ่อมวันที่สลับ แล้วกรองด้วย break_date ที่ถูกต้อง ให้อยู่ในช่วงที่ขอ
+        const breaks = (rawBreaks || [])
+            .map(normalizeBreakRow)
+            .filter(b => b.break_date && b.break_date >= sDate && b.break_date <= eDate);
 
         // ดึงรายชื่อพนักงาน + แผนก + กะ มา map เข้ากับชื่อในตารางพัก
         const { data: staffRows } = await supabase
@@ -860,10 +872,80 @@ function extractBreakReason(cleanText) {
     return '☕ พัก';
 }
 
+// 🩹 botlink (Telegram) บางครั้งเขียน break_start/break_end/break_date เป็น YYYY-DD-MM
+//     (สลับตำแหน่ง "วัน" กับ "เดือน") ทำให้หน้าเว็บ/แจ้งเตือนหาไม่เจอ
+//     → created_at ของ Supabase ถูกต้องเสมอ ใช้เป็นตัวตัดสิน
+// สลับ MM↔DD ในสตริง YYYY-MM-DD (คงส่วนเวลาไว้เหมือนเดิม)
+function swapMonthDay(str) {
+    if (!str) return str;
+    const m = String(str).match(/^(\d{4})-(\d{2})-(\d{2})(.*)$/);
+    return m ? `${m[1]}-${m[3]}-${m[2]}${m[4]}` : str;
+}
+// ซ่อม 1 แถว: ถ้า date ของ break_start ไม่ตรง created_at แต่ "สลับแล้วตรง" → โดนเขียนสลับ ให้ซ่อม
+// แถวปกติ (date ตรงอยู่แล้ว) หรือกรณีอื่น ๆ จะคืนค่าเดิมไม่แตะต้อง
+function normalizeBreakRow(b) {
+    if (!b || !b.created_at || !b.break_start) return b;
+    const bsDate = String(b.break_start).slice(0, 10);
+    const caDate = String(b.created_at).slice(0, 10);
+    if (bsDate === caDate) return b;                 // ตรงอยู่แล้ว = ปกติ
+    if (swapMonthDay(bsDate) === caDate) {           // สลับแล้วตรง = โดน botlink เขียนสลับ
+        return {
+            ...b,
+            break_start: swapMonthDay(b.break_start),
+            break_end:   b.break_end  ? swapMonthDay(b.break_end)  : b.break_end,
+            break_date:  b.break_date ? swapMonthDay(b.break_date) : b.break_date,
+        };
+    }
+    return b;                                        // ต่างวันด้วยเหตุอื่น (เช่น คร่อมเที่ยงคืน UTC) — ไม่แตะ
+}
+
 async function handleBreakMessage(rawText, message) {
-    // ปิดการบันทึก break_sessions จาก Discord — ย้ายให้ botlink (Telegram) บันทึกแทน
-    console.log(`[Break] ⏭️ ข้ามการบันทึกจาก Discord — botlink จัดการแล้ว`);
-    return;
+    if (!rawText || rawText.trim() === '') return;
+
+    const cleanText = stripLeadingSymbols(rawText.replace(/\n/g, ' '));
+    const isStart = matchBreakStart(cleanText);
+    const isEnd   = matchBreakEnd(cleanText);
+
+    if (!isStart && !isEnd) return;
+
+    const breakName = extractBreakName(cleanText);
+    if (!breakName) return;
+
+    const breakDate = getBreakDateStr();
+    const nowISO    = new Date().toISOString();
+    const channelId = message?.channelId || null;
+    const messageId = message?.id        || null;
+
+    if (isStart) {
+        // ปิด session ที่ค้างอยู่ก่อน (ถ้ามี)
+        await supabase
+            .from('break_sessions')
+            .update({ break_end: nowISO })
+            .eq('staff_name', breakName.toUpperCase())
+            .is('break_end', null);
+
+        const reason = extractBreakReason(cleanText);
+        const { error } = await supabase.from('break_sessions').insert([{
+            staff_name:   breakName.toUpperCase(),
+            break_start:  nowISO,
+            break_end:    null,
+            break_date:   breakDate,
+            break_reason: reason,
+            channel_id:   channelId,
+            message_id:   messageId,
+        }]);
+        if (error) console.error('[Break] insert error:', error.message);
+        else console.log(`[Break] ✅ ${breakName} เริ่มพัก (${reason})`);
+
+    } else if (isEnd) {
+        const { error } = await supabase
+            .from('break_sessions')
+            .update({ break_end: nowISO })
+            .eq('staff_name', breakName.toUpperCase())
+            .is('break_end', null);
+        if (error) console.error('[Break] update error:', error.message);
+        else console.log(`[Break] ✅ ${breakName} กลับมาแล้ว`);
+    }
 }
 
 // ⏰ เก็บเวลาแจ้งเตือนล่าสุดของแต่ละ record (id → timestamp ms) เพื่อแจ้งซ้ำทุก 2 นาที
@@ -1798,6 +1880,8 @@ client.on('messageCreate', async (message) => {
     if (message.content === '!checkin') {
         if (!(await isCheckinChannel(channelId))) return;
 
+        const member = message.member; // ← ย้ายขึ้นมาก่อนใช้ (แก้ ReferenceError ใน temporal dead zone)
+
         // ===== เช็ค TAG ตาม channel_settings =====
         try {
             const { data: chanSetting } = await supabase
@@ -1832,7 +1916,6 @@ client.on('messageCreate', async (message) => {
         if (!activeSessions.has(channelId)) {
             return message.reply('⏳ ยังไม่เปิดรับเช็คชื่อค่ะ กรุณารอบอทประกาศเปิดรอบก่อนนะคะ แล้วค่อยพิมพ์ `!checkin` อีกครั้ง');
         }
-        const member    = message.member;
         const localTime = getThaiTime();
         if (!member.voice.channelId || !member.voice.streaming)
             return message.reply('❌ คุณต้องเข้าห้องเสียงและแชร์หน้าจอด้วยค่ะ');
