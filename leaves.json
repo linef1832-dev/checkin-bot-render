@@ -1,0 +1,122 @@
+{
+  "20/3/2569": {
+    "morning": {
+      "AMOL": ["ALLNEW", "KHAOTANG"],
+      "ODOL": ["MINI", "RORA"]
+    },
+    "night": {
+      "AMOL": ["SLOBE", "THINGTHING", "LUZY", "HIACHANG", "NATCHA", "NINJA", "KOKO", "MILO", "LOWELL"],
+      "ODOL": []
+    }
+  },
+  "21/3/2569": {
+    "morning": {
+      "AMOL": ["ALLNEW", "KWANCHAI", "KEVIN", "BEAM", "DAYONE", "POOKPIK", "LUKKAI", "BAPE", "TONPHAI"],
+      "ODOL": ["MINI", "TOFFY", "COPTER", "SALY", "POPSICLE"]
+    },
+    "night": {
+      "AMOL": ["SEEN", "BEENA", "WENDY", "GIPZY", "MILO", "LOWELL", "GEENA"],
+      "ODOL": ["SAKAI"]
+    }
+  },
+  "22/3/2569": {
+    "morning": {
+      "AMOL": ["ALIEN", "ALLNEW", "CHICKS", "RIKA", "KEVIN", "FOLEN", "CHIN", "MARIN", "ZERX", "GOBGAP"],
+      "ODOL": []
+    },
+    "night": {
+      "AMOL": ["MEIFERN", "KUMA", "THEE", "FONGJIN", "NADOL", "LOST", "LUCINE"],
+      "ODOL": ["DOLIA", "CHITA", "NANOON"]
+    }
+  },
+  "23/3/2569": {
+    "morning": {
+      "AMOL": ["PRAI", "ZERX"],
+      "ODOL": ["FUJI"]
+    },
+    "night": {
+      "AMOL": ["KUMA", "BABE", "ROMAN", "KAIA", "PIKUL"],
+      "ODOL": ["DOLIA", "LAYLA", "MOMO"]
+    }
+  },
+  "24/3/2569": {
+    "morning": {
+      "AMOL": ["KAKI", "BULEE", "TAKA", "MOJOKKER", "DXFT"],
+      "ODOL": ["GINGER"]
+    },
+    "night": {
+      "AMOL": ["ROGER", "NANNY", "PIMMI", "TEEMEE", "ARES"],
+      "ODOL": ["LIAM", "FINALHELL"]
+    }
+  },
+  "25/3/2569": {
+    "morning": {
+      "AMOL": ["SOMPONG", "YAO", "KAKI", "NIDA", "MEMORIES", "BULEE", "MEBEL", "DXFT"],
+      "ODOL": ["PATTY", "MORX"]
+    },
+    "night": {
+      "AMOL": ["MARYM", "AWANG", "PIMMI", "MICKEY", "ZENAME", "DAJIM", "GARETH", "XAOIBAI"],
+      "ODOL": ["SARA", "REGGIE", "RAYNA", "FINALHELL", "TITUS"]
+    }
+  },
+  "26/3/2569": {
+    "morning": {
+      "AMOL": ["KAKI", "LYDIA", "REVO", "NIMMAN", "MUSIC", "MICHAEL", "AUTSAVIN", "GABRIAN"],
+      "ODOL": ["NOOKER", "TAPAEW"]
+    },
+    "night": {
+      "AMOL": ["MICKEY", "DAJIM", "CREAMME"],
+      "ODOL": ["BRANT", "CODEX", "CAWAII", "FINALHELL"]
+    }
+  },
+  "27/3/2569": {
+    "morning": {
+      "AMOL": ["RHAM", "YOUNGJAY", "MUSIC", "MICHAEL", "TONPHAI"],
+      "ODOL": ["ZENITH"]
+    },
+    "night": {
+      "AMOL": ["HIACHANG", "FRINC", "NINJA", "KOKO"],
+      "ODOL": ["BRANT"]
+    }
+  },
+  "28/3/2569": {
+    "morning": {
+      "AMOL": ["YOUNGJAY", "TOSSAKAN", "LUKKAI", "BASS", "BREAD", "TONPHAI"],
+      "ODOL": ["LANLING", "TOFFY", "SALY", "ZENITH"]
+    },
+    "night": {
+      "AMOL": ["LUZY", "RUBSARB", "NUTZA", "RAREEN", "WENDY", "MILO"],
+      "ODOL": ["NANOON"]
+    }
+  },
+  "29/3/2569": {
+    "morning": {
+      "AMOL": ["BAMBI", "RIKA", "PUKAN", "PALO", "CHIN", "MOJOKKER", "BREAD", "ARYA", "DAX"],
+      "ODOL": ["MEANDEAN", "POPSICLE", "LYLY", "ZENITH", "HAYLEE"]
+    },
+    "night": {
+      "AMOL": ["ENGENE", "RUBSARB", "NUTZA", "RAREEN", "CASSIE", "BEENA", "MAPRAW", "PIKUL", "LUCINE"],
+      "ODOL": []
+    }
+  },
+  "30/3/2569": {
+    "morning": {
+      "AMOL": ["DAYONE", "DAX"],
+      "ODOL": ["FUJI", "GINGER"]
+    },
+    "night": {
+      "AMOL": ["BABE", "ENGENE", "RUBSARB", "GWEN", "MAPRAW", "SUNFLOWER", "DANA", "DISNEY", "KAIA", "NADOL"],
+      "ODOL": ["MOMO"]
+    }
+  },
+  "31/3/2569": {
+    "morning": {
+      "AMOL": ["KWANCHAI", "BEAM", "DAYONE", "SAKURA"],
+      "ODOL": ["RORA"]
+    },
+    "night": {
+      "AMOL": ["SLOBE", "KUMA", "THINGTHING", "GIPZY", "VIEW", "DANA", "DISNEY"],
+      "ODOL": ["TITUS"]
+    }
+  }
+}

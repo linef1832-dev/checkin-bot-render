@@ -1,0 +1,14 @@
+{
+  "name": "checkin-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.105.1",
+    "discord.js": "^14.26.3",
+    "express": "^4.22.1",
+    "node-cron": "^3.0.3"
+  }
+}

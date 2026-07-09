@@ -1,0 +1,1486 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Control Panel</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #1e1e2f; color: white; padding: 20px; max-width: 650px; margin: auto; }
+        .card { background-color: #2a2a40; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        input, select { width: 100%; padding: 12px; margin: 8px 0 15px 0; border-radius: 5px; border: none; box-sizing: border-box; font-size: 16px; background-color: #383852; color: white; }
+        input[type="time"]::-webkit-calendar-picker-indicator, input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
+        input::placeholder { color: #aaa; }
+        button { background-color: #5865F2; color: white; border: none; padding: 12px 20px; border-radius: 5px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 5px; font-weight: bold; transition: 0.2s; }
+        button:hover { background-color: #4752C4; }
+        button.btn-red { background-color: #ED4245; }
+        button.btn-red:hover { background-color: #C13537; }
+        button.btn-small { width: auto; padding: 5px 10px; font-size: 13px; margin: 0; }
+        .tabs { display: flex; margin-bottom: 20px; border-bottom: 2px solid #2a2a40; flex-wrap: wrap; }
+        .tab-btn { background: transparent; width: auto; color: #aaa; padding: 10px 12px; margin: 0; border-radius: 0; border-bottom: 3px solid transparent; flex-grow: 1; font-size: 13px; }
+        .tab-btn:hover { background: rgba(255,255,255,0.05); color: white; }
+        .tab-btn.active { color: #5865F2; border-bottom: 3px solid #5865F2; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .response { margin-top: 15px; font-weight: bold; color: #43b581; text-align: center; }
+        .staff-list-ul { list-style: none; padding-left: 0; margin-top: 5px; }
+        .staff-list-li { display: flex; justify-content: space-between; align-items: center; background: #383852; padding: 10px; border-radius: 5px; margin-bottom: 5px; }
+        .staff-name-input { border: 1px solid transparent; background: transparent; color: inherit; font-weight: bold; font-size: 15px; padding: 2px 5px; margin: 0; width: fit-content; cursor: pointer; border-radius: 4px; }
+        .staff-name-input:focus { border: 1px solid #5865F2; background: #2a2a40; outline: none; cursor: text; }
+        .search-box { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 5px;}
+        .search-box > div { flex: 1; min-width: 120px; }
+        .tracker-table { width: 100%; border-collapse: collapse; margin-top: 10px; color: white; text-align: left; font-size: 14px; }
+        .tracker-table th, .tracker-table td { padding: 10px; border-bottom: 1px solid #4f545c; }
+        .tracker-table th { background-color: #383852; }
+        .status-online { color: #43b581; font-weight: bold; }
+        .status-afk { color: #ED4245; font-weight: bold; }
+        #historyModal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center; }
+        .modal-box { background: #2a2a40; padding: 20px; border-radius: 10px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; position: relative; }
+        .history-item { background: #1e1e2f; padding: 10px; border-radius: 8px; border-left: 4px solid #ED4245; margin-bottom: 10px; }
+        #customPopup { display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: #2a2a40; color: white; padding: 20px 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); z-index: 10000; text-align: center; font-size: 18px; font-weight: bold; animation: popIn 0.3s ease-out forwards; }
+        @keyframes popIn { 0% { opacity: 0; transform: translate(-50%, -40%) scale(0.9); } 100% { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+
+        /* ── Break Tab ── */
+        .break-stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 16px; }
+        .break-stat-card { background: #1e1e2f; border-radius: 8px; padding: 14px; text-align: center; border-left: 3px solid #f39c12; }
+        .break-stat-card .bval { font-size: 22px; font-weight: 700; color: #f39c12; }
+        .break-stat-card .blbl { font-size: 12px; color: #aaa; margin-top: 4px; }
+        .break-bar-bg { flex: 1; height: 6px; background: #383852; border-radius: 3px; overflow: hidden; }
+        .break-bar-fill { height: 100%; border-radius: 3px; transition: width .4s; }
+        .bbadge { display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; }
+        .bbadge.ok   { background:#064e3b; color:#34d399; }
+        .bbadge.warn { background:#78350f; color:#fbbf24; }
+        .bbadge.over { background:#7f1d1d; color:#f87171; }
+        .break-detail-body { display: none; }
+        .break-detail-body.open { display: table-row-group; }
+    </style>
+</head>
+<body onload="loadConfig(); initBreakDate()">
+
+    <h2 style="text-align: center;">🤖 แผงควบคุมบอท (Web Dashboard)</h2>
+
+    <div class="card" style="padding-bottom: 10px;">
+        <h3 style="margin-top: 0;">🔑 รหัสผ่านผู้ดูแลระบบ</h3>
+        <input type="password" id="adminPin" placeholder="ใส่รหัสผ่าน (เช่น 123456) ก่อนสั่งงาน">
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="openTab(event, 'checkinMenu')">🕒 เช็คชื่อ</button>
+        <button class="tab-btn" onclick="openTab(event, 'trackerMenu')">🟢 แชท LINE</button>
+        <button class="tab-btn" onclick="openTab(event, 'staffMenu')">👥 พนักงาน</button>
+        <button class="tab-btn" onclick="openTab(event, 'kpiMenu'); loadKPI()">📊 KPI</button>
+        <button class="tab-btn" onclick="openTab(event, 'breakMenu'); loadBreakData()">⏱️ เวลาทำกิจกรรม</button>
+    </div>
+
+    <!-- ==================== TAB เช็คชื่อ ==================== -->
+    <div id="checkinMenu" class="tab-content active">
+        <div class="card" style="border-left: 4px solid #5865F2;">
+            <h3 style="margin-top: 0;">⚙️ ตั้งเวลารอบเช็คชื่ออัตโนมัติ</h3>
+            <div id="timeSlotsContainer"></div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="addTimeSlot()" style="background-color: #383852;">➕ เพิ่มรอบใหม่</button>
+                <button onclick="saveAutoTime()" style="background-color: #43b581;">💾 บันทึกเวลา</button>
+            </div>
+            <hr style="border-color: #4f545c; margin: 20px 0 15px 0;">
+            <div style="display: flex; gap: 10px;">
+                <button onclick="toggleAuto('on')" style="flex: 1;">เปิดอัตโนมัติ</button>
+                <button class="btn-red" onclick="toggleAuto('off')" style="flex: 1;">ปิดชั่วคราว</button>
+            </div>
+            <div id="resAuto" class="response"></div>
+            <div id="botStatusDisplay" style="text-align: center; margin-top: 20px; padding: 12px; border-radius: 8px; font-weight: bold; font-size: 16px; background-color: #1e1e2f; border: 2px solid #333;">⏳ ดึงสถานะ...</div>
+        </div>
+        <div class="card">
+            <h3 style="margin-top: 0;">▶️ สั่งเริ่มเช็คชื่อทันที</h3>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="channelId" placeholder="ใส่ Channel ID" style="flex: 3;">
+                <input type="number" id="manualDuration" value="10" placeholder="นาที" style="flex: 1;">
+            </div>
+            <button onclick="startCheckin()">เริ่มเช็คชื่อ</button>
+            <div id="resCheckin" class="response"></div>
+        </div>
+
+        <!-- ตั้งค่าห้องเช็คชื่อ -->
+        <div class="card" style="border-left: 4px solid #5865F2;">
+            <h3 style="margin-top:0;">⚙️ ตั้งค่าห้องเช็คชื่อ</h3>
+            <p style="color:#aaa; font-size:13px; margin-bottom:12px;">กำหนดว่าห้องไหนให้ TAG ไหนเช็คชื่อได้บ้าง</p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+                <input type="text" id="chanId" placeholder="Channel ID" style="flex:2; min-width:160px;">
+                <input type="text" id="chanName" placeholder="ชื่อห้อง (optional)" style="flex:2; min-width:140px;">
+            </div>
+            <div style="margin-bottom:10px;">
+                <label style="font-size:13px; color:#aaa; display:block; margin-bottom:6px;">TAG ที่อนุญาต (เลือกได้หลายอัน)</label>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" value="AM" class="tag-cb"> <span style="color:#60a5fa;font-weight:700;">AM</span></label>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" value="AMOL" class="tag-cb"> <span style="color:#4ade80;font-weight:700;">AMOL</span></label>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" value="OD" class="tag-cb"> <span style="color:#e879f9;font-weight:700;">OD</span></label>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" value="ODOL" class="tag-cb"> <span style="color:#fb923c;font-weight:700;">ODOL</span></label>
+                </div>
+            </div>
+            <button onclick="saveChannelSetting()" style="background:#5865F2;">💾 บันทึกห้อง</button>
+            <div id="chanResult" style="margin-top:8px; font-size:13px;"></div>
+        </div>
+
+        <!-- รายการห้องที่ตั้งค่าแล้ว -->
+        <div class="card">
+            <h3 style="margin-top:0;">📋 ห้องเช็คชื่อที่ตั้งค่าแล้ว
+                <button class="btn-small" style="background:#43b581; float:right;" onclick="loadChannelSettings()">🔄 โหลดใหม่</button>
+            </h3>
+            <div id="channelSettingsList">⏳ กำลังโหลด...</div>
+        </div>
+    </div>
+
+    <!-- ==================== TAB แชท LINE ==================== -->
+    <div id="trackerMenu" class="tab-content">
+        <div class="card" style="border-left: 4px solid #FEE75C; margin-bottom: 15px;">
+            <h3 style="margin-top: 0;">📊 กราฟจัดอันดับยอดตอบแชท (เรียงจากมากไปน้อย)</h3>
+            <canvas id="chatChart" height="80"></canvas>
+        </div>
+
+        <div class="card" style="border-left: 4px solid #43b581;">
+            <h3 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+                👁️ สถิติพนักงาน (LINE OA)
+                <button class="btn-small" style="background:#43b581;" onclick="fetchLineTracker()">🔄 รีเฟรช</button>
+            </h3>
+            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                <input type="date" id="trackerDate" style="flex: 1; margin: 0; padding: 10px;" onchange="fetchLineTracker()">
+                <input type="text" id="searchTracker" placeholder="🔍 ค้นหาชื่อพนักงาน..." style="flex: 2; margin: 0; padding: 10px;" oninput="renderTrackerTable()">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px; overflow-x: auto;">
+                <button id="f_ALL" class="btn-small" style="background: #5865F2; flex: 1;" onclick="setFilter('ALL')">📋 ทั้งหมด</button>
+                <button id="f_ONLINE" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #43b581;" onclick="setFilter('ONLINE')">🟢 ออนไลน์</button>
+                <button id="f_AFK" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #ED4245;" onclick="setFilter('AFK')">🔴 คนอู้</button>
+                <button id="f_OFFLINE" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #888;" onclick="setFilter('OFFLINE')">⚪ ออฟไลน์</button>
+            </div>
+            <p style="font-size: 12px; color: #aaa; margin: 0 0 10px 0;">อัปเดตข้อมูลล่าสุด: <span id="lastTrackerUpdate">-</span></p>
+            <div style="overflow-x: auto;">
+                <table class="tracker-table">
+                    <thead>
+                        <tr>
+                            <th>พนักงาน</th>
+                            <th>สถานะ/ล่าสุด</th>
+                            <th style="text-align:center;">ยอดแชท 💬</th>
+                            <th style="text-align:center;">จำนวนอู้</th>
+                            <th>จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trackerTableBody">
+                        <tr><td colspan="5" style="text-align: center; color: #aaa;">รอสักครู่...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== TAB พนักงาน ==================== -->
+    <div id="staffMenu" class="tab-content">
+
+        <!-- ปุ่ม Sync จาก K36 -->
+        <div class="card" style="border-left: 4px solid #43b581;">
+            <h3 style="margin-top:0;">🔄 ซิงค์พนักงานจาก K36</h3>
+            <p style="color:#aaa; font-size:13px; margin-bottom:12px;">ดึงข้อมูลพนักงานล่าสุดจากระบบ K36 มาอัปเดต staff_list ทั้งหมด (จะลบข้อมูลเก่าและเขียนใหม่)</p>
+            <button onclick="syncStaffFromK36()" style="background:#43b581; font-size:15px; padding:12px 24px;">🔄 Sync พนักงานจาก K36</button>
+            <div id="syncResult" style="margin-top:10px; font-size:13px;"></div>
+        </div>
+
+
+        <!-- รายชื่อพนักงาน -->
+        <div class="card" style="background-color: #202231;">
+            <h3 style="margin-top: 0; margin-bottom: 5px;">🔍 ค้นหาและกรองพนักงาน</h3>
+            <div class="search-box">
+                <div style="flex: 2;"><input type="text" id="searchName" placeholder="พิมพ์ชื่อค้นหา..." oninput="filterStaff()"></div>
+                <div><select id="searchDept" onchange="filterStaff()"><option value="ALL">ทุกแผนก</option><option value="AM">AM</option><option value="AMOL">AMOL</option><option value="OD">OD</option><option value="ODOL">ODOL</option></select></div>
+                <div><select id="searchShift" onchange="filterStaff()"><option value="ALL">ทุกกะ</option><option value="morning">เช้า</option><option value="noon">เที่ยง</option><option value="night">ดึก</option></select></div>
+            </div>
+        </div>
+        <div class="card">
+            <h3 style="margin-top: 0;">📋 รายชื่อพนักงาน <button class="btn-small" style="background:#43b581; float:right;" onclick="loadStaff()">🔄 โหลดใหม่</button></h3>
+            <div id="staffListArea" style="max-height: 400px; overflow-y: auto;">⏳ กำลังโหลดข้อมูล...</div>
+        </div>
+    </div>
+
+    <!-- ==================== TAB KPI ==================== -->
+    <div id="kpiMenu" class="tab-content">
+        <div class="card" style="border-left: 4px solid #FEE75C;">
+            <h3 style="margin-top:0;">📊 รายงาน KPI พนักงาน</h3>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:13px; color:#aaa;">แผนก</label>
+                    <select id="kpiDept" style="margin-top:4px;"><option value="ALL">ทุกแผนก</option><option value="AMOL">AMOL</option><option value="ODOL">ODOL</option></select>
+                </div>
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:13px; color:#aaa;">ช่วงเวลา</label>
+                    <select id="kpiMode" style="margin-top:4px;"><option value="month">เดือนนี้</option><option value="prevmonth">เดือนที่แล้ว</option></select>
+                </div>
+                <div style="flex:1; min-width:120px;">
+                    <label style="font-size:13px; color:#aaa;">เรียงตาม</label>
+                    <select id="kpiSort" style="margin-top:4px;" onchange="renderKPITable()">
+                        <option value="ontime">ตรงเวลา %</option>
+                        <option value="absent">วันขาด</option>
+                        <option value="afk">วัน AFK</option>
+                        <option value="leave">วันลา</option>
+                        <option value="late">วันสาย</option>
+                    </select>
+                </div>
+            </div>
+            <button onclick="loadKPI()" style="background:#43b581; margin-top:10px;">🔍 ดึงข้อมูล</button>
+        </div>
+        <div id="kpiSummaryCards" style="display:none; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:20px;">
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #43b581;">
+                <div style="font-size:24px; font-weight:bold; color:#43b581;" id="kpiAvgOntime">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">เฉลี่ยตรงเวลา</div>
+            </div>
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #ED4245;">
+                <div style="font-size:24px; font-weight:bold; color:#ED4245;" id="kpiTotalAbsent">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">รวมวันขาด</div>
+            </div>
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #f39c12;">
+                <div style="font-size:24px; font-weight:bold; color:#f39c12;" id="kpiTotalAfk">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">รวมวัน AFK</div>
+            </div>
+            <div class="card" style="text-align:center; padding:15px; border-left:4px solid #5865F2;">
+                <div style="font-size:24px; font-weight:bold; color:#5865F2;" id="kpiMvp">-</div>
+                <div style="font-size:13px; color:#aaa; margin-top:4px;">🏆 MVP</div>
+            </div>
+        </div>
+        <div class="card" style="padding:15px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <h3 style="margin:0;">รายชื่อพนักงาน</h3>
+                <span id="kpiCount" style="font-size:13px; color:#aaa;"></span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="tracker-table" id="kpiTable">
+                    <thead>
+                        <tr>
+                            <th>#</th><th>ชื่อ</th>
+                            <th style="text-align:center;">⏰ ตรงเวลา</th>
+                            <th style="text-align:center;">🕐 สาย</th>
+                            <th style="text-align:center;">😴 AFK</th>
+                            <th style="text-align:center;">📝 ลา</th>
+                            <th style="text-align:center;">❌ ขาด</th>
+                            <th style="text-align:center;">ผล</th>
+                        </tr>
+                    </thead>
+                    <tbody id="kpiTableBody">
+                        <tr><td colspan="8" style="text-align:center; color:#aaa; padding:30px;">กดปุ่ม "ดึงข้อมูล" เพื่อโหลด KPI</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card" style="border-left:4px solid #5865F2;">
+            <h3 style="margin-top:0;">📈 กราฟเช็คอินตรงเวลา (%)</h3>
+            <canvas id="kpiChart" height="120"></canvas>
+        </div>
+    </div>
+
+    <!-- ==================== TAB เวลาพัก ==================== -->
+    <div id="breakMenu" class="tab-content">
+        <div class="card" style="border-left: 4px solid #f39c12;">
+            <h3 style="margin-top:0; display:flex; justify-content:space-between; align-items:center;">
+                ⏱️ สรุปเวลาทำกิจกรรม
+                <button class="btn-small" style="background:#f39c12; color:#1e1e2f;" onclick="loadBreakData()">🔄 รีเฟรช</button>
+            </h3>
+
+            <!-- ตัวกรอง: ช่วงเวลา / แผนก / กะ -->
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; align-items:center;">
+                <select id="breakRange" onchange="onBreakRangeChange()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                    <option value="today">📅 กะปัจจุบัน</option>
+                    <option value="7">7 วันล่าสุด</option>
+                    <option value="custom">เลือกวันเอง</option>
+                </select>
+                <input type="date" id="breakCustomDate" onchange="loadBreakData()" style="display:none; padding:6px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                <select id="breakDept" onchange="loadBreakData()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                    <option value="ALL">🏢 ทุกแผนก</option>
+                    <option value="AMOL">AMOL</option>
+                    <option value="ODOL">ODOL</option>
+                </select>
+                <select id="breakShift" onchange="loadBreakData()" style="padding:7px 10px; border-radius:8px; background:#1e1e2f; color:#fff; border:1px solid #383852; font-size:13px;">
+                    <option value="ALL">⏰ ทุกกะ</option>
+                    <option value="morning">☀️ กะเช้า</option>
+                    <option value="noon">🕛 กะเที่ยง</option>
+                    <option value="night">🌙 กะดึก</option>
+                </select>
+            </div>
+
+            <p style="font-size:12px; color:#aaa; margin:0 0 12px 0;">
+                ช่วง: <strong id="breakDateLabel">—</strong> &nbsp;|&nbsp; อัปเดต: <span id="breakLastUpdate">-</span>
+            </p>
+
+            <!-- summary cards -->
+            <div class="break-stat-grid">
+                <div class="break-stat-card">
+                    <div class="bval" id="bStatTotal">—</div>
+                    <div class="blbl">พนักงานที่พัก (คน)</div>
+                </div>
+                <div class="break-stat-card" style="border-left-color:#34d399;">
+                    <div class="bval" style="color:#34d399;" id="bStatAvg">—</div>
+                    <div class="blbl">เฉลี่ยพัก / คน (นาที)</div>
+                </div>
+                <div class="break-stat-card" style="border-left-color:#fbbf24;">
+                    <div class="bval" style="color:#fbbf24;" id="bStatMax">—</div>
+                    <div class="blbl">พักมากสุด (นาที)</div>
+                </div>
+                <div class="break-stat-card" style="border-left-color:#f87171;">
+                    <div class="bval" style="color:#f87171;" id="bStatOver">—</div>
+                    <div class="blbl">พักเกิน 120 นาที</div>
+                </div>
+            </div>
+
+            <!-- staff break list (card layout) -->
+            <div id="breakList" style="display:flex; flex-direction:column; gap:10px; margin-top:4px;">
+                <div style="text-align:center; color:#aaa; padding:30px;">กดรีเฟรชเพื่อโหลดข้อมูลค่ะ</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODALS ==================== -->
+    <div id="historyModal">
+        <div class="modal-box">
+            <button onclick="document.getElementById('historyModal').style.display='none'" style="position: absolute; top: 10px; right: 10px; width: 40px; background: #ED4245; padding: 5px;">X</button>
+            <h3 id="modalTitle" style="margin-top: 0; color: #FEE75C;">ประวัติการหายตัว</h3>
+            <p id="modalSubTitle" style="font-size: 13px; color: #aaa; margin-top: -10px;"></p>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <div id="chartModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; justify-content: center; align-items: center;">
+        <div class="modal-box" style="width: 95%; max-width: 600px; background: #2a2a40; padding: 20px; border-radius: 10px; position: relative;">
+            <button onclick="document.getElementById('chartModal').style.display='none'" style="position: absolute; top: 10px; right: 10px; width: 40px; background: #ED4245; padding: 5px; color: white; font-weight: bold; border: none; border-radius: 5px; cursor: pointer;">X</button>
+            <h3 id="chartModalTitle" style="margin-top: 0; color: #FEE75C;">📊 สถิติการตอบแชท</h3>
+            <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
+                <button id="btnMode1h" class="btn-small" style="background: #5865F2; flex: 1; min-width: 80px;" onclick="switchChartMode('1h')">🕒 1 ชม.</button>
+                <button id="btnMode10m" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #5865F2; min-width: 80px;" onclick="switchChartMode('10m')">⏱️ 10 นาที</button>
+                <button id="btnModeWeek" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #CD7F32; min-width: 80px;" onclick="switchChartMode('week')">📅 สัปดาห์</button>
+                <button id="btnModeMonth" class="btn-small" style="background: #2a2a40; color: #aaa; flex: 1; border: 1px solid #FEE75C; min-width: 80px;" onclick="switchChartMode('month')">🗓️ เดือน</button>
+            </div>
+            <canvas id="personalChart" height="200"></canvas>
+            <p id="noDataText" style="display: none; text-align: center; color: #ED4245; font-weight: bold; margin-top: 20px;">ไม่มีข้อมูลแชทในระบบ</p>
+        </div>
+    </div>
+
+    <div id="customPopup"></div>
+
+    <!-- Modal ย้ายกะ -->
+    <div id="shiftModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.75); z-index:9999; justify-content:center; align-items:center;" onclick="if(event.target===this)closeShiftModal()">
+        <div style="background:#2a2a40; padding:25px; border-radius:12px; min-width:320px; max-width:90%; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+            <h3 style="margin:0 0 15px 0; color:#fff;">🔄 ย้ายกะพนักงาน</h3>
+            <div style="background:#1e1e2e; padding:12px; border-radius:6px; margin-bottom:15px;">
+                <div style="color:#fff; font-weight:bold; font-size:15px;" id="shiftModalStaffName">-</div>
+                <div style="color:#aaa; font-size:13px; margin-top:4px;">กะปัจจุบัน: <span id="shiftModalCurrent" style="color:#f0a020;">-</span></div>
+            </div>
+            <label style="color:#fff; display:block; margin-bottom:8px; font-size:14px;">เลือกกะใหม่:</label>
+            <select id="shiftModalSelect" style="width:100%; padding:12px; border-radius:6px; background:#1e1e2e; color:#fff; border:1px solid #444; margin-bottom:20px; font-size:15px; cursor:pointer;">
+                <option value="morning">☀️ กะเช้า</option>
+                <option value="noon">🕛 กะเที่ยง</option>
+                <option value="night">🌙 กะดึก</option>
+            </select>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button onclick="closeShiftModal()" style="padding:10px 20px; background:#555; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px;">ยกเลิก</button>
+                <button id="shiftModalConfirmBtn" onclick="confirmShiftChange()" style="padding:10px 20px; background:#5865F2; color:#fff; border:none; border-radius:6px; cursor:pointer; font-size:14px; font-weight:bold;">✅ ยืนยัน</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== SCRIPTS ==================== -->
+    <script>
+        document.getElementById('trackerDate').value = new Date().toLocaleDateString('en-CA');
+
+        let currentTrackerData = {};
+        let trackerInterval;
+        let globalStaffData = null;
+
+        function openTab(evt, menuName) {
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            if (menuName === 'checkinMenu') loadChannelSettings();
+            document.getElementById(menuName).classList.add('active');
+            evt.currentTarget.classList.add('active');
+            if (menuName === 'staffMenu') { loadStaff(); loadChannelSettings(); }
+            if (menuName === 'trackerMenu') fetchLineTracker();
+        }
+
+        async function fetchLineTracker() {
+            const tBody = document.getElementById('trackerTableBody');
+            tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: yellow;">Loading...</td></tr>';
+            const dateStr = document.getElementById('trackerDate').value;
+            try {
+                const res = await fetch('/api/tracker-history?t=' + new Date().getTime(), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ date: dateStr })
+                });
+                const json = await res.json();
+                if (!json.success) throw new Error();
+                const { pings, remarks } = json;
+                const staffMap = {};
+                const parseDBTime = (str) => {
+                    if (!str || str === 'null') return null;
+                    let d = str.replace(' ', 'T');
+                    if (!d.endsWith('Z') && !d.includes('+')) d += 'Z';
+                    return new Date(d);
+                };
+                pings.forEach(p => {
+                    const name = p.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim();
+                    if (!staffMap[name]) staffMap[name] = { times: [], totalChats: 0, totalAfk: 0, pings: [] };
+                    const tDate = parseDBTime(p.last_active);
+                    staffMap[name].times.push(tDate);
+                    staffMap[name].pings.push({ time: tDate, chats: parseInt(p.message_count || 0) });
+                    if (p.message_count && !isNaN(p.message_count)) staffMap[name].totalChats = parseInt(p.message_count);
+                    if (p.afk_count && !isNaN(p.afk_count)) staffMap[name].totalAfk = parseInt(p.afk_count);
+                });
+                currentTrackerData = {};
+                const now = new Date();
+                Object.keys(staffMap).forEach(name => {
+                    const times = staffMap[name].times.sort((a,b) => a - b);
+                    const totalChats = staffMap[name].totalChats;
+                    const gaps = [];
+                    let explainedCount = 0;
+                    remarks.filter(rm => rm.staff_name.toUpperCase().replace(/\s*\d+$/, '').trim() === name).forEach(rm => {
+                        const start = parseDBTime(rm.start_time);
+                        const end = parseDBTime(rm.end_time);
+                        let diffMins = end ? Math.floor((end - start) / 60000) : Math.floor((now - start) / 60000);
+                        if (diffMins >= 10) {
+                            gaps.push({ start, end, diffMins, remark: rm.remark || '' });
+                            if (rm.remark && rm.remark.trim() !== '') explainedCount++;
+                        }
+                    });
+                    const lastActive = times[times.length - 1];
+                    let diffNow = Math.floor((now - lastActive) / 60000);
+                    if (isNaN(diffNow) || diffNow < 0) diffNow = 0;
+                    if (dateStr === new Date().toLocaleDateString('en-CA') && diffNow >= 10) {
+                        const exists = gaps.find(g => g.start.getTime() === lastActive.getTime());
+                        if (!exists) gaps.push({ start: lastActive, end: null, diffMins: diffNow, remark: '' });
+                    }
+                    gaps.sort((a, b) => a.start - b.start);
+                    let finalAfkCount = staffMap[name].totalAfk - explainedCount;
+                    if (finalAfkCount < 0) finalAfkCount = 0;
+                    currentTrackerData[name] = { lastActive, diffNow, gaps, totalChats, totalAfk: finalAfkCount, pings: staffMap[name].pings };
+                });
+                renderTrackerTable();
+                renderChart();
+                document.getElementById('lastTrackerUpdate').innerText = new Date().toLocaleTimeString('th-TH');
+                clearInterval(trackerInterval);
+                trackerInterval = setInterval(() => {
+                    if (document.getElementById('trackerMenu').classList.contains('active')) fetchLineTracker();
+                }, 60000);
+            } catch(e) {
+                tBody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #ED4245;">Error: ${e.message}</td></tr>`;
+            }
+        }
+
+        function getStaffShift(staffName) {
+            if (!globalStaffData) return 'unknown';
+            const cleanName = staffName.toUpperCase();
+            for (const dept in globalStaffData) {
+                for (const shift in globalStaffData[dept]) {
+                    for (const id in globalStaffData[dept][shift]) {
+                        const nameInDb = globalStaffData[dept][shift][id].toUpperCase();
+                        if (nameInDb.includes(cleanName) || cleanName.includes(nameInDb)) return shift;
+                    }
+                }
+            }
+            return 'unknown';
+        }
+
+        let currentStatusFilter = 'ALL';
+        function setFilter(status) {
+            currentStatusFilter = status;
+            const colors = { 'ALL': '#5865F2', 'ONLINE': '#43b581', 'AFK': '#ED4245', 'OFFLINE': '#888' };
+            ['ALL','ONLINE','AFK','OFFLINE'].forEach(b => {
+                const el = document.getElementById('f_' + b);
+                if (el) { el.style.background = b === status ? colors[b] : '#2a2a40'; el.style.color = b === status ? 'white' : '#aaa'; }
+            });
+            renderTrackerTable();
+        }
+
+        function renderTrackerTable() {
+            const tBody = document.getElementById('trackerTableBody');
+            const search = (document.getElementById('searchTracker')?.value || '').toUpperCase();
+            if (!tBody || !currentTrackerData) return;
+            tBody.innerHTML = '';
+            let keys = Object.keys(currentTrackerData).filter(name => name.includes(search));
+            if (keys.length === 0) { tBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #aaa; padding: 20px;">📭 ไม่พบรายชื่อพนักงาน</td></tr>'; return; }
+            const now = new Date();
+            const currentMins = now.getHours() * 60 + now.getMinutes();
+            let renderItems = [];
+            keys.forEach(name => {
+                const d = currentTrackerData[name];
+                const staffShift = getStaffShift(name);
+                let isOffDuty = false, offDutyReason = '', isPaused = false, pauseReason = '';
+                const lastGap = d.gaps.length > 0 ? d.gaps[d.gaps.length - 1] : null;
+                const isRecentlyActive = d.diffNow < 10;
+                if (lastGap && lastGap.remark && !isRecentlyActive) {
+                    if (lastGap.remark.includes('เลิกงาน') || lastGap.remark.includes('หมดกะ')) { isOffDuty = true; offDutyReason = 'แอดมินกดให้'; }
+                    else if (lastGap.remark.includes('[พัก]')) { isPaused = true; pauseReason = lastGap.remark.replace('[พัก]', '').trim(); }
+                }
+                if (!isOffDuty && !isPaused && staffShift !== 'unknown' && !isRecentlyActive) {
+                    if (staffShift === 'morning' && (currentMins >= 1205 || currentMins < 485)) { isOffDuty = true; offDutyReason = 'หมดเวลากะเช้า'; }
+                    else if (staffShift === 'night' && (currentMins >= 485 && currentMins < 1205)) { isOffDuty = true; offDutyReason = 'หมดเวลากะดึก'; }
+                }
+                if (!isOffDuty && !isPaused && d.diffNow >= 60) { isOffDuty = true; offDutyReason = 'หายไป 1 ชม.'; }
+                let currentCategory = isOffDuty ? 'OFFLINE' : (d.diffNow >= 10 && !isPaused ? 'AFK' : 'ONLINE');
+                let sortScore = isOffDuty ? 3 : (isPaused ? 2 : 1);
+                renderItems.push({ name, d, isOffDuty, offDutyReason, isPaused, pauseReason, currentCategory, sortScore });
+            });
+            renderItems.sort((a, b) => a.sortScore !== b.sortScore ? a.sortScore - b.sortScore : (b.d.diffNow||0) - (a.d.diffNow||0));
+            let displayCount = 0;
+            renderItems.forEach(item => {
+                const { name, d, isOffDuty, offDutyReason, isPaused, pauseReason, currentCategory } = item;
+                if (currentStatusFilter !== 'ALL' && currentStatusFilter !== currentCategory) return;
+                displayCount++;
+                let statusHtml = '', rowStyle = '';
+                if (isOffDuty) { statusHtml = `<span style="color:#888;">⚪ ออฟไลน์<br><span style="font-size:10px;">(${offDutyReason})</span></span>`; rowStyle = 'opacity:0.4; background-color:#1e1e2f;'; }
+                else if (isPaused) { statusHtml = `<span style="color:#f39c12; font-weight:bold;">🟡 พักเบรก<br><span style="font-size:10px; color:#f1c40f;">(${pauseReason})</span></span>`; rowStyle = 'background-color:#3b3315; border-left:4px solid #f39c12;'; }
+                else if (d.diffNow >= 10) { statusHtml = '<span class="status-afk">🔴 อู้/ไม่อยู่จอ</span>'; }
+                else { statusHtml = '<span class="status-online">🟢 ปกติ</span>'; }
+                const afkCount = d.totalAfk || 0;
+                tBody.innerHTML += `<tr style="${rowStyle}">
+                    <td style="font-weight:bold; cursor:pointer; color:#FEE75C; text-decoration:underline;" onclick="openChartModal('${name}')">📊 ${name}</td>
+                    <td>${statusHtml}<br><span style="font-size:11px;color:#aaa;">ล่าสุด: ${d.lastActive.toLocaleTimeString('th-TH')}</span></td>
+                    <td style="text-align:center; font-weight:bold; color:#FEE75C; font-size:16px;">${d.totalChats || 0}</td>
+                    <td style="text-align:center; font-weight:bold; color:${afkCount > 0 && !isOffDuty && !isPaused ? '#ED4245' : '#888'};">${afkCount}</td>
+                    <td><button class="btn-small" style="background:#5865F2;" onclick="openHistory('${name}')">ดูประวัติ</button></td>
+                </tr>`;
+            });
+            if (displayCount === 0) tBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#aaa; padding:20px;">📭 ไม่มีพนักงานในสถานะนี้ครับ</td></tr>';
+        }
+
+        function openHistory(name) {
+            const dateStr = document.getElementById('trackerDate').value;
+            document.getElementById('modalTitle').innerText = `📋 ประวัติ: ${name}`;
+            document.getElementById('modalSubTitle').innerText = `ประจำวันที่ ${dateStr}`;
+            const gaps = currentTrackerData[name].gaps;
+            let html = '';
+            if (gaps.length === 0) { html = '<p style="text-align:center; color:#43b581;">✨ ไม่พบประวัติการอู้ในวันนี้ เยี่ยมมาก!</p>'; }
+            else {
+                gaps.forEach((g, i) => {
+                    const startStr = g.start.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'});
+                    const endStr = g.end ? g.end.toLocaleTimeString('th-TH', {hour:'2-digit', minute:'2-digit'}) : 'ปัจจุบัน';
+                    const diffText = g.diffMins >= 60 ? `${Math.floor(g.diffMins/60)} ชม. ${g.diffMins%60} นาที` : `${g.diffMins} นาที`;
+                    const hasRemark = g.remark && g.remark.trim() !== '';
+                    const borderColor = hasRemark ? '#555555' : '#ED4245';
+                    const titleColor = hasRemark ? '#888888' : '#ED4245';
+                    const icon = hasRemark ? '⚪' : '🔴';
+                    const bgStyle = hasRemark ? 'background:#222; opacity:0.6;' : 'background:#1e1e2f;';
+                    html += `<div class="history-item" style="border-left:4px solid ${borderColor}; ${bgStyle}">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                            <b style="color:${titleColor};">${icon} หายไป ${diffText}</b>
+                            <span style="font-size:12px; color:#aaa;">${startStr} - ${endStr}</span>
+                        </div>
+                        <div style="display:flex; gap:5px;">
+                            <input type="text" id="rmk_${i}" value="${g.remark}" placeholder="ใส่หมายเหตุ..." style="margin:0; padding:8px; font-size:13px; flex:3; ${hasRemark ? 'color:#888;' : ''}">
+                            <button class="btn-small" style="background:${hasRemark ? '#555' : '#43b581'}; flex:1;" onclick="saveRemark('${name}','${dateStr}','${g.start.toISOString()}','${g.end ? g.end.toISOString() : 'null'}',${i})">${hasRemark ? 'แก้ไข' : 'บันทึก'}</button>
+                        </div>
+                    </div>`;
+                });
+            }
+            document.getElementById('modalContent').innerHTML = html;
+            document.getElementById('historyModal').style.display = 'flex';
+        }
+
+        function showPopup(message, isSuccess = true) {
+            const popup = document.getElementById('customPopup');
+            popup.innerHTML = message;
+            popup.style.borderBottom = isSuccess ? '5px solid #43b581' : '5px solid #ED4245';
+            popup.style.display = 'block';
+            setTimeout(() => { popup.style.display = 'none'; }, 2500);
+        }
+
+        async function saveRemark(name, date, start, end, index) {
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) return showPopup('🔑 กรุณาใส่รหัสผ่านผู้ดูแลระบบครับ', false);
+            const remarkText = document.getElementById(`rmk_${index}`).value;
+            try {
+                const res = await fetch('/api/save-remark', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ staff_name: name, afk_date: date, start_time: start, end_time: end, remark: remarkText, pin })
+                });
+                const data = await res.json();
+                if (data.success) { showPopup('✅ บันทึกหมายเหตุสำเร็จ!', true); fetchLineTracker(); }
+                else showPopup(data.message || '❌ เกิดข้อผิดพลาด', false);
+            } catch(e) { showPopup('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ', false); }
+        }
+
+        let timeSlots = [{ time: "07:50", endTime: "08:00", shift: "☀️ กะเช้า" }];
+        function shiftOptionsHtml(currentShift) {
+            const opts = [{ v: "☀️ กะเช้า", k: "เช้า" }, { v: "🕛 กะเที่ยง", k: "เที่ยง" }, { v: "🌙 กะดึก", k: "ดึก" }];
+            const cur = (currentShift || "").toString();
+            return opts.map(o => `<option value="${o.v}" ${cur.includes(o.k) ? 'selected' : ''}>${o.v}</option>`).join('');
+        }
+        function renderTimeSlots() {
+            const c = document.getElementById('timeSlotsContainer');
+            c.innerHTML = `<div style="display:flex; gap:5px; margin-bottom:6px; font-size:12px; color:#aaa;">
+                <div style="flex:1; min-width:80px;">⏱️ เวลาเปิด</div>
+                <div style="flex:1; min-width:80px;">⏹️ เวลาปิด</div>
+                <div style="flex:1.2; min-width:110px;">📋 ดึงรายชื่อกะ</div>
+                <div style="width:34px;"></div>
+            </div>`;
+            timeSlots.forEach((s, i) => {
+                c.innerHTML += `<div style="display:flex; gap:5px; margin-bottom:6px; align-items:center;">
+                    <input type="time" style="flex:1; min-width:80px;" value="${s.time || ''}" onchange="timeSlots[${i}].time=this.value">
+                    <input type="time" style="flex:1; min-width:80px;" value="${s.endTime || ''}" onchange="timeSlots[${i}].endTime=this.value">
+                    <select style="flex:1.2; min-width:110px;" onchange="timeSlots[${i}].shift=this.value">${shiftOptionsHtml(s.shift)}</select>
+                    <button class="btn-small btn-red" style="width:34px;" onclick="timeSlots.splice(${i},1);renderTimeSlots()">X</button>
+                </div>`;
+            });
+        }
+        function addTimeSlot() { timeSlots.push({ time: "12:00", endTime: "12:30", shift: "🕛 กะเที่ยง" }); renderTimeSlots(); }
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/getconfig');
+                const json = await res.json();
+                if (json.success && json.autoCheckinTimes) timeSlots = json.autoCheckinTimes;
+                renderTimeSlots();
+                document.getElementById('botStatusDisplay').innerHTML = json.autoCheckinEnabled ? '✅ ออโต้ ON' : '🛑 ออโต้ OFF';
+            } catch(e) {}
+            loadStaff();
+        }
+        async function saveAutoTime() { const pin = document.getElementById('adminPin').value; if (!pin) return; await fetch('/api/setautotime', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin, times: timeSlots }) }); alert('บันทึกเวลาแล้ว'); }
+        async function toggleAuto(s) { const pin = document.getElementById('adminPin').value; if (!pin) return; await fetch('/api/autocheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: s, pin }) }); loadConfig(); }
+        async function startCheckin() { const pin = document.getElementById('adminPin').value; const cId = document.getElementById('channelId').value; await fetch('/api/startcheckin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ channelId: cId, pin, duration: 10 }) }); alert('สั่งงานแล้ว'); }
+
+        // ===== Sync พนักงานจาก K36 =====
+        async function syncStaffFromK36() {
+            const pin = document.getElementById('adminPin')?.value || prompt('รหัสผ่านแอดมิน:');
+            if (!pin) return;
+            const btn = event.target;
+            const result = document.getElementById('syncResult');
+            btn.disabled = true;
+            btn.textContent = '⏳ กำลัง Sync...';
+            result.innerHTML = '';
+            try {
+                const res = await fetch('/api/syncstaff', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin })
+                });
+                const json = await res.json();
+                result.innerHTML = `<span style="color:${json.success ? '#43b581' : '#f04747'}">${json.message}</span>`;
+                if (json.success) loadStaff();
+            } catch(e) {
+                result.innerHTML = '<span style="color:#f04747">❌ เชื่อมต่อ server ไม่ได้</span>';
+            }
+            btn.disabled = false;
+            btn.textContent = '🔄 Sync พนักงานจาก K36';
+        }
+
+        // ===== Channel Settings =====
+        async function loadChannelSettings() {
+            const el = document.getElementById('channelSettingsList');
+            el.innerHTML = '⏳ กำลังโหลด...';
+            try {
+                const res = await fetch('/api/channel-settings');
+                const json = await res.json();
+                if (!json.success || !json.data.length) {
+                    el.innerHTML = '<p style="color:#aaa;">ยังไม่มีการตั้งค่าห้อง</p>';
+                    return;
+                }
+                const tagColors = { AM:'#60a5fa', AMOL:'#4ade80', OD:'#e879f9', ODOL:'#fb923c' };
+                el.innerHTML = json.data.map(ch => `
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px;background:#1e2233;border-radius:8px;margin-bottom:8px;gap:10px;flex-wrap:wrap;">
+                        <div>
+                            <div style="font-weight:700;color:#fff;">${ch.channel_name || 'ไม่มีชื่อ'}</div>
+                            <div style="font-size:12px;color:#aaa;font-family:monospace;">${ch.channel_id}</div>
+                        </div>
+                        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                            ${(ch.allowed_tags || []).map(t => `<span style="background:#2d2d3f;color:${tagColors[t]||'#fff'};border:1px solid ${tagColors[t]||'#555'};padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">${t}</span>`).join('')}
+                        </div>
+                        <button onclick="deleteChannelSetting('${ch.channel_id}')" style="background:#f04747;padding:5px 12px;font-size:12px;">🗑️ ลบ</button>
+                    </div>
+                `).join('');
+            } catch(e) {
+                el.innerHTML = '<p style="color:#f04747;">❌ โหลดไม่ได้</p>';
+            }
+        }
+
+        async function saveChannelSetting() {
+            const pin = document.getElementById('adminPin')?.value || prompt('รหัสผ่านแอดมิน:');
+            if (!pin) return;
+            const channel_id = document.getElementById('chanId').value.trim();
+            const channel_name = document.getElementById('chanName').value.trim();
+            const allowed_tags = [...document.querySelectorAll('.tag-cb:checked')].map(cb => cb.value);
+            if (!channel_id) return alert('กรุณาใส่ Channel ID');
+            if (!allowed_tags.length) return alert('กรุณาเลือก TAG อย่างน้อย 1 อัน');
+            const result = document.getElementById('chanResult');
+            try {
+                const res = await fetch('/api/channel-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin, channel_id, channel_name, allowed_tags })
+                });
+                const json = await res.json();
+                result.innerHTML = `<span style="color:${json.success ? '#43b581' : '#f04747'}">${json.message}</span>`;
+                if (json.success) {
+                    document.getElementById('chanId').value = '';
+                    document.getElementById('chanName').value = '';
+                    document.querySelectorAll('.tag-cb').forEach(cb => cb.checked = false);
+                    loadChannelSettings();
+                }
+            } catch(e) {
+                result.innerHTML = '<span style="color:#f04747">❌ เชื่อมต่อ server ไม่ได้</span>';
+            }
+        }
+
+        async function deleteChannelSetting(channelId) {
+            const pin = document.getElementById('adminPin')?.value || prompt('รหัสผ่านแอดมิน:');
+            if (!pin) return;
+            if (!confirm('ลบการตั้งค่าห้องนี้?')) return;
+            try {
+                await fetch('/api/channel-settings/' + channelId, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin })
+                });
+                loadChannelSettings();
+            } catch(e) {}
+        }
+
+                async function loadStaff() {
+            const listArea = document.getElementById('staffListArea');
+            listArea.innerHTML = "<p style='color:yellow; text-align:center;'>⏳ กำลังโหลดข้อมูล...</p>";
+            try {
+                const res = await fetch('/api/staff-list');
+                const json = await res.json();
+                if (json.success) { globalStaffData = json.data; filterStaff(); }
+                else listArea.innerHTML = '❌ ' + (json.message || 'Error');
+            } catch(e) { listArea.innerHTML = '❌ Server Error'; }
+        }
+        function filterStaff() {
+            if (!globalStaffData) return;
+            const searchName = (document.getElementById('searchName')?.value || '').toLowerCase();
+            const searchDept = document.getElementById('searchDept')?.value || 'ALL';
+            const searchShift = document.getElementById('searchShift')?.value || 'ALL';
+            let filteredData = {};
+            ['AM','AMOL','OD','ODOL'].forEach(dept => {
+                if (searchDept !== 'ALL' && dept !== searchDept) return;
+                if (globalStaffData[dept]) {
+                    filteredData[dept] = {};
+                    ['morning','noon','night'].forEach(shift => {
+                        if (searchShift !== 'ALL' && shift !== searchShift) return;
+                        const shiftData = globalStaffData[dept][shift];
+                        if (shiftData) {
+                            let hasData = false; filteredData[dept][shift] = {};
+                            for (const [id, entry] of Object.entries(shiftData)) {
+                                const _name = typeof entry === 'object' ? entry.name : entry;
+                                if (_name.toLowerCase().includes(searchName) || id.includes(searchName)) { filteredData[dept][shift][id] = entry; hasData = true; }
+                            }
+                            if (!hasData) delete filteredData[dept][shift];
+                        }
+                    });
+                    if (Object.keys(filteredData[dept]).length === 0) delete filteredData[dept];
+                }
+            });
+            renderStaffList(filteredData);
+        }
+        function renderStaffList(data) {
+            let html = '';
+            const shifts = [{key:'morning', label:'☀️ กะเช้า'}, {key:'noon', label:'🕛 กะเที่ยง'}, {key:'night', label:'🌙 กะดึก'}];
+            ['AM','AMOL','OD','ODOL'].forEach(dept => {
+                if (data[dept]) {
+                    let totalInDept = 0;
+                    shifts.forEach(s => { if (data[dept][s.key]) totalInDept += Object.keys(data[dept][s.key]).length; });
+                    if (totalInDept > 0) {
+                        html += `<h4 style="color:#FEE75C; border-bottom:1px solid #4f545c; padding-bottom:5px; margin-bottom:5px; display:flex; justify-content:space-between; align-items:center;">
+                            <span>แผนก ${dept}</span>
+                            <span style="font-size:12px; background:#2a2a40; padding:3px 8px; border-radius:12px; color:#aaa;">รวม ${totalInDept} คน</span>
+                        </h4>`;
+                        shifts.forEach(shift => {
+                            const shiftData = data[dept][shift.key];
+                            if (shiftData && Object.keys(shiftData).length > 0) {
+                                html += `<p style="color:#43b581; margin:10px 0 5px 0; font-weight:bold;">${shift.label} <span style="color:#aaa; font-size:13px; font-weight:normal;">(${Object.keys(shiftData).length} คน)</span></p><ul class="staff-list-ul">`;
+                                for (const [id, entry] of Object.entries(shiftData)) {
+                                    const name = typeof entry === 'object' ? entry.name : entry;
+                                    const telId = typeof entry === 'object' ? entry.telegram_id : null;
+                                    const disBadge = `<span style="font-size:9px;font-weight:700;color:#c084fc;background:#2d1f3d;border:1px solid rgba(192,132,252,.3);padding:1px 5px;border-radius:3px;">DIS</span>`;
+                                    const telBadge = `<span style="font-size:9px;font-weight:700;color:#38bdf8;background:#0c2a3d;border:1px solid rgba(56,189,248,.3);padding:1px 5px;border-radius:3px;">TEL</span>`;
+                                    html += `<li class="staff-list-li">
+                                        <div>
+                                            <input type="text" value="${name}" class="staff-name-input" id="input-name-${id}">
+                                            <div style="margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;">
+                                                <span style="display:inline-flex;align-items:center;gap:3px;">${disBadge}<span style="font-size:10px;color:#94a3b8;font-family:monospace;">${id}</span></span>
+                                                <span style="display:inline-flex;align-items:center;gap:3px;">${telBadge}<span style="font-size:10px;color:#94a3b8;font-family:monospace;">${telId || '—'}</span></span>
+                                            </div>
+                                        </div>
+                                        <div style="display:flex; gap:5px;">
+                                            <button class="btn-small" style="background:#5865F2;" onclick="saveEdittedName('${id}')">💾</button>
+                                            <button class="btn-small" style="background:#f0a020;" onclick="changeShift('${id}','${shift.key}','${name.replace(/'/g,"\'")}')">🔄</button>
+                                            <button class="btn-red btn-small" onclick="removeStaff('${id}')">🗑️</button>
+                                        </div>
+                                    </li>`;
+                                }
+                                html += '</ul>';
+                            }
+                        });
+                    }
+                }
+            });
+            if (html === '') html = '<p style="color:#aaa; text-align:center; padding:20px;">📭 ไม่พบรายชื่อพนักงานในระบบ</p>';
+            document.getElementById('staffListArea').innerHTML = html;
+        }
+        async function saveStaff() {
+            const pin = document.getElementById('adminPin').value; const discordId = document.getElementById('staffId').value.trim();
+            const staffName = document.getElementById('staffName').value.trim(); const dept = document.getElementById('staffDept').value; const shift = document.getElementById('staffShift').value;
+            if (!pin || !discordId || !staffName) return alert('ข้อมูลไม่ครบ');
+            const btn = document.getElementById('btnSaveStaff'); btn.innerText = "⏳...";
+            try { await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add', discordId, staffName, dept, shift, pin}) }); document.getElementById('staffId').value=''; document.getElementById('staffName').value=''; loadStaff(); } catch(e){}
+            btn.innerText = "💾 บันทึก";
+        }
+        async function saveEdittedName(discordId) {
+            const pin = document.getElementById('adminPin').value; if (!pin) return;
+            const newName = document.getElementById('input-name-' + discordId).value.trim();
+            if (!newName || !confirm('ยืนยันแก้ชื่อ?')) return;
+            try { await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'edit_name', discordId, newName, pin}) }); loadStaff(); } catch(e){}
+        }
+        async function removeStaff(discordId) {
+            const pin = document.getElementById('adminPin').value; if (!pin || !confirm('ลบแน่ใจ?')) return;
+            try { await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'remove', discordId, pin}) }); loadStaff(); } catch(e){}
+        }
+
+        let shiftModalContext = null;
+        function changeShift(discordId, currentShift, staffName) {
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) return alert('ใส่รหัสผ่านผู้ดูแลก่อนค่ะ');
+            const shiftLabels = { morning:'☀️ กะเช้า', noon:'🕛 กะเที่ยง', night:'🌙 กะดึก' };
+            shiftModalContext = { discordId, currentShift, staffName };
+            document.getElementById('shiftModalStaffName').innerText = staffName;
+            document.getElementById('shiftModalCurrent').innerText = shiftLabels[currentShift] || currentShift;
+            document.getElementById('shiftModalSelect').value = currentShift;
+            document.getElementById('shiftModal').style.display = 'flex';
+        }
+        function closeShiftModal() { document.getElementById('shiftModal').style.display = 'none'; shiftModalContext = null; }
+        async function confirmShiftChange() {
+            if (!shiftModalContext) return;
+            const pin = document.getElementById('adminPin').value; if (!pin) return alert('ใส่รหัสผ่านก่อน');
+            const { discordId, currentShift } = shiftModalContext;
+            const newShift = document.getElementById('shiftModalSelect').value;
+            if (newShift === currentShift) return alert('พนักงานอยู่กะนี้อยู่แล้วค่ะ');
+            const btn = document.getElementById('shiftModalConfirmBtn'); btn.innerText = '⏳ กำลังบันทึก...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/update-shift', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({discord_id: discordId, shift: newShift, pin}) });
+                const json = await res.json();
+                if (json.success) { closeShiftModal(); loadStaff(); showPopup('✅ ' + json.message, true); } else showPopup(json.message || '❌ ย้ายกะไม่สำเร็จ', false);
+            } catch(e) { showPopup('❌ เกิดข้อผิดพลาดในการเชื่อมต่อ', false); }
+            finally { btn.innerText = '✅ ยืนยัน'; btn.disabled = false; }
+        }
+
+        let personalChartInstance = null;
+        let currentChartStaff = '';
+        function openChartModal(name) {
+            currentChartStaff = name;
+            document.getElementById('chartModalTitle').innerText = `📊 สถิติการตอบแชท: ${name}`;
+            document.getElementById('chartModal').style.display = 'flex';
+            switchChartMode('1h');
+        }
+        async function switchChartMode(mode) {
+            const btns = { '1h':'btnMode1h', '10m':'btnMode10m', 'week':'btnModeWeek', 'month':'btnModeMonth' };
+            Object.keys(btns).forEach(k => { document.getElementById(btns[k]).style.background = mode===k ? '#5865F2' : '#2a2a40'; document.getElementById(btns[k]).style.color = mode===k ? '#fff' : '#aaa'; });
+            if (mode === '1h' || mode === '10m') { renderPersonalChart(mode); }
+            else {
+                const ctx = document.getElementById('personalChart'); const noDataText = document.getElementById('noDataText');
+                ctx.style.display = 'none'; noDataText.style.display = 'block'; noDataText.innerText = '⏳ กำลังดึงข้อมูล...';
+                try {
+                    const res = await fetch('/api/personal-stats', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({staff_name: currentChartStaff, mode}) });
+                    const json = await res.json();
+                    if (json.success && json.data.length > 0) renderLongTermChart(mode, json.data);
+                    else noDataText.innerText = '📭 ไม่มีข้อมูลแชทในระบบ';
+                } catch(e) { noDataText.innerText = '❌ เกิดข้อผิดพลาดในการดึงข้อมูล'; }
+            }
+        }
+        function renderPersonalChart(mode) {
+            const d = currentTrackerData[currentChartStaff];
+            const ctx = document.getElementById('personalChart'); const noDataText = document.getElementById('noDataText');
+            if (!d || !d.pings || d.pings.length === 0) {
+                if (personalChartInstance) personalChartInstance.destroy();
+                ctx.style.display = 'none'; noDataText.style.display = 'block'; noDataText.innerText = '📭 ไม่มีข้อมูลแชทในวันนี้'; return;
+            }
+            ctx.style.display = 'block'; noDataText.style.display = 'none';
+            const sortedPings = d.pings.slice().sort((a,b) => a.time - b.time);
+            const startTime = sortedPings[0].time; const endTime = sortedPings[sortedPings.length-1].time;
+            const allLabels = []; let curr = new Date(startTime);
+            if (mode === '1h') { curr.setMinutes(0,0,0); while(curr <= endTime) { allLabels.push(`${String(curr.getHours()).padStart(2,'0')}:00`); curr.setHours(curr.getHours()+1); } }
+            else { curr.setMinutes(Math.floor(curr.getMinutes()/10)*10,0,0); while(curr <= endTime) { allLabels.push(`${String(curr.getHours()).padStart(2,'0')}:${String(curr.getMinutes()).padStart(2,'0')}`); curr.setMinutes(curr.getMinutes()+10); } }
+            const bucketData = {}; allLabels.forEach(lbl => bucketData[lbl] = []);
+            sortedPings.forEach(p => {
+                const h=p.time.getHours(), m=p.time.getMinutes();
+                const timeKey = mode==='1h' ? `${String(h).padStart(2,'0')}:00` : `${String(h).padStart(2,'0')}:${String(Math.floor(m/10)*10).padStart(2,'0')}`;
+                if (bucketData[timeKey]) bucketData[timeKey].push(p.chats);
+            });
+            const chatData = []; let prevMax = 0;
+            allLabels.forEach(key => {
+                const arr = bucketData[key];
+                if (arr.length === 0) { chatData.push(0); }
+                else { const mx = Math.max(...arr); let added = mx - prevMax; chatData.push(added > 0 ? added : 0); prevMax = mx; }
+            });
+            if (personalChartInstance) personalChartInstance.destroy();
+            personalChartInstance = new Chart(ctx.getContext('2d'), {
+                type:'bar', data:{ labels:allLabels, datasets:[{ label:`ยอดตอบลูกค้า`, data:chatData, backgroundColor:'#43b581', borderRadius:4 }] },
+                options:{ responsive:true, plugins:{legend:{display:true, labels:{color:'#aaa'}}}, scales:{ y:{beginAtZero:true, grid:{color:'#4f545c'}, ticks:{color:'#aaa', stepSize:1}}, x:{grid:{display:false}, ticks:{color:'#aaa'}} } }
+            });
+        }
+        function renderLongTermChart(mode, dataArray) {
+            const ctx = document.getElementById('personalChart'); const noDataText = document.getElementById('noDataText');
+            ctx.style.display = 'block'; noDataText.style.display = 'none';
+            const dailyMax = {};
+            dataArray.forEach(row => {
+                const dateObj = new Date(row.last_active);
+                const dateStr = `${dateObj.getDate().toString().padStart(2,'0')}/${(dateObj.getMonth()+1).toString().padStart(2,'0')}`;
+                const chats = parseInt(row.message_count||0);
+                if (!dailyMax[dateStr] || chats > dailyMax[dateStr]) dailyMax[dateStr] = chats;
+            });
+            const labels=[],data=[]; const daysToFetch = mode==='week'?7:30; const now=new Date();
+            for (let i=daysToFetch-1; i>=0; i--) { const d=new Date(); d.setDate(now.getDate()-i); const ds=`${d.getDate().toString().padStart(2,'0')}/${(d.getMonth()+1).toString().padStart(2,'0')}`; labels.push(ds); data.push(dailyMax[ds]||0); }
+            if (personalChartInstance) personalChartInstance.destroy();
+            personalChartInstance = new Chart(ctx.getContext('2d'), {
+                type:'bar', data:{ labels, datasets:[{ label:`รวมยอดแชท/วัน`, data, backgroundColor:mode==='week'?'#CD7F32':'#FEE75C', borderRadius:4 }] },
+                options:{ responsive:true, plugins:{legend:{display:true, labels:{color:'#aaa'}}}, scales:{ y:{beginAtZero:true, grid:{color:'#4f545c'}, ticks:{color:'#aaa'}}, x:{grid:{display:false}, ticks:{color:'#aaa'}} } }
+            });
+        }
+        let myChart = null;
+        function renderChart() {
+            const ctx = document.getElementById('chatChart'); if (!ctx) return;
+            const labels=[], data=[], bgColors=[];
+            Object.keys(currentTrackerData).sort((a,b) => (currentTrackerData[b].totalChats||0)-(currentTrackerData[a].totalChats||0)).forEach((name,i) => {
+                labels.push(name); data.push(currentTrackerData[name].totalChats||0);
+                bgColors.push(i===0?'#FEE75C':i===1?'#C0C0C0':i===2?'#CD7F32':'#5865F2');
+            });
+            if (myChart) myChart.destroy();
+            myChart = new Chart(ctx.getContext('2d'), {
+                type:'bar', data:{ labels, datasets:[{ label:'ยอดตอบแชท', data, backgroundColor:bgColors, borderRadius:4 }] },
+                options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, grid:{color:'#4f545c'}, ticks:{color:'#aaa'}}, x:{grid:{display:false}, ticks:{color:'#aaa'}} } }
+            });
+        }
+
+        // ==================== KPI Logic ====================
+        let kpiData = [];
+        let kpiChartInstance = null;
+        async function loadKPI() {
+            const dept = document.getElementById('kpiDept').value; const mode = document.getElementById('kpiMode').value;
+            const tbody = document.getElementById('kpiTableBody');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</td></tr>';
+            document.getElementById('kpiSummaryCards').style.display = 'none';
+            try {
+                const res = await fetch('/api/kpi-team', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dept, mode}) });
+                const json = await res.json();
+                if (!json.success) throw new Error(json.message||'Error');
+                kpiData = json.data;
+                renderKPITable(); renderKPIChart(); renderKPISummary();
+                document.getElementById('kpiSummaryCards').style.display = 'grid';
+                if (json.kpiStartDate) document.getElementById('kpiCount').textContent += ` (นับตั้งแต่ ${json.kpiStartDate})`;
+            } catch(e) { tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#ED4245; padding:20px;">❌ ${e.message}</td></tr>`; }
+        }
+        function renderKPITable() {
+            const sortBy = document.getElementById('kpiSort').value; const tbody = document.getElementById('kpiTableBody');
+            const sorted = [...kpiData].sort((a,b) => {
+                if (sortBy==='ontime') return b.onTimePct-a.onTimePct;
+                if (sortBy==='absent') return b.absentDays-a.absentDays;
+                if (sortBy==='afk') return b.afkDays-a.afkDays;
+                if (sortBy==='leave') return b.leaveDays-a.leaveDays;
+                if (sortBy==='late') return (b.lateDays||0)-(a.lateDays||0);
+                return 0;
+            });
+            document.getElementById('kpiCount').textContent = `ทั้งหมด ${sorted.length} คน`;
+            if (sorted.length === 0) { tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:#aaa; padding:30px;">ไม่พบข้อมูล</td></tr>'; return; }
+            tbody.innerHTML = sorted.map((s,i) => {
+                const pct = s.onTimePct;
+                const medal = i===0?'🥇':i===1?'🥈':i===2?'🥉':`${i+1}.`;
+                const result = pct>=90&&s.absentDays===0?'<span style="color:#43b581;">🏆 ดีเยี่ยม</span>':pct>=75?'<span style="color:#FEE75C;">👍 ดี</span>':'<span style="color:#ED4245;">⚠️ ปรับปรุง</span>';
+                const barColor = pct>=90?'#43b581':pct>=75?'#FEE75C':'#ED4245';
+                return `<tr>
+                    <td style="font-weight:bold; color:#aaa;">${medal}</td>
+                    <td style="font-weight:bold; color:#FEE75C; font-size:13px;">${s.name}</td>
+                    <td style="text-align:center;"><span style="color:${barColor}; font-weight:bold;">${pct}%</span>
+                        <div style="background:#383852; border-radius:4px; height:6px; margin-top:4px;"><div style="width:${pct}%; background:${barColor}; height:6px; border-radius:4px;"></div></div>
+                        <span style="font-size:11px; color:#aaa;">${s.totalCheckins}/${s.workDays}ว</span></td>
+                    <td style="text-align:center; color:${(s.lateDays||0)>0?'#f39c12':'#aaa'}; font-weight:bold;">${s.lateDays||0}</td>
+                    <td style="text-align:center; color:${s.afkDays>0?'#ED4245':'#aaa'}; font-weight:bold;">${s.afkDays}</td>
+                    <td style="text-align:center; color:#5865F2; font-weight:bold;">${s.leaveDays}</td>
+                    <td style="text-align:center; color:${s.absentDays>0?'#ED4245':'#aaa'}; font-weight:bold;">${s.absentDays}</td>
+                    <td style="text-align:center;">${result}</td>
+                </tr>`;
+            }).join('');
+        }
+        function renderKPISummary() {
+            if (!kpiData.length) return;
+            document.getElementById('kpiAvgOntime').textContent = Math.round(kpiData.reduce((s,d)=>s+d.onTimePct,0)/kpiData.length) + '%';
+            document.getElementById('kpiTotalAbsent').textContent = kpiData.reduce((s,d)=>s+d.absentDays,0) + ' วัน';
+            document.getElementById('kpiTotalAfk').textContent = kpiData.reduce((s,d)=>s+d.afkDays,0) + ' วัน';
+            const mvp = [...kpiData].sort((a,b)=>b.onTimePct-a.onTimePct)[0];
+            document.getElementById('kpiMvp').textContent = mvp ? mvp.name.replace(/^(AMOL|ODOL)[-\s]/i,'') : '-';
+        }
+        function renderKPIChart() {
+            const ctx = document.getElementById('kpiChart'); if (kpiChartInstance) kpiChartInstance.destroy();
+            const sorted = [...kpiData].sort((a,b)=>b.onTimePct-a.onTimePct);
+            const labels = sorted.map(d=>d.name.replace(/^(AMOL|ODOL)[-\s]/i,''));
+            const data = sorted.map(d=>d.onTimePct);
+            const colors = data.map(v=>v>=90?'#43b581':v>=75?'#FEE75C':'#ED4245');
+            kpiChartInstance = new Chart(ctx.getContext('2d'), {
+                type:'bar', data:{ labels, datasets:[{ label:'ตรงเวลา %', data, backgroundColor:colors, borderRadius:4 }] },
+                options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true, max:100, grid:{color:'#4f545c'}, ticks:{color:'#aaa', callback:v=>v+'%'}}, x:{grid:{display:false}, ticks:{color:'#aaa', font:{size:10}}} } }
+            });
+        }
+
+        // ==================== Break Tab Logic ====================
+        // 🌙 วันพักแบบรองรับกะดึก: ก่อน 08:00 (เวลาไทย) นับเป็นเมื่อวาน
+        function getBreakDateThai() {
+            const t = new Date(new Date().getTime() + 7*3600000); // เวลาไทย(UTC base)
+            if (t.getUTCHours() < 8) {
+                t.setTime(t.getTime() - 24*3600000);
+            }
+            return t.toISOString().split('T')[0];
+        }
+        function getBreakDateLabelThai() {
+            const t = new Date(new Date().getTime() + 7*3600000);
+            if (t.getUTCHours() < 8) {
+                t.setTime(t.getTime() - 24*3600000);
+            }
+            return t.toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+        }
+
+        function initBreakDate() {
+            document.getElementById('breakDateLabel').textContent = getBreakDateLabelThai();
+        }
+
+        function diffMin(start, end) {
+            if (!start) return null;
+            const s = new Date(start);
+            const e = end ? new Date(end) : new Date(new Date().getTime() + 7*3600000);
+            return Math.max(0, Math.floor((e - s) / 60000));
+        }
+
+        function diffMinSec(start, end) {
+            if (!start) return null;
+            const s = new Date(start);
+            const e = end ? new Date(end) : new Date(new Date().getTime() + 7*3600000);
+            const totalSec = Math.max(0, Math.floor((e - s) / 1000));
+            const mins = Math.floor(totalSec / 60);
+            const secs = totalSec % 60;
+            return { mins, secs };
+        }
+
+        function fmtTime(isoStr) {
+            if (!isoStr) return '—';
+            const d = new Date(isoStr);
+            // ถ้า timestamp มี offset +07:00 (จาก botlink) → ใช้ getHours() ของ browser ตามปกติ
+            // ถ้า timestamp ไม่มี offset หรือเป็น Z (จากระบบเดิม) → บวก 7 ชั่วโมงเอง
+            const hasOffset = /[+-]\d{2}:\d{2}$/.test(isoStr.trim());
+            let h, m;
+            if (hasOffset) {
+                // มี offset จริง → แปลงเป็นเวลาไทย (UTC+7)
+                const thai = new Date(d.getTime() + 7 * 3600000);
+                h = thai.getUTCHours();
+                m = thai.getUTCMinutes();
+            } else {
+                // ไม่มี offset → เวลาไทยอยู่แล้ว อ่าน UTC fields ตรงๆ
+                h = d.getUTCHours();
+                m = d.getUTCMinutes();
+            }
+            return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+        }
+
+        // 🌙 ตรวจ record ที่ "คร่อมเวลาตี 1 (01:01)" — บอท Telegram รีเซ็ตตอน 01:01
+        // ถ้ากดพักก่อน 01:01 แล้วกดกลับตั้งแต่ 01:01 = ข้อมูลเพี้ยน ต้องตัดทิ้ง
+        // อ่านเป็นเวลาไทยด้วย getUTCHours (เพราะ timestamp เก็บแบบ Thai-labeled-as-UTC)
+        function crossesOneAM(start, end) {
+            if (!start || !end) return false;
+            const s = new Date(start), e = new Date(end);
+            const sMin = s.getUTCHours() * 60 + s.getUTCMinutes();
+            const eMin = e.getUTCHours() * 60 + e.getUTCMinutes();
+            const RESET = 61; // 01:01 = 61 นาทีจากเที่ยงคืน
+            // เริ่มก่อน 01:01 (00:00-01:00) และจบตั้งแต่ 01:01 เป็นต้นไป
+            // กรณีคร่อม: start < 01:01 <= end  (เวลาเดินไปข้างหน้าปกติ ไม่ใช่ข้ามวันถอยหลัง)
+            if (sMin < RESET && eMin >= RESET && eMin >= sMin) return true;
+            return false;
+        }
+
+        // คืนกะปัจจุบัน (morning = 08:00-19:59, night = 20:00-07:59) ตามเวลาไทย
+        function getCurrentShift() {
+            const h = new Date(new Date().getTime() + 7*3600000).getUTCHours();
+            return (h >= 8 && h < 20) ? 'morning' : 'night';
+        }
+
+        // คืนเวลาเริ่มต้นของกะปัจจุบัน (Thai time ISO string)
+        function getCurrentShiftStart() {
+            const now = new Date(new Date().getTime() + 7*3600000);
+            const h = now.getUTCHours();
+            const isMorning = (h >= 8 && h < 20);
+            const y = now.getUTCFullYear(), mo = now.getUTCMonth(), d = now.getUTCDate();
+            if (isMorning) {
+                return new Date(Date.UTC(y, mo, d, 1, 0, 0)).toISOString(); // 08:00 Thai = 01:00 UTC
+            } else {
+                // กะดึก: ถ้าตอนนี้ก่อนเที่ยงคืน (20:00-23:59) → เริ่มวันนี้ 20:00 Thai = 13:00 UTC
+                // ถ้าหลังเที่ยงคืน (00:00-07:59) → เริ่มเมื่อวาน 20:00 Thai = 13:00 UTC
+                const baseD = (h < 8) ? new Date(Date.UTC(y, mo, d-1)) : new Date(Date.UTC(y, mo, d));
+                return new Date(baseD.getTime() + 13*3600000).toISOString(); // 20:00 Thai = 13:00 UTC
+            }
+        }
+
+        // toggle ช่องเลือกวันเองเมื่อเลือก "custom"
+        function onBreakRangeChange() {
+            const range = document.getElementById('breakRange').value;
+            document.getElementById('breakCustomDate').style.display = (range === 'custom') ? 'inline-block' : 'none';
+            // จำกัด custom date ไม่เกิน 7 วันย้อนหลัง
+            if (range === 'custom') {
+                const today = getBreakDateThai();
+                const minDate = new Date(new Date(today+'T00:00:00').getTime() - 6*24*3600000);
+                const minStr = minDate.toISOString().split('T')[0];
+                const el = document.getElementById('breakCustomDate');
+                el.max = today;
+                el.min = minStr;
+            }
+            loadBreakData();
+        }
+
+        // คำนวณช่วงวันที่ (YYYY-MM-DD) ตามตัวเลือก รองรับกะดึก (ก่อน 8 โมงนับเป็นเมื่อวาน)
+        function getBreakRange() {
+            const range = document.getElementById('breakRange').value;
+            const todayStr = getBreakDateThai(); // วันนี้ (รองรับกะดึก)
+            if (range === 'today') {
+                return { start: todayStr, end: todayStr, label: getBreakDateLabelThai(), shiftStart: getCurrentShiftStart(), currentShift: getCurrentShift() };
+            }
+            if (range === 'custom') {
+                const d = document.getElementById('breakCustomDate').value || todayStr;
+                const lbl = new Date(d + 'T00:00:00').toLocaleDateString('th-TH', { year:'numeric', month:'long', day:'numeric' });
+                return { start: d, end: d, label: lbl };
+            }
+            // 7 วันล่าสุด
+            const days = 7;
+            const endD = new Date(todayStr + 'T00:00:00');
+            const startD = new Date(endD.getTime() - (days - 1) * 24 * 3600000);
+            const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            const lbl = `${startD.toLocaleDateString('th-TH',{day:'numeric',month:'short'})} - ${endD.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'})} (${days} วัน)`;
+            return { start: fmt(startD), end: fmt(endD), label: lbl };
+        }
+
+        async function loadBreakData() {
+            const pin = document.getElementById('adminPin').value;
+            if (!pin) { document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</div>'; return; }
+            document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:yellow; padding:20px;">⏳ กำลังโหลด...</div>';
+
+            const { start, end, label, shiftStart, currentShift } = getBreakRange();
+            document.getElementById('breakDateLabel').textContent = label;
+            const deptFilter = document.getElementById('breakDept').value;
+            const shiftFilter = document.getElementById('breakShift').value;
+            const range = document.getElementById('breakRange').value;
+
+            try {
+                const res = await fetch('/api/break-summary', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ pin, startDate: start, endDate: end })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(()=>({}));
+                    document.getElementById('breakList').innerHTML = `<div style="text-align:center; color:#ED4245; padding:20px;">${err.message||'❌ โหลดไม่ได้'}</div>`;
+                    return;
+                }
+                const json = await res.json();
+                let rows = json.data || [];
+
+                // กะปัจจุบัน: กรองเฉพาะ record ที่ break_start อยู่ในกะนี้
+                if (range === 'today' && shiftStart) {
+                    const shiftStartMs = new Date(shiftStart).getTime();
+                    rows = rows.filter(r => new Date(r.break_start).getTime() >= shiftStartMs);
+                }
+
+                // กรองตามแผนก
+                if (deptFilter !== 'ALL') rows = rows.filter(r => (r.department||'') === deptFilter);
+                // กรองตามกะ — ใช้ getRecordShift เพื่อรองรับทั้งคนที่มีและไม่มีใน staff_list
+                if (shiftFilter !== 'ALL') rows = rows.filter(r => getRecordShift(r) === shiftFilter);
+                renderBreakTable(rows, currentShift, shiftFilter);
+                document.getElementById('breakLastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
+            } catch(e) {
+                document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#ED4245; padding:20px;">❌ เชื่อมต่อ Server ไม่ได้</div>';
+            }
+        }
+
+        // ฟังก์ชันช่วยหากะของ record จาก shift ใน staff_list หรือ break_start
+        function getRecordShift(r) {
+            const s = (r.shift || '').toLowerCase();
+            if (s === 'morning') return 'morning';
+            if (s === 'night') return 'night';
+            // fallback: ดูจาก break_start
+            const h = new Date(r.break_start).getUTCHours(); // UTC hours (Thai time = UTC+7)
+            const thaiH = (h + 7) % 24;
+            return (thaiH >= 8 && thaiH < 20) ? 'morning' : 'night';
+        }
+
+        function renderBreakTable(rows, currentShift, shiftFilter) {
+            shiftFilter = shiftFilter || 'ALL';
+            const list = document.getElementById('breakList');
+            const range = document.getElementById('breakRange').value;
+            const isMultiDay = (range === '7');
+
+            if (!rows || rows.length === 0) {
+                document.getElementById('bStatTotal').textContent = '0';
+                document.getElementById('bStatAvg').textContent = '0 นาที';
+                document.getElementById('bStatMax').textContent = '0 นาที';
+                document.getElementById('bStatOver').textContent = '0 คน';
+                list.innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักในช่วงนี้ค่ะ</div>';
+                return;
+            }
+
+            // ===== สรุปรวมทั้งช่วง (ใช้ทุก record) =====
+            const allStaff = aggregateStaff(rows);
+            const grandMax = allStaff.length ? allStaff[0].totalMin : 0;
+            const grandAvg = allStaff.length ? Math.round(allStaff.reduce((a,x)=>a+x.totalMin,0)/allStaff.length) : 0;
+            const grandOver = allStaff.filter(x=>x.totalMin > 120).length;
+            document.getElementById('bStatTotal').textContent = allStaff.length + ' คน';
+            document.getElementById('bStatAvg').textContent = grandAvg + ' นาที';
+            document.getElementById('bStatMax').textContent = grandMax + ' นาที';
+            document.getElementById('bStatOver').textContent = grandOver + ' คน';
+
+            list.innerHTML = '';
+
+            if (!isMultiDay) {
+                // ===== โหมดวันเดียว/กะปัจจุบัน: แสดงรายชื่อคนเลย =====
+                const shiftLabel = (currentShift === 'morning') ? '☀️ กะเช้า (08:00 - 20:00)' : '🌙 กะดึก (20:00 - 08:00)';
+                const header = document.createElement('div');
+                header.style.cssText = 'font-size:13px; color:#94a3b8; font-weight:600; padding:8px 4px 4px 4px;';
+                header.textContent = shiftLabel;
+                list.appendChild(header);
+                if (allStaff.length === 0) { list.innerHTML += '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักค่ะ</div>'; return; }
+                const maxMin = allStaff[0].totalMin;
+                allStaff.forEach((s, idx) => list.appendChild(buildStaffCard(s, idx, maxMin, 's')));
+                return;
+            }
+
+            // ===== โหมดหลายวัน: จัดกลุ่มตามวัน แล้วแยกกะเช้า/ดึกในแต่ละวัน =====
+            const byDate = {};
+            rows.forEach(r => {
+                const d = r.break_date || '—';
+                if (!byDate[d]) byDate[d] = [];
+                byDate[d].push(r);
+            });
+            const dates = Object.keys(byDate).sort((a,b) => b.localeCompare(a));
+
+            dates.forEach((dateStr, dayIdx) => {
+                const dayRows = byDate[dateStr];
+                const morningRows = dayRows.filter(r => getRecordShift(r) === 'morning');
+                const nightRows = dayRows.filter(r => getRecordShift(r) === 'night');
+                const dayStaff = aggregateStaff(dayRows);
+                const dayTotal = dayStaff.reduce((a,x)=>a+x.totalMin, 0);
+                const dayId = `day-${dayIdx}`;
+                const dateLabel = (dateStr !== '—')
+                    ? new Date(dateStr+'T00:00:00').toLocaleDateString('th-TH', { weekday:'long', day:'numeric', month:'long', year:'numeric' })
+                    : 'ไม่ระบุวันที่';
+
+                const openByDefault = (dayIdx === 0);
+                const dayWrap = document.createElement('div');
+                dayWrap.style.cssText = 'background:#23233a; border-radius:12px; overflow:hidden; border:1px solid #383852;';
+                dayWrap.innerHTML = `
+                    <div onclick="toggleDaySection('${dayId}', this)" style="display:flex; align-items:center; gap:10px; padding:14px 16px; cursor:pointer; background:#2a2a44;">
+                        <span style="font-size:16px;">📅</span>
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:700; color:#fff; font-size:15px;">${dateLabel}</div>
+                            <div style="font-size:11px; color:#94a3b8; margin-top:2px;">${dayStaff.length} คน · รวม ${dayTotal} นาที</div>
+                        </div>
+                        <span id="${dayId}-arrow" style="color:#64748b; font-size:13px;">${openByDefault ? '▲' : '▼'}</span>
+                    </div>
+                    <div class="day-section ${dayId}" style="display:${openByDefault ? 'flex' : 'none'}; flex-direction:column; gap:8px; padding:12px;"></div>
+                `;
+                list.appendChild(dayWrap);
+                const dayContainer = dayWrap.querySelector('.' + dayId);
+
+                // กะเช้า
+                if (morningRows.length > 0 && (shiftFilter === 'ALL' || shiftFilter === 'morning')) {
+                    const mStaff = aggregateStaff(morningRows);
+                    const shiftHeader = document.createElement('div');
+                    shiftHeader.style.cssText = 'font-size:12px; color:#fcd34d; font-weight:700; padding:4px 2px; margin-top:4px;';
+                    shiftHeader.textContent = '☀️ กะเช้า (08:00 - 20:00)';
+                    dayContainer.appendChild(shiftHeader);
+                    const mMax = mStaff[0].totalMin;
+                    mStaff.forEach((s, idx) => dayContainer.appendChild(buildStaffCard(s, idx, mMax, `${dayId}-m`)));
+                }
+
+                // กะดึก
+                if (nightRows.length > 0 && (shiftFilter === 'ALL' || shiftFilter === 'night')) {
+                    const nStaff = aggregateStaff(nightRows);
+                    const shiftHeader = document.createElement('div');
+                    shiftHeader.style.cssText = 'font-size:12px; color:#7dd3fc; font-weight:700; padding:4px 2px; margin-top:8px;';
+                    shiftHeader.textContent = '🌙 กะดึก (20:00 - 08:00)';
+                    dayContainer.appendChild(shiftHeader);
+                    const nMax = nStaff[0].totalMin;
+                    nStaff.forEach((s, idx) => dayContainer.appendChild(buildStaffCard(s, idx, nMax, `${dayId}-n`)));
+                }
+            });
+        }
+
+        // รวมข้อมูลพักของแต่ละคน (ตัดคร่อมตี1, รวมซ้ำ, คำนวณเวลา) จากชุด record ที่ส่งเข้ามา
+        function aggregateStaff(rows) {
+            const grouped = {};
+            const meta = {};
+            rows.forEach(r => {
+                if (!grouped[r.staff_name]) { grouped[r.staff_name] = []; meta[r.staff_name] = { dept: r.department || '', shift: r.shift || '' }; }
+                grouped[r.staff_name].push(r);
+            });
+            return Object.entries(grouped).map(([name, sessions]) => {
+                // 🌙 ตัด record คร่อมตี 1 (เฉพาะกะดึก)
+                const cleaned = sessions.filter(s => {
+                    const isNight = (meta[name].shift === 'night');
+                    if (isNight && crossesOneAM(s.break_start, s.break_end)) return false;
+                    return true;
+                });
+                const sorted = cleaned.slice().sort((a, b) => new Date(a.break_start) - new Date(b.break_start));
+                const merged = [];
+                for (const s of sorted) {
+                    const last = merged[merged.length - 1];
+                    if (last) {
+                        const gap = Math.abs(new Date(s.break_start) - new Date(last.break_start)) / 60000;
+                        if (gap < 3) { if (!last.break_end && s.break_end) last.break_end = s.break_end; continue; }
+                    }
+                    merged.push({ break_start: s.break_start, break_end: s.break_end, break_date: s.break_date, break_reason: s.break_reason });
+                }
+                let totalMin = 0;
+                let completedSec = 0;
+                let ongoingStart = null;
+                const details = merged.map(s => {
+                    if (!s.break_end) {
+                        ongoingStart = s.break_start;
+                        return { start: s.break_start, end: null, date: s.break_date, reason: s.break_reason, dur: null, durSec: null };
+                    }
+                    const dur = diffMin(s.break_start, s.break_end);
+                    const durSec = diffMinSec(s.break_start, s.break_end);
+                    if (dur && dur > 0) totalMin += dur;
+                    if (durSec) completedSec += durSec.mins * 60 + durSec.secs;
+                    return { start: s.break_start, end: s.break_end, date: s.break_date, reason: s.break_reason, dur, durSec };
+                });
+                let ongoingReason = null;
+                details.forEach(d => { if (!d.end && d.reason) ongoingReason = d.reason; });
+                return { name, totalMin, completedSec, ongoingStart, ongoingReason, count: merged.length, details, dept: meta[name].dept, shift: meta[name].shift, totalSec: completedSec };
+            }).filter(s => s.count > 0).sort((a,b) => b.totalMin - a.totalMin);
+        }
+
+        // สร้างการ์ดพนักงาน 1 ใบ (prefix ใช้กันชน id ซ้ำระหว่างวัน)
+        function buildStaffCard(s, idx, maxMin, prefix) {
+            const pct = maxMin > 0 ? Math.round((s.totalMin / maxMin) * 100) : 0;
+            const barColor = s.totalMin <= 90 ? '#34d399' : s.totalMin <= 120 ? '#fbbf24' : '#f87171';
+            const badgeCls = s.totalMin <= 90 ? 'ok' : s.totalMin <= 120 ? 'warn' : 'over';
+            const badgeTxt = s.totalMin <= 90 ? 'ปกติ' : s.totalMin <= 120 ? 'เฝ้าระวัง' : 'เกินกำหนด';
+            const rankColor = idx === 0 ? '#FEE75C' : idx === 1 ? '#C0C0C0' : idx === 2 ? '#CD7F32' : '#5865F2';
+            const dtId = `bdt-${prefix}-${idx}`;
+
+            // แสดงทุกรอบ — รอบที่กดกลับแล้วสีม่วง, รอบที่ยังทำอยู่นับเวลาสดสีส้ม
+            const allDetails = s.details.slice().sort((a, b) => new Date(a.start) - new Date(b.start));
+            const showDate = (new Set(allDetails.map(d => d.date)).size > 1);
+            let chipsHtml = '';
+            allDetails.forEach((d, di) => {
+                const ongoing = !d.end;
+                const dateBadge = showDate && d.date
+                    ? `<span style="color:#64748b; font-size:11px; min-width:48px;">${new Date(d.date+'T00:00:00').toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</span>`
+                    : '';
+                const reasonBadge = d.reason
+                    ? `<span style="font-size:11px; color:#c4b5fd; background:#2e2640; padding:2px 8px; border-radius:10px; white-space:nowrap;">${d.reason}</span>`
+                    : '';
+                const endTxt = ongoing ? '...' : fmtTime(d.end);
+                const borderColor = ongoing ? '#f39c12' : '#34d399';
+                if (ongoing) {
+                    const startEpoch = new Date(d.start).getTime();
+                    chipsHtml += `
+                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${borderColor}; flex-wrap:wrap;">
+                        <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
+                        ${dateBadge}
+                        <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
+                        <span style="color:#64748b; font-size:12px;">→</span>
+                        <span style="color:#cbd5e1; font-size:13px;">${endTxt}</span>
+                        ${reasonBadge}
+                        <span class="live-timer-detail" data-start-epoch="${startEpoch}" style="color:#f39c12; font-weight:700; font-size:13px; margin-left:auto;">0 นาที 0 วินาที</span>
+                    </div>`;
+                } else {
+                    const durTxt = d.durSec !== null
+                        ? (d.durSec.secs > 0 ? `${d.durSec.mins} นาที ${d.durSec.secs} วินาที` : `${d.durSec.mins} นาที`)
+                        : '—';
+                    const durColor = d.dur > 30 ? '#f87171' : '#a78bfa';
+                    chipsHtml += `
+                    <div style="display:flex; align-items:center; gap:8px; padding:9px 12px; background:#1e1e2f; border-radius:8px; border-left:3px solid ${borderColor}; flex-wrap:wrap;">
+                        <span style="color:#64748b; font-size:12px; font-weight:600; min-width:24px;">#${di + 1}</span>
+                        ${dateBadge}
+                        <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.start)}</span>
+                        <span style="color:#64748b; font-size:12px;">→</span>
+                        <span style="color:#cbd5e1; font-size:13px;">${fmtTime(d.end)}</span>
+                        ${reasonBadge}
+                        <span style="color:${durColor}; font-weight:700; font-size:13px; margin-left:auto;">${durTxt}</span>
+                    </div>`;
+                }
+            });
+
+            // แสดงเวลาสะสมของรอบที่กดกลับแล้ว (ไม่รวมรอบที่กำลังทำอยู่)
+            const completedMins = Math.floor(s.totalSec / 60);
+            const completedSecs = s.totalSec % 60;
+            const completedTxt = completedSecs > 0 ? `${completedMins} นาที ${completedSecs} วินาที` : `${completedMins} นาที`;
+            const timeColor = s.totalMin <= 90 ? barColor : s.totalMin <= 120 ? '#fbbf24' : '#f87171';
+            const timerHtml = `<div style="font-size:16px; font-weight:700; color:${timeColor}; line-height:1;">${completedTxt}</div>`;
+
+            // badge: ถ้ากำลังทำกิจกรรมอยู่ → แสดงชื่อกิจกรรม ถ้าเสร็จแล้ว → แสดงสถานะปกติ
+            const activityLabel = s.ongoingReason ? s.ongoingReason.replace(/^[^\s]+\s/, '') : null;
+            const badgeHtml = s.ongoingStart
+                ? `<span class="bbadge warn" style="margin-top:4px;">${activityLabel || 'กำลังทำกิจกรรม'}</span>`
+                : `<span class="bbadge ${badgeCls}" style="margin-top:4px;">${badgeTxt}</span>`;
+
+            const shiftLabel = s.shift === 'morning' ? '☀️ เช้า' : s.shift === 'noon' ? '🕛 เที่ยง' : s.shift === 'night' ? '🌙 ดึก' : '';
+            const deptLabel = (s.dept && s.dept !== 'UNKNOWN') ? s.dept : '';
+            let metaBadges = '';
+            if (deptLabel) metaBadges += `<span style="font-size:10px; background:#1e3a5f; color:#7dd3fc; padding:1px 7px; border-radius:10px;">${deptLabel}</span>`;
+            if (shiftLabel) metaBadges += `<span style="font-size:10px; background:#3a2f1e; color:#fcd34d; padding:1px 7px; border-radius:10px;">${shiftLabel}</span>`;
+
+            const card = document.createElement('div');
+            card.style.cssText = 'background:#2a2a40; border-radius:10px; overflow:hidden; border:1px solid #383852;';
+            card.innerHTML = `
+                <div onclick="toggleBreakDetail('${dtId}', this)" style="display:flex; align-items:center; gap:12px; padding:14px 16px; cursor:pointer;">
+                    <div style="width:26px; height:26px; border-radius:50%; background:${rankColor}22; color:${rankColor}; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0;">${idx+1}</div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px; flex-wrap:wrap;">
+                            <span style="font-weight:700; color:#fff; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${s.name}</span>
+                            ${metaBadges}
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <div style="flex:1; max-width:160px; height:6px; background:#1e1e2f; border-radius:3px; overflow:hidden;">
+                                <div style="width:${pct}%; height:100%; background:${barColor}; border-radius:3px; transition:width .4s;"></div>
+                            </div>
+                            <span style="font-size:11px; color:#64748b;">${s.count} รอบ</span>
+                        </div>
+                    </div>
+                    <div style="text-align:right; flex-shrink:0;">
+                        ${timerHtml}
+                        ${badgeHtml}
+                    </div>
+                    <div style="color:#64748b; font-size:12px; flex-shrink:0; width:14px; text-align:center;" id="${dtId}-arrow">▼</div>
+                </div>
+                <div class="break-detail-body ${dtId}" style="display:none; padding:0 16px 14px 16px;">
+                    <div style="display:flex; flex-direction:column; gap:6px; padding-top:4px; border-top:1px solid #383852;">
+                        <div style="font-size:11px; color:#64748b; margin:8px 0 2px 0;">📋 รายละเอียด ${allDetails.length} รอบ</div>
+                        ${chipsHtml || '<div style="color:#64748b; font-size:12px; padding:8px 0;">ยังไม่มีรอบที่เสร็จสิ้น</div>'}
+                    </div>
+                </div>`;
+            return card;
+        }
+
+        // อัปเดต live timer ในรายละเอียดทุก 1 วินาที
+        setInterval(() => {
+            document.querySelectorAll('.live-timer-detail').forEach(el => {
+                const startEpoch = parseInt(el.dataset.startEpoch || '0');
+                if (!startEpoch) return;
+                const totalSec = Math.max(0, Math.floor((Date.now() - startEpoch) / 1000));
+                const mins = Math.floor(totalSec / 60);
+                const secs = totalSec % 60;
+                el.textContent = `${mins} นาที ${secs} วินาที`;
+            });
+        }, 1000);
+
+        function toggleBreakDetail(dtId, headerEl) {
+            const panel = document.querySelector('.' + dtId);
+            const arrow = document.getElementById(dtId + '-arrow');
+            if (!panel) return;
+            const isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'block';
+            if (arrow) arrow.textContent = isOpen ? '▼' : '▲';
+        }
+
+        function toggleDaySection(dayId, headerEl) {
+            const panel = document.querySelector('.day-section.' + dayId);
+            const arrow = document.getElementById(dayId + '-arrow');
+            if (!panel) return;
+            const isOpen = panel.style.display !== 'none';
+            panel.style.display = isOpen ? 'none' : 'flex';
+            if (arrow) arrow.textContent = isOpen ? '▼' : '▲';
+        }
+    </script>
+</body>
+</html>
