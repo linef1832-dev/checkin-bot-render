@@ -644,10 +644,22 @@ app.post('/api/break-summary', async (req, res) => {
             return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลไม่ได้: ' + (error.message || 'unknown') });
         }
 
-        // ซ่อมวันที่สลับ แล้วกรองด้วย break_date ที่ถูกต้อง ให้อยู่ในช่วงที่ขอ
+        // 🩹 created_at เชื่อถือได้เสมอ → ใช้กำหนด "วันทำงาน" (เวลาไทย) แทน break_date
+        //    ที่ botlink อาจเขียนสลับวัน-เดือน (YYYY-DD-MM) ทำให้ string-compare หลุดช่วงในวันที่ > 12
+        //    (normalizeBreakRow ยังช่วยซ่อม break_start/break_end ให้ parse ได้ + คำนวณเวลาถูก)
         const breaks = (rawBreaks || [])
             .map(normalizeBreakRow)
+            .map(b => {
+                const d = breakDateFromCreatedAt(b.created_at);
+                return d ? { ...b, break_date: d } : b;
+            })
             .filter(b => b.break_date && b.break_date >= sDate && b.break_date <= eDate);
+
+        // 🔎 log วินิจฉัย: ดึงมากี่แถว เหลือกี่แถวหลังกรอง (ถ้ามี raw แต่กรองทิ้งหมด โชว์ตัวอย่างให้ดูวันที่)
+        console.log(`[break-summary] ${sDate}..${eDate} raw=${(rawBreaks || []).length} kept=${breaks.length}` +
+            ((rawBreaks && rawBreaks.length && !breaks.length)
+                ? ` | sample=${JSON.stringify((rawBreaks || []).slice(0, 3).map(r => ({ name: r.staff_name, bs: r.break_start, bd: r.break_date, ca: r.created_at })))}`
+                : ''));
 
         // ดึงรายชื่อพนักงาน + แผนก + กะ มา map เข้ากับชื่อในตารางพัก
         const { data: staffRows } = await supabase
@@ -897,6 +909,18 @@ function normalizeBreakRow(b) {
         };
     }
     return b;                                        // ต่างวันด้วยเหตุอื่น (เช่น คร่อมเที่ยงคืน UTC) — ไม่แตะ
+}
+
+// 🕗 คืน "วันทำงาน" (YYYY-MM-DD เวลาไทย) จาก created_at ซึ่ง Supabase ตั้งเองถูกเสมอ
+//    ใช้ธรรมเนียมกะดึกเหมือน getBreakDateStr: ช่วง 00:00-07:59 นับเป็นเมื่อวาน
+//    → เลี่ยงปัญหา botlink เขียน break_date/break_start สลับวัน-เดือนทั้งหมด
+function breakDateFromCreatedAt(createdAt) {
+    if (!createdAt) return null;
+    const t = new Date(createdAt);
+    if (isNaN(t.getTime())) return null;
+    const thai = new Date(t.getTime() + 7 * 3600000);
+    if (thai.getUTCHours() < 8) thai.setUTCDate(thai.getUTCDate() - 1);
+    return `${thai.getUTCFullYear()}-${String(thai.getUTCMonth() + 1).padStart(2, '0')}-${String(thai.getUTCDate()).padStart(2, '0')}`;
 }
 
 async function handleBreakMessage(rawText, message) {
