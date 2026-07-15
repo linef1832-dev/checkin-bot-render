@@ -953,6 +953,8 @@ function breakDateFromCreatedAt(createdAt) {
 
 async function handleBreakMessage(rawText, message) {
     if (!rawText || rawText.trim() === '') return;
+    // 🚫 กันจับ "ข้อความแจ้งเตือนพักนาน" ของบอทเอง (มีคำ ปวดน้อย/กลับที่นั่ง ปนอยู่) เป็นการพักใหม่
+    if (/แจ้งเตือนพักนาน|ยังไม่กดกลับที่นั่ง|พักเกิน \d+ นาที/.test(rawText)) return;
 
     const cleanText = stripLeadingSymbols(rawText.replace(/\n/g, ' '));
     const isStart = matchBreakStart(cleanText);
@@ -1117,17 +1119,20 @@ async function checkLongBreaks() {
         // จัดกลุ่ม session ที่ยังเปิด (break_end null) ตามชื่อ (normalize) → หา "พักปัจจุบัน" = ก้อนล่าสุด
         // ยึด created_at (UTC จริง) เป็นเวลาเริ่มพัก
         const DUP_WINDOW_MS = 3 * 60000; // ห่างกัน < 3 นาที = record ซ้ำของพักเดียวกัน (botlink + Discord)
+        const orphansToClose = [];
         const groups = new Map();
         for (const b of openRows) {
-            const key = (b.staff_name || '').toUpperCase().trim();
+            const rawName = b.staff_name || '';
+            const key = rawName.toUpperCase().trim();
             if (!key) continue;
+            // 🚫 ข้าม + ปิด row ผีที่เกิดจากบอทเคยจับ "ข้อความแจ้งเตือน" ตัวเองเป็นการพัก
+            if (/แจ้งเตือน|พักเกิน|ยังไม่กด/.test(rawName)) { if (b.id != null) orphansToClose.push(b); continue; }
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push({ ...b, _ms: new Date(b.created_at || b.break_start).getTime() });
         }
 
         // เลือกพักล่าสุดของแต่ละคน + แยก orphan (พักเก่าที่ค้าง เพราะข้อความ "กลับ" ไม่ถูกจับคู่)
         const byStaff = new Map();
-        const orphansToClose = [];
         for (const [key, sessions] of groups) {
             sessions.sort((a, b) => a._ms - b._ms);
             const latestMs = sessions[sessions.length - 1]._ms;
@@ -1803,6 +1808,9 @@ const client = new Client({
 
 client.on('messageCreate', async (message) => {
     const channelId = message.channel.id;
+
+    // 🚫 ข้ามข้อความของบอทเราเอง — กันจับ "ข้อความแจ้งเตือนพักนาน" ของตัวเองเป็นการพัก (self-capture loop)
+    if (client.user && message.author?.id === client.user.id) return;
 
     // ── ดักข้อความพักจากบอทอื่น / webhook ──────────────────────────────────
     if (message.author.bot || message.webhookId) {
