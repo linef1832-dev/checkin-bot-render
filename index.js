@@ -1106,35 +1106,54 @@ async function checkLongBreaks() {
                 .is('break_end', null)
                 .order('break_start', { ascending: true }));
         }
-        const openBreaks = (rawOpen || []).map(normalizeBreakRow);
+        const openRows = rawOpen || [];
 
-        if (openBreaks.length === 0) {
+        if (openRows.length === 0) {
             lastAlertTime.clear();
             return;
         }
 
-        // รวม record ของคนเดียวกัน (botlink NULL-id + Discord มี-id อาจซ้ำ) → 1 คน 1 การแจ้ง
-        // ยึด created_at เป็นเวลาเริ่มพักจริง และเก็บ record ที่มี message id ไว้ reply ข้อความเดิม
-        const byStaff = new Map();
-        for (const b of openBreaks) {
+        // จัดกลุ่ม session ที่ยังเปิด (break_end null) ตามชื่อ (normalize) → หา "พักปัจจุบัน" = ก้อนล่าสุด
+        // ยึด created_at (UTC จริง) เป็นเวลาเริ่มพัก
+        const DUP_WINDOW_MS = 3 * 60000; // ห่างกัน < 3 นาที = record ซ้ำของพักเดียวกัน (botlink + Discord)
+        const groups = new Map();
+        for (const b of openRows) {
             const key = (b.staff_name || '').toUpperCase().trim();
             if (!key) continue;
-            const startMs = new Date(b.created_at || b.break_start).getTime();
-            const cur = byStaff.get(key);
-            if (!cur) {
-                byStaff.set(key, {
-                    staff_name: b.staff_name, key, startMs,
-                    reason: b.break_reason || null,
-                    channel_id: b.channel_id || null, message_id: b.message_id || null,
-                });
-            } else {
-                if (startMs < cur.startMs) cur.startMs = startMs;           // พักจริงเริ่มเมื่อไหร่ = เร็วสุด
-                if (!cur.reason && b.break_reason) cur.reason = b.break_reason;
-                if ((!cur.channel_id || !cur.message_id) && b.channel_id && b.message_id) {
-                    cur.channel_id = b.channel_id; cur.message_id = b.message_id; // เก็บ id ไว้ reply
-                }
-            }
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push({ ...b, _ms: new Date(b.created_at || b.break_start).getTime() });
         }
+
+        // เลือกพักล่าสุดของแต่ละคน + แยก orphan (พักเก่าที่ค้าง เพราะข้อความ "กลับ" ไม่ถูกจับคู่)
+        const byStaff = new Map();
+        const orphansToClose = [];
+        for (const [key, sessions] of groups) {
+            sessions.sort((a, b) => a._ms - b._ms);
+            const latestMs = sessions[sessions.length - 1]._ms;
+            const current = sessions.filter(s => latestMs - s._ms <= DUP_WINDOW_MS); // พักปัจจุบัน (+ record ซ้ำ)
+            for (const s of sessions) {
+                if (latestMs - s._ms > DUP_WINDOW_MS && s.id != null) orphansToClose.push(s); // เก่ากว่า = orphan
+            }
+            const withId = current.find(s => s.channel_id && s.message_id) || current[current.length - 1];
+            byStaff.set(key, {
+                staff_name: withId.staff_name, key,
+                startMs: current[0]._ms,                                    // เริ่มจริง = เร็วสุดของก้อนล่าสุด
+                reason: (current.find(s => s.break_reason) || {}).break_reason || null,
+                channel_id: withId.channel_id || null,
+                message_id: withId.message_id || null,
+            });
+        }
+
+        // 🧹 ปิด orphan แบบ void (break_end = break_start → ระยะ 0 นาที) กันบอทดึงเวลาพักเก่ามาแจ้ง/นับซ้ำ
+        //    ใช้ break_start เดิม (ไม่ normalize) เพื่อให้ end=start เป๊ะ ระยะเป็น 0 ไม่ว่า convention ไหน
+        for (const o of orphansToClose) {
+            try {
+                await supabase.from('break_sessions')
+                    .update({ break_end: o.break_start || o.created_at })
+                    .eq('id', o.id).is('break_end', null);
+            } catch (e) { console.error('[LongBreak] ปิด orphan ไม่ได้:', e.message); }
+        }
+        if (orphansToClose.length) console.log(`[LongBreak] 🧹 ปิด orphan ค้าง ${orphansToClose.length} รายการ`);
 
         const activeKeys = new Set();
         for (const p of byStaff.values()) {
