@@ -707,13 +707,33 @@ app.post('/api/break-summary', async (req, res) => {
             };
         });
 
+        // 🔎 ถ้าช่วงที่ขอไม่มีแถวเลย → ดึง 10 แถวล่าสุด (ไม่กรองวันที่) มาดูว่า botlink เขียนอะไรลงล่าสุด
+        let recentRows = [];
+        let totalCount = null;
+        if ((rawBreaks || []).length === 0) {
+            try {
+                const { data: rr } = await supabase
+                    .from('break_sessions')
+                    .select('staff_name, break_start, break_date, created_at')
+                    .order('created_at', { ascending: false })
+                    .limit(10);
+                recentRows = rr || [];
+                const { count } = await supabase
+                    .from('break_sessions')
+                    .select('*', { count: 'exact', head: true });
+                totalCount = (count != null) ? count : null;
+            } catch (e) { console.error('[break-summary] recent query error:', e.message || e); }
+        }
+
         res.json({
             success: true, data: enriched, startDate: sDate, endDate: eDate,
             // 🔎 diagnostic ให้ฝั่งเว็บโชว์ได้เวลาไม่มีข้อมูล
             debug: {
                 rawInWindow: (rawBreaks || []).length,
                 afterDateFilter: enriched.length,
-                sample: (rawBreaks || []).slice(0, 5).map(r => ({ name: r.staff_name, bd: r.break_date, ca: r.created_at }))
+                sample: (rawBreaks || []).slice(0, 5).map(r => ({ name: r.staff_name, bd: r.break_date, ca: r.created_at })),
+                totalCount,
+                recent: recentRows.map(r => ({ name: r.staff_name, bs: r.break_start, bd: r.break_date, ca: r.created_at }))
             }
         });
     } catch (err) {

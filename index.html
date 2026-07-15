@@ -1226,13 +1226,21 @@
             const sampleHTML = sample.length
                 ? sample.map(s => `<div style="font-family:monospace; font-size:11px; color:#cbd5e1; word-break:break-all;">${(s.name||'—')} · bd=${s.bd||'—'} · ca=${s.ca||'—'}</div>`).join('')
                 : '<div style="color:#64748b; font-size:11px;">— ไม่มีแถวใน window —</div>';
+            const totalCount = (dbg.totalCount != null) ? dbg.totalCount : '?';
+            const recent = Array.isArray(dbg.recent) ? dbg.recent : [];
             let hint = '';
-            if (raw === 0) hint = '⚠️ ไม่มีแถวใน DB เลย (±1 วัน) → botlink ไม่ได้เขียนลง หรือวันที่ผิดหนัก (ต้องไปแก้ botlink)';
+            if (raw === 0) hint = '⚠️ ไม่มีแถวใน DB เลย (±1 วัน) → botlink ไม่ได้เขียนลง หรือ created_at เพี้ยน (ดู "10 แถวล่าสุด" ด้านล่าง)';
             else if (afterDate === 0) hint = '⚠️ มีแถวใน DB แต่วันทำงาน (จาก created_at) ไม่ตรงวันที่เลือก';
             else if (d.nDept === 0 && d.deptFilter !== 'ALL') hint = `⚠️ โดนกรองแผนก "${d.deptFilter}" ทิ้งหมด (ชื่อไม่ match staff_list → UNKNOWN) — ลองเลือก "ทุกแผนก"`;
             else if (d.nShift === 0 && d.shiftFilter !== 'ALL') hint = `⚠️ โดนกรองกะ "${d.shiftFilter}" ทิ้งหมด — ลองเลือก "ทุกกะ"`;
+            const recentHTML = (raw === 0 && recent.length)
+                ? `<div style="margin-top:8px; border-top:1px solid #2a2a44; padding-top:8px;">
+                       <div style="font-size:11px; color:#94a3b8; margin-bottom:4px;">📋 10 แถวล่าสุดใน DB (ทั้งตาราง = ${totalCount} แถว):</div>
+                       ${recent.map(r => `<div style="font-family:monospace; font-size:10.5px; color:#cbd5e1; word-break:break-all; margin-bottom:2px;">${(r.name||'—')} · bs=${r.bs||'—'} · bd=${r.bd||'—'} · <b style="color:#7dd3fc;">ca=${r.ca||'—'}</b></div>`).join('')}
+                   </div>`
+                : (raw === 0 ? `<div style="margin-top:8px; border-top:1px solid #2a2a44; padding-top:8px; font-size:11px; color:#fca5a5;">📋 ทั้งตารางมี ${totalCount} แถว แต่ดึง 10 แถวล่าสุดไม่ได้</div>` : '');
             return `
-                <div style="margin:16px auto 0; max-width:520px; background:#1a1a2e; border:1px solid #383852; border-radius:10px; padding:12px 14px; text-align:left;">
+                <div style="margin:16px auto 0; max-width:560px; background:#1a1a2e; border:1px solid #383852; border-radius:10px; padding:12px 14px; text-align:left;">
                     <div style="font-size:12px; font-weight:700; color:#f39c12; margin-bottom:6px;">🔎 diagnostic (ไว้ debug)</div>
                     <div style="font-size:12px; color:#94a3b8; line-height:1.7;">
                         DB ในช่วง ±1 วัน: <b style="color:#fff;">${raw}</b> แถว<br>
@@ -1240,7 +1248,8 @@
                         ฝั่งเว็บ: API ${d.nApi} → กะปัจจุบัน ${d.nShiftStart} → แผนก(${d.deptFilter}) ${d.nDept} → กะ(${d.shiftFilter}) ${d.nShift}
                     </div>
                     ${hint ? `<div style="font-size:12px; color:#fca5a5; margin-top:8px;">${hint}</div>` : ''}
-                    <div style="margin-top:8px; border-top:1px solid #2a2a44; padding-top:8px;">${sampleHTML}</div>
+                    ${raw !== 0 ? `<div style="margin-top:8px; border-top:1px solid #2a2a44; padding-top:8px;">${sampleHTML}</div>` : ''}
+                    ${recentHTML}
                 </div>`;
         }
 
