@@ -1000,10 +1000,11 @@ async function handleBreakMessage(rawText, message) {
     }
 }
 
-// ⏰ เก็บเวลาแจ้งเตือนล่าสุดของแต่ละ record (id → timestamp ms) เพื่อแจ้งซ้ำทุก 2 นาที
+// ⏰ เก็บสถานะแจ้งเตือนของแต่ละคน: key → { startMs, count, lastTs } (รีเซ็ตเมื่อเริ่มพักครั้งใหม่)
 const lastAlertTime = new Map();
 const LONG_BREAK_LIMIT_MIN = 30;   // เกินกี่นาทีถึงเริ่มแจ้งเตือน
 const ALERT_REPEAT_MIN = 2;        // แจ้งซ้ำทุกกี่นาที
+const MAX_LONG_BREAK_ALERTS = 2;   // แจ้งซ้ำได้สูงสุดกี่รอบต่อการพัก 1 ครั้ง แล้วหยุด
 
 // 📊 แจ้งเตือนยอดพักสะสมต่อวัน
 const DAILY_WARN_MIN = 110;        // ยอดสะสมถึงกี่นาทีถึงแจ้งเตือน
@@ -1166,20 +1167,26 @@ async function checkLongBreaks() {
             if (!isWithinShift(shift, nowThai)) { lastAlertTime.delete(p.key); continue; }
             activeKeys.add(p.key);
 
-            // แจ้งซ้ำทุก 2 นาที
-            const last = lastAlertTime.get(p.key) || 0;
-            if (realNow - last < ALERT_REPEAT_MIN * 60000) continue;
+            // แจ้งซ้ำทุก 2 นาที แต่ไม่เกิน MAX_LONG_BREAK_ALERTS รอบต่อการพัก 1 ครั้ง
+            let stt = lastAlertTime.get(p.key);
+            if (!stt || stt.startMs !== p.startMs) stt = { startMs: p.startMs, count: 0, lastTs: 0 }; // พักครั้งใหม่ → รีเซ็ต
+            lastAlertTime.set(p.key, stt);
+            if (stt.count >= MAX_LONG_BREAK_ALERTS) continue;                  // ครบโควตาแล้ว → หยุดแจ้ง (ยัง active)
+            if (realNow - stt.lastTs < ALERT_REPEAT_MIN * 60000) continue;     // ยังไม่ถึงรอบถัดไป
 
             // เวลาเริ่มพัก แสดงเป็นเวลาไทย (created_at เป็น UTC จริง → +7 ชม.)
             const st = new Date(p.startMs + 7 * 3600000);
             const startStr = `${String(st.getUTCHours()).padStart(2, '0')}:${String(st.getUTCMinutes()).padStart(2, '0')}`;
             const reasonStr = p.reason || '☕ พัก';
-            const msg = `⚠️ **แจ้งเตือนพักนาน**\n👤 **${p.staff_name}** พักเกิน ${LONG_BREAK_LIMIT_MIN} นาทีแล้ว!\n${reasonStr} · เริ่มพักเวลา ${startStr} น. (ผ่านมา ${elapsedMin} นาที)\n⏰ ยังไม่กดกลับที่นั่ง`;
+            const roundInfo = `${stt.count + 1}/${MAX_LONG_BREAK_ALERTS}`;
+            const msg = `⚠️ **แจ้งเตือนพักนาน** (รอบ ${roundInfo})\n👤 **${p.staff_name}** พักเกิน ${LONG_BREAK_LIMIT_MIN} นาทีแล้ว!\n${reasonStr} · เริ่มพักเวลา ${startStr} น. (ผ่านมา ${elapsedMin} นาที)\n⏰ ยังไม่กดกลับที่นั่ง`;
 
             // 💬 ตอบกลับ (reply) ข้อความพักเดิมของคนนั้น ถ้ามี id — ไม่งั้น fallback เข้าห้องแจ้งพัก
             await sendBreakAlert(p.channel_id, p.message_id, msg);
-            lastAlertTime.set(p.key, realNow);
-            console.log(`[LongBreak] 🔔 แจ้งเตือน ${p.staff_name} พัก ${elapsedMin} นาที (${p.key})`);
+            stt.count += 1;
+            stt.lastTs = realNow;
+            lastAlertTime.set(p.key, stt);
+            console.log(`[LongBreak] 🔔 แจ้งเตือน ${p.staff_name} พัก ${elapsedMin} นาที รอบ ${roundInfo} (${p.key})`);
         }
 
         // เคลียร์ key ที่ไม่ได้พักแล้วออกจาก Map (กัน memory โต)
