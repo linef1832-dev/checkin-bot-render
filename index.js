@@ -707,7 +707,15 @@ app.post('/api/break-summary', async (req, res) => {
             };
         });
 
-        res.json({ success: true, data: enriched, startDate: sDate, endDate: eDate });
+        res.json({
+            success: true, data: enriched, startDate: sDate, endDate: eDate,
+            // 🔎 diagnostic ให้ฝั่งเว็บโชว์ได้เวลาไม่มีข้อมูล
+            debug: {
+                rawInWindow: (rawBreaks || []).length,
+                afterDateFilter: enriched.length,
+                sample: (rawBreaks || []).slice(0, 5).map(r => ({ name: r.staff_name, bd: r.break_date, ca: r.created_at }))
+            }
+        });
     } catch (err) {
         console.error('[break-summary]', err);
         res.status(500).json({ success: false });

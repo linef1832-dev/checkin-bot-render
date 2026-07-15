@@ -1152,6 +1152,8 @@
             return { start: fmt(startD), end: fmt(endD), label: lbl };
         }
 
+        let lastBreakDiag = null; // 🔎 เก็บผลนับจำนวนแถวแต่ละด่านกรอง ไว้โชว์ตอนไม่มีข้อมูล
+
         async function loadBreakData() {
             const pin = document.getElementById('adminPin').value;
             if (!pin) { document.getElementById('breakList').innerHTML = '<div style="text-align:center; color:#f39c12; padding:20px;">🔑 ใส่ PIN ก่อนค่ะ</div>'; return; }
@@ -1176,16 +1178,25 @@
                 const json = await res.json();
                 let rows = json.data || [];
 
+                // 🔎 นับจำนวนแถวที่หายในแต่ละด่าน เพื่อ diagnostic เวลาไม่มีข้อมูล
+                const dbg = json.debug || {};
+                const nApi = rows.length;
+
                 // กะปัจจุบัน: กรองเฉพาะ record ที่ break_start อยู่ในกะนี้
                 if (range === 'today' && shiftStart) {
                     const shiftStartMs = new Date(shiftStart).getTime();
                     rows = rows.filter(r => new Date(r.break_start).getTime() >= shiftStartMs);
                 }
+                const nShiftStart = rows.length;
 
                 // กรองตามแผนก
                 if (deptFilter !== 'ALL') rows = rows.filter(r => (r.department||'') === deptFilter);
+                const nDept = rows.length;
                 // กรองตามกะ — ใช้ getRecordShift เพื่อรองรับทั้งคนที่มีและไม่มีใน staff_list
                 if (shiftFilter !== 'ALL') rows = rows.filter(r => getRecordShift(r) === shiftFilter);
+                const nShift = rows.length;
+
+                lastBreakDiag = { dbg, nApi, nShiftStart, nDept, nShift, deptFilter, shiftFilter, range };
                 renderBreakTable(rows, currentShift, shiftFilter);
                 document.getElementById('breakLastUpdate').textContent = new Date().toLocaleTimeString('th-TH');
             } catch(e) {
@@ -1204,6 +1215,35 @@
             return (thaiH >= 8 && thaiH < 20) ? 'morning' : 'night';
         }
 
+        // 🔎 สร้าง panel diagnostic โชว์ว่าข้อมูลหายที่ด่านไหน (DB → กรองวันที่ → แผนก → กะ)
+        function buildBreakDiagHTML() {
+            const d = lastBreakDiag;
+            if (!d) return '';
+            const dbg = d.dbg || {};
+            const raw = (dbg.rawInWindow != null) ? dbg.rawInWindow : '?';
+            const afterDate = (dbg.afterDateFilter != null) ? dbg.afterDateFilter : '?';
+            const sample = Array.isArray(dbg.sample) ? dbg.sample : [];
+            const sampleHTML = sample.length
+                ? sample.map(s => `<div style="font-family:monospace; font-size:11px; color:#cbd5e1; word-break:break-all;">${(s.name||'—')} · bd=${s.bd||'—'} · ca=${s.ca||'—'}</div>`).join('')
+                : '<div style="color:#64748b; font-size:11px;">— ไม่มีแถวใน window —</div>';
+            let hint = '';
+            if (raw === 0) hint = '⚠️ ไม่มีแถวใน DB เลย (±1 วัน) → botlink ไม่ได้เขียนลง หรือวันที่ผิดหนัก (ต้องไปแก้ botlink)';
+            else if (afterDate === 0) hint = '⚠️ มีแถวใน DB แต่วันทำงาน (จาก created_at) ไม่ตรงวันที่เลือก';
+            else if (d.nDept === 0 && d.deptFilter !== 'ALL') hint = `⚠️ โดนกรองแผนก "${d.deptFilter}" ทิ้งหมด (ชื่อไม่ match staff_list → UNKNOWN) — ลองเลือก "ทุกแผนก"`;
+            else if (d.nShift === 0 && d.shiftFilter !== 'ALL') hint = `⚠️ โดนกรองกะ "${d.shiftFilter}" ทิ้งหมด — ลองเลือก "ทุกกะ"`;
+            return `
+                <div style="margin:16px auto 0; max-width:520px; background:#1a1a2e; border:1px solid #383852; border-radius:10px; padding:12px 14px; text-align:left;">
+                    <div style="font-size:12px; font-weight:700; color:#f39c12; margin-bottom:6px;">🔎 diagnostic (ไว้ debug)</div>
+                    <div style="font-size:12px; color:#94a3b8; line-height:1.7;">
+                        DB ในช่วง ±1 วัน: <b style="color:#fff;">${raw}</b> แถว<br>
+                        ผ่านกรองวันที่ (API ส่งมา): <b style="color:#fff;">${afterDate}</b> แถว<br>
+                        ฝั่งเว็บ: API ${d.nApi} → กะปัจจุบัน ${d.nShiftStart} → แผนก(${d.deptFilter}) ${d.nDept} → กะ(${d.shiftFilter}) ${d.nShift}
+                    </div>
+                    ${hint ? `<div style="font-size:12px; color:#fca5a5; margin-top:8px;">${hint}</div>` : ''}
+                    <div style="margin-top:8px; border-top:1px solid #2a2a44; padding-top:8px;">${sampleHTML}</div>
+                </div>`;
+        }
+
         function renderBreakTable(rows, currentShift, shiftFilter) {
             shiftFilter = shiftFilter || 'ALL';
             const list = document.getElementById('breakList');
@@ -1215,7 +1255,7 @@
                 document.getElementById('bStatAvg').textContent = '0 นาที';
                 document.getElementById('bStatMax').textContent = '0 นาที';
                 document.getElementById('bStatOver').textContent = '0 คน';
-                list.innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักในช่วงนี้ค่ะ</div>';
+                list.innerHTML = '<div style="text-align:center; color:#aaa; padding:40px;">☕ ยังไม่มีข้อมูลการพักในช่วงนี้ค่ะ</div>' + buildBreakDiagHTML();
                 return;
             }
 
