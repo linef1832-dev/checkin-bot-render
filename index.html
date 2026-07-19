@@ -834,7 +834,12 @@
         }
         async function removeStaff(discordId) {
             const pin = document.getElementById('adminPin').value; if (!pin || !confirm('ลบแน่ใจ?')) return;
-            try { await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'remove', discordId, pin}) }); loadStaff(); } catch(e){}
+            try {
+                const res = await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'remove', discordId, pin}) });
+                const json = await res.json().catch(()=>({}));
+                if (res.ok && json.success) { showPopup(json.message || '✅ ลบเรียบร้อย', true); loadStaff(); }
+                else showPopup(json.message || '❌ ลบไม่สำเร็จ', false);
+            } catch(e){ showPopup('❌ เชื่อมต่อ server ไม่ได้', false); }
         }
 
         let shiftModalContext = null;

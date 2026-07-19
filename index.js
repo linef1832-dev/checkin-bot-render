@@ -385,7 +385,50 @@ app.post('/api/save-remark', async (req, res) => {
     } catch (err) { res.status(500).json({ success: false }); }
 });
 
-// /api/updatestaff ถูกลบออกแล้ว — ใช้ /api/syncstaff แทน
+// /api/updatestaff — เพิ่ม / แก้ชื่อ / ลบ พนักงานทีละคน (ปุ่มบนหน้าเว็บแท็บพนักงาน)
+app.post('/api/updatestaff', async (req, res) => {
+    const { action, discordId, pin } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+    if (!action || !discordId) return res.status(400).json({ success: false, message: '❌ ข้อมูลไม่ครบ (ต้องมี action และ discordId)' });
+    try {
+        if (action === 'add') {
+            const { staffName, dept, shift } = req.body;
+            if (!staffName) return res.status(400).json({ success: false, message: '❌ ต้องมีชื่อพนักงาน' });
+            const row = {
+                discord_id: discordId,
+                staff_name: staffName,
+                department: (dept || 'AMOL').toUpperCase(),
+                shift: (shift || 'morning').toLowerCase(),
+            };
+            // มีอยู่แล้ว → update, ยังไม่มี → insert (กันชนกันถ้าใส่ id ซ้ำ)
+            const { data: existing } = await supabase.from('staff_list').select('discord_id').eq('discord_id', discordId).maybeSingle();
+            let error;
+            if (existing) ({ error } = await supabase.from('staff_list').update(row).eq('discord_id', discordId));
+            else ({ error } = await supabase.from('staff_list').insert([row]));
+            if (error) return res.status(500).json({ success: false, message: '❌ บันทึกไม่ได้: ' + error.message });
+            console.log(`[UpdateStaff] ✅ ${existing ? 'update' : 'add'} ${staffName} (${discordId})`);
+            return res.json({ success: true, message: `✅ บันทึก ${staffName} เรียบร้อย` });
+        }
+        if (action === 'edit_name') {
+            const { newName } = req.body;
+            if (!newName) return res.status(400).json({ success: false, message: '❌ ต้องมีชื่อใหม่' });
+            const { error } = await supabase.from('staff_list').update({ staff_name: newName }).eq('discord_id', discordId);
+            if (error) return res.status(500).json({ success: false, message: '❌ แก้ชื่อไม่ได้: ' + error.message });
+            console.log(`[UpdateStaff] ✏️ แก้ชื่อ (${discordId}) → ${newName}`);
+            return res.json({ success: true, message: `✅ แก้ชื่อเป็น ${newName} เรียบร้อย` });
+        }
+        if (action === 'remove') {
+            const { error } = await supabase.from('staff_list').delete().eq('discord_id', discordId);
+            if (error) return res.status(500).json({ success: false, message: '❌ ลบไม่ได้: ' + error.message });
+            console.log(`[UpdateStaff] 🗑️ ลบพนักงาน (${discordId})`);
+            return res.json({ success: true, message: '✅ ลบพนักงานเรียบร้อย' });
+        }
+        return res.status(400).json({ success: false, message: '❌ action ไม่ถูกต้อง (add / edit_name / remove)' });
+    } catch (e) {
+        console.error('[UpdateStaff] error:', e);
+        res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาด: ' + e.message });
+    }
+});
 
 // ===== Sync พนักงานจาก K36 → staff_list =====
 app.post('/api/syncstaff', async (req, res) => {
