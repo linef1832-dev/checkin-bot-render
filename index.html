@@ -183,6 +183,25 @@
             <div id="syncResult" style="margin-top:10px; font-size:13px;"></div>
         </div>
 
+        <!-- เพิ่มพนักงานเอง (manual) -->
+        <div class="card" style="border-left: 4px solid #5865F2;">
+            <h3 style="margin-top:0;">➕ เพิ่มพนักงานเอง</h3>
+            <p style="color:#aaa; font-size:13px; margin-bottom:12px;">เพิ่มทีละคน (ถ้า Discord ID ซ้ำจะอัปเดตข้อมูลเดิม)</p>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                <input type="text" id="staffId" placeholder="Discord ID" style="flex:1; min-width:150px;">
+                <input type="text" id="staffName" placeholder="ชื่อพนักงาน" style="flex:1; min-width:150px;">
+                <select id="staffDept" style="min-width:110px;">
+                    <option value="AMOL">AMOL</option>
+                    <option value="ODOL">ODOL</option>
+                </select>
+                <select id="staffShift" style="min-width:120px;">
+                    <option value="morning">☀️ กะเช้า</option>
+                    <option value="noon">🕛 กะเที่ยง</option>
+                    <option value="night">🌙 กะดึก</option>
+                </select>
+                <button id="btnSaveStaff" onclick="saveStaff()" style="background:#5865F2; padding:10px 20px;">💾 บันทึก</button>
+            </div>
+        </div>
 
         <!-- รายชื่อพนักงาน -->
         <div class="card" style="background-color: #202231;">
@@ -821,9 +840,14 @@
         async function saveStaff() {
             const pin = document.getElementById('adminPin').value; const discordId = document.getElementById('staffId').value.trim();
             const staffName = document.getElementById('staffName').value.trim(); const dept = document.getElementById('staffDept').value; const shift = document.getElementById('staffShift').value;
-            if (!pin || !discordId || !staffName) return alert('ข้อมูลไม่ครบ');
+            if (!pin || !discordId || !staffName) return alert('ข้อมูลไม่ครบ (ต้องมี PIN, Discord ID, ชื่อ)');
             const btn = document.getElementById('btnSaveStaff'); btn.innerText = "⏳...";
-            try { await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add', discordId, staffName, dept, shift, pin}) }); document.getElementById('staffId').value=''; document.getElementById('staffName').value=''; loadStaff(); } catch(e){}
+            try {
+                const res = await fetch('/api/updatestaff', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'add', discordId, staffName, dept, shift, pin}) });
+                const json = await res.json().catch(()=>({}));
+                if (res.ok && json.success) { showPopup(json.message || '✅ บันทึกเรียบร้อย', true); document.getElementById('staffId').value=''; document.getElementById('staffName').value=''; loadStaff(); }
+                else showPopup(json.message || '❌ บันทึกไม่สำเร็จ', false);
+            } catch(e){ showPopup('❌ เชื่อมต่อ server ไม่ได้', false); }
             btn.innerText = "💾 บันทึก";
         }
         async function saveEdittedName(discordId) {
