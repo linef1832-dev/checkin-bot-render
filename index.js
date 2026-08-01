@@ -437,33 +437,59 @@ app.post('/api/syncstaff', async (req, res) => {
     if (!supabaseLeave) return res.status(500).json({ success: false, message: '❌ ยังไม่ได้ตั้งค่า SUPABASE_LEAVE_URL / SUPABASE_LEAVE_KEY' });
 
     try {
-        // ดึงข้อมูลจาก users ใน K36
-        const { data: users, error: fetchErr } = await supabaseLeave
-            .from('users')
-            .select('username, discord_id, telegram_id, tag, department, allowed_shift')
-            .not('discord_id', 'is', null);
+        // ดึงข้อมูลจาก users ใน K36 (แบ่งหน้าละ 1000 กัน default limit ของ Supabase ตัดข้อมูล)
+        const users = [];
+        const PAGE = 1000;
+        for (let from = 0; ; from += PAGE) {
+            const { data: page, error: fetchErr } = await supabaseLeave
+                .from('users')
+                .select('username, discord_id, telegram_id, tag, department, allowed_shift')
+                .not('discord_id', 'is', null)
+                .range(from, from + PAGE - 1);
 
-        if (fetchErr || !users) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลจาก K36 ไม่ได้: ' + (fetchErr?.message || '') });
+            if (fetchErr) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลจาก K36 ไม่ได้: ' + fetchErr.message });
+            if (!page || page.length === 0) break;
+            users.push(...page);
+            if (page.length < PAGE) break;
+        }
+
+        // 🛡️ กันข้อมูลหาย: ถ้า K36 ส่งมา 0 คน แปลว่าผิดปกติ → ไม่แตะ staff_list เลย
+        if (users.length === 0) {
+            return res.status(400).json({ success: false, message: '❌ ดึงจาก K36 ได้ 0 คน — ยกเลิก sync เพื่อกันข้อมูลพนักงานหาย' });
+        }
 
         const shiftMap = { 'กะเช้า': 'morning', 'กะกลาง': 'noon', 'กะดึก': 'night' };
         const staffRows = users
             .filter(u => u.discord_id && u.username)
             .map(u => ({
-                discord_id: u.discord_id,
+                discord_id: String(u.discord_id),
                 staff_name: u.username,
                 telegram_id: u.telegram_id || null,
                 department: (u.tag || u.department || 'AMOL').toUpperCase(),
                 shift: shiftMap[u.allowed_shift] || 'morning'
             }));
 
-        // ดึง staff_list ที่มีอยู่ทั้งหมด
-        const { data: existing } = await supabase.from('staff_list').select('discord_id, shift');
-        const existingMap = {};
-        (existing || []).forEach(e => { existingMap[e.discord_id] = e.shift; });
-        const k36Ids = staffRows.map(r => r.discord_id);
+        // กัน discord_id ซ้ำจาก K36 (เอาแถวหลังสุดชนะ) — ถ้าซ้ำใน payload เดียว upsert จะ error
+        const dedup = new Map();
+        staffRows.forEach(r => dedup.set(r.discord_id, r));
+        const rows = [...dedup.values()];
 
-        // upsert ทีเดียวทั้งก้อน โดยเอา shift จาก existingMap มาใส่ก่อน
-        const upsertRows = staffRows.map(r => ({
+        // ดึง staff_list ที่มีอยู่ทั้งหมด (แบ่งหน้าเหมือนกัน)
+        const existing = [];
+        for (let from = 0; ; from += PAGE) {
+            const { data: page, error } = await supabase
+                .from('staff_list')
+                .select('discord_id, shift')
+                .range(from, from + PAGE - 1);
+            if (error) return res.status(500).json({ success: false, message: '❌ อ่าน staff_list ไม่ได้: ' + error.message });
+            if (!page || page.length === 0) break;
+            existing.push(...page);
+            if (page.length < PAGE) break;
+        }
+        const existingMap = {};
+        existing.forEach(e => { existingMap[String(e.discord_id)] = e.shift; });
+
+        const upsertRows = rows.map(r => ({
             discord_id: r.discord_id,
             staff_name: r.staff_name,
             telegram_id: r.telegram_id,
@@ -471,16 +497,24 @@ app.post('/api/syncstaff', async (req, res) => {
             shift: existingMap[r.discord_id] || r.shift  // ถ้ามีอยู่แล้วใช้ shift เดิม ถ้าใหม่ใช้จาก K36
         }));
 
-        // ลบก่อน แล้ว insert ทีเดียว (เร็วที่สุด)
-        await supabase.from('staff_list').delete().neq('discord_id', '0');
-        if (upsertRows.length > 0) {
-            const { error: insertErr } = await supabase.from('staff_list').insert(upsertRows);
-            if (insertErr) return res.status(500).json({ success: false, message: '❌ บันทึกไม่ได้: ' + insertErr.message });
+        // ✅ upsert ทีละก้อน — ไม่ลบใคร คนเก่าที่ไม่มีใน K36 จะยังอยู่ครบ
+        const CHUNK = 500;
+        for (let i = 0; i < upsertRows.length; i += CHUNK) {
+            const { error: upsertErr } = await supabase
+                .from('staff_list')
+                .upsert(upsertRows.slice(i, i + CHUNK), { onConflict: 'discord_id' });
+            if (upsertErr) return res.status(500).json({ success: false, message: '❌ บันทึกไม่ได้: ' + upsertErr.message });
         }
 
         const newCount = upsertRows.filter(r => !existingMap[r.discord_id]).length;
-        res.json({ success: true, message: `✅ Sync สำเร็จ! ${upsertRows.length} คน (ใหม่ ${newCount} คน) — กะไม่เปลี่ยน` });
+        const keptCount = existing.filter(e => !upsertRows.some(r => r.discord_id === String(e.discord_id))).length;
+        console.log(`[SyncStaff] ✅ upsert ${upsertRows.length} คน (ใหม่ ${newCount}) — คงไว้ ${keptCount} คนที่ไม่มีใน K36`);
+        res.json({
+            success: true,
+            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount} คน) — คงพนักงานเดิมที่ไม่มีใน K36 ไว้ ${keptCount} คน, กะไม่เปลี่ยน`
+        });
     } catch (e) {
+        console.error('[SyncStaff] error:', e);
         res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาด: ' + e.message });
     }
 });
