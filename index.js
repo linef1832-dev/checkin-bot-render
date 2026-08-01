@@ -430,6 +430,20 @@ app.post('/api/updatestaff', async (req, res) => {
     }
 });
 
+// แผนกที่ใช้ได้จริง (ไว้เช็คว่า tag จาก K36 เป็นแผนกจริง หรือเป็นสถานะ เช่น ONLINE)
+const VALID_DEPTS = ['AMOL', 'ODOL', 'AM', 'OD'];
+// เดาแผนกจาก prefix ของชื่อ เช่น "AMOL-VINZO-กะเช้า" → "AMOL" (เช็ค AMOL/ODOL ก่อน AM/OD)
+function deptFromName(name) {
+    const m = String(name || '').toUpperCase().match(/^(AMOL|ODOL|AM|OD)[-_\s]/);
+    return m ? m[1] : null;
+}
+// หาแผนกที่เชื่อถือได้: ใช้ tag/department ถ้าเป็นแผนกจริง, ไม่งั้นเดาจากชื่อ (กัน tag แปลก ๆ เช่น ONLINE)
+function resolveDept(u) {
+    const tag = (u.tag || u.department || '').toUpperCase().trim();
+    if (VALID_DEPTS.includes(tag)) return tag;
+    return deptFromName(u.username) || tag || 'AMOL';
+}
+
 // ===== Sync พนักงานจาก K36 → staff_list =====
 app.post('/api/syncstaff', async (req, res) => {
     const { pin } = req.body;
@@ -465,7 +479,7 @@ app.post('/api/syncstaff', async (req, res) => {
                 discord_id: String(u.discord_id),
                 staff_name: u.username,
                 telegram_id: u.telegram_id || null,
-                department: (u.tag || u.department || 'AMOL').toUpperCase(),
+                department: resolveDept(u),
                 shift: shiftMap[u.allowed_shift] || 'morning'
             }));
 
@@ -2089,7 +2103,10 @@ client.on('messageCreate', async (message) => {
 
                 if (staffRow) {
                     const userTag = (staffRow.department || '').toUpperCase();
-                    if (!chanSetting.allowed_tags.includes(userTag)) {
+                    const nameTag = deptFromName(staffRow.staff_name); // เผื่อ department เพี้ยน (เช่น ONLINE) → ใช้แผนกจากชื่อสำรอง
+                    const okTags = [userTag, nameTag].filter(Boolean);
+                    const allowed = okTags.some(t => chanSetting.allowed_tags.includes(t));
+                    if (!allowed) {
                         return message.reply(
                             `❌ ห้องนี้รับเช็คชื่อเฉพาะ **${chanSetting.allowed_tags.join(', ')}** เท่านั้นค่ะ\n` +
                             `คุณเป็น **${userTag}** กรุณาเช็คชื่อในห้องที่ถูกต้องแทนนะคะ`
