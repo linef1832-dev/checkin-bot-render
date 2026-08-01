@@ -432,9 +432,12 @@ app.post('/api/updatestaff', async (req, res) => {
 
 // แผนกที่ใช้ได้จริง (ไว้เช็คว่า tag จาก K36 เป็นแผนกจริง หรือเป็นสถานะ เช่น ONLINE)
 const VALID_DEPTS = ['AMOL', 'ODOL', 'AM', 'OD'];
-// เดาแผนกจาก prefix ของชื่อ เช่น "AMOL-VINZO-กะเช้า" → "AMOL" (เช็ค AMOL/ODOL ก่อน AM/OD)
+// เดาแผนกจากชื่อ เช่น "🧡AMOL-VINZO-กะเช้า🧡" → "AMOL" (หาได้ทุกตำแหน่ง กัน emoji/สัญลักษณ์นำหน้า)
 function deptFromName(name) {
-    const m = String(name || '').toUpperCase().match(/^(AMOL|ODOL|AM|OD)[-_\s]/);
+    const s = String(name || '').toUpperCase();
+    if (s.includes('AMOL')) return 'AMOL';
+    if (s.includes('ODOL')) return 'ODOL';
+    const m = s.match(/(?:^|[-_\s])(AM|OD)(?:[-_\s]|$)/); // AM/OD แบบเป็น token กันไปชนคำอื่น
     return m ? m[1] : null;
 }
 // หาแผนกที่เชื่อถือได้: ใช้ tag/department ถ้าเป็นแผนกจริง, ไม่งั้นเดาจากชื่อ (กัน tag แปลก ๆ เช่น ONLINE)
@@ -2103,7 +2106,11 @@ client.on('messageCreate', async (message) => {
 
                 if (staffRow) {
                     const userTag = (staffRow.department || '').toUpperCase();
-                    const nameTag = deptFromName(staffRow.staff_name); // เผื่อ department เพี้ยน (เช่น ONLINE) → ใช้แผนกจากชื่อสำรอง
+                    // เผื่อ department เพี้ยน (เช่น ONLINE) → เดาแผนกจากชื่อ: staff_list + display name/username ใน Discord
+                    const nameTag = deptFromName(staffRow.staff_name)
+                        || deptFromName(member.displayName)
+                        || deptFromName(member.nickname)
+                        || deptFromName(member.user?.username);
                     const okTags = [userTag, nameTag].filter(Boolean);
                     const allowed = okTags.some(t => chanSetting.allowed_tags.includes(t));
                     if (!allowed) {
