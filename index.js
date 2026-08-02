@@ -1602,7 +1602,12 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 if (shiftFound) break;
             }
             if (!shiftFound) shiftFound = shiftFromName(leaveName); // หาใน staff_list ไม่เจอ → เดากะจากชื่อ
-            if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) return;
+            // แผนกจริง: ใช้ userDeptFound ถ้าเป็นแผนกจริง (ไม่ใช่ ONLINE) ไม่งั้นเดาจากชื่อ
+            const realDept = (userDeptFound && VALID_DEPTS.includes(userDeptFound.toUpperCase()))
+                ? userDeptFound.toUpperCase()
+                : deptFromName(leaveName);
+            // กรองเฉพาะเมื่อมั่นใจว่าเป็นแผนกจริง "อื่น" — เดาแผนกไม่ได้เลย → ไม่ drop (กันคนหยุดหาย)
+            if (department !== 'ALL' && realDept && VALID_DEPTS.includes(realDept) && realDept !== department.toUpperCase()) return;
             const rawAction = activeLeaves[leaveName].toUpperCase().trim();
             let leaveType = "วันหยุด";
             if (rawAction === 'KL' || rawAction.includes('KL')) leaveType = "ลากิจ";
@@ -1981,9 +1986,14 @@ client.on('messageCreate', async (message) => {
             const rows = data || [];
             const leavesObj = await getLeavesFromSupabase('ALL');
             let msg = `🔎 **ตรวจวันหยุด วันที่ ${targetDate}**\napproved ในระบบ: **${rows.length}** รายการ\n`;
-            if (rows.length > 0) msg += rows.slice(0, 40).map((r, i) => `${i + 1}. **${r.user_name}** · \`${r.reason || '-'}\``).join('\n') + '\n';
+            if (rows.length > 0) msg += rows.slice(0, 25).map((r, i) => `${i + 1}. **${r.user_name}** · \`${r.reason || '-'}\``).join('\n') + '\n';
             else msg += `⚠️ ไม่มี leave ที่ approved สำหรับวันนี้ → เช็ค leave_date/status ในระบบ K36 (อาจวันที่ไม่ตรง)\n`;
-            msg += `─────\nจัดกลุ่มเข้ากะได้ → ☀️เช้า **${leavesObj.morning.length}** · 🕛เที่ยง **${leavesObj.noon.length}** · 🌙ดึก **${leavesObj.night.length}**`;
+            const offOf = (arr) => arr.filter(l => l.type === 'วันหยุด').map(l => l.name);
+            const mOff = offOf(leavesObj.morning), nOff = offOf(leavesObj.noon), gOff = offOf(leavesObj.night);
+            msg += `─────\n😴 **วันหยุดจริง (ตามกะ) — ที่สรุปเช็คชื่อจะโชว์:**\n`;
+            msg += `☀️เช้า ${mOff.length}${mOff.length ? ': ' + mOff.join(', ') : ''}\n`;
+            msg += `🕛เที่ยง ${nOff.length}${nOff.length ? ': ' + nOff.join(', ') : ''}\n`;
+            msg += `🌙ดึก ${gOff.length}${gOff.length ? ': ' + gOff.join(', ') : ''}`;
             return waiting.edit(msg.slice(0, 1990));
         } catch (e) {
             return waiting.edit('❌ error: ' + e.message);
