@@ -2144,17 +2144,20 @@ client.on('messageCreate', async (message) => {
 
                 if (staffRow) {
                     const userTag = (staffRow.department || '').toUpperCase();
-                    // เผื่อ department เพี้ยน (เช่น ONLINE) → เดาแผนกจากชื่อ: staff_list + display name/username ใน Discord
+                    // เผื่อ department เพี้ยน (เช่น ONLINE) → เดาแผนกจากชื่อ: staff_list + display name/nickname/username ใน Discord
                     const nameTag = deptFromName(staffRow.staff_name)
                         || deptFromName(member.displayName)
                         || deptFromName(member.nickname)
                         || deptFromName(member.user?.username);
-                    const okTags = [userTag, nameTag].filter(Boolean);
-                    const allowed = okTags.some(t => chanSetting.allowed_tags.includes(t));
-                    if (!allowed) {
+                    // ใช้เฉพาะ "แผนกจริง" (AMOL/ODOL/...) กัน tag ขยะอย่าง ONLINE
+                    // ปฏิเสธเฉพาะเมื่อมั่นใจว่าเป็นแผนกจริง "อื่น" — ถ้าเดาแผนกไม่ได้เลย → ปล่อยผ่าน (กันปฏิเสธคนถูก)
+                    const realTags = [userTag, nameTag].filter(t => t && VALID_DEPTS.includes(t));
+                    const mismatch = realTags.length > 0 && !realTags.some(t => chanSetting.allowed_tags.includes(t));
+                    console.log(`[checkin-tag] ${mismatch ? 'REJECT' : 'PASS'} ${member.id} dept="${userTag}" name="${staffRow.staff_name}" display="${member.displayName}" nameTag=${nameTag} realTags=${JSON.stringify(realTags)} allowed=${JSON.stringify(chanSetting.allowed_tags)}`);
+                    if (mismatch) {
                         return message.reply(
                             `❌ ห้องนี้รับเช็คชื่อเฉพาะ **${chanSetting.allowed_tags.join(', ')}** เท่านั้นค่ะ\n` +
-                            `คุณเป็น **${userTag}** กรุณาเช็คชื่อในห้องที่ถูกต้องแทนนะคะ`
+                            `คุณเป็น **${realTags.join('/')}** กรุณาเช็คชื่อในห้องที่ถูกต้องแทนนะคะ`
                         );
                     }
                 }
