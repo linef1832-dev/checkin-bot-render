@@ -430,21 +430,31 @@ app.post('/api/updatestaff', async (req, res) => {
     }
 });
 
-// แผนกที่ใช้ได้จริง (ไว้เช็คว่า tag จาก K36 เป็นแผนกจริง หรือเป็นสถานะ เช่น ONLINE)
+// แผนกที่ใช้ได้จริง (ไว้เช็คว่า tag จาก K36 เป็นแผนกจริง หรือเป็นสถานะ เช่น ONLINE/TEMP)
 const VALID_DEPTS = ['AMOL', 'ODOL', 'AM', 'OD'];
+// normalize ตัวย่อ → เต็ม (ห้องเช็คชื่อใช้ AMOL/ODOL)
+function normDept(d) {
+    d = (d || '').toUpperCase().trim();
+    if (d === 'AM') return 'AMOL';
+    if (d === 'OD') return 'ODOL';
+    return d;
+}
 // เดาแผนกจากชื่อ เช่น "🧡AMOL-VINZO-กะเช้า🧡" → "AMOL" (หาได้ทุกตำแหน่ง กัน emoji/สัญลักษณ์นำหน้า)
 function deptFromName(name) {
     const s = String(name || '').toUpperCase();
     if (s.includes('AMOL')) return 'AMOL';
     if (s.includes('ODOL')) return 'ODOL';
     const m = s.match(/(?:^|[-_\s])(AM|OD)(?:[-_\s]|$)/); // AM/OD แบบเป็น token กันไปชนคำอื่น
-    return m ? m[1] : null;
+    return m ? normDept(m[1]) : null;
 }
-// หาแผนกที่เชื่อถือได้: ใช้ tag/department ถ้าเป็นแผนกจริง, ไม่งั้นเดาจากชื่อ (กัน tag แปลก ๆ เช่น ONLINE)
-function resolveDept(u) {
-    const tag = (u.tag || u.department || '').toUpperCase().trim();
-    if (VALID_DEPTS.includes(tag)) return tag;
-    return deptFromName(u.username) || tag || 'AMOL';
+// หาแผนกที่เชื่อถือได้: tag/department ที่เป็นแผนกจริง > เดาจากชื่อ K36 > เดาจาก Discord nickname (มี prefix เชื่อถือได้)
+// (K36 มัก tag=ONLINE/TEMP และ username เป็นชื่อล้วน → ต้องพึ่ง Discord nickname)
+function resolveDept(u, discordNick) {
+    for (const c of [u.tag, u.department]) {
+        const t = (c || '').toUpperCase().trim();
+        if (VALID_DEPTS.includes(t)) return normDept(t);
+    }
+    return deptFromName(u.username) || deptFromName(discordNick) || 'AMOL';
 }
 
 // ===== Sync พนักงานจาก K36 → staff_list =====
@@ -475,6 +485,16 @@ app.post('/api/syncstaff', async (req, res) => {
             return res.status(400).json({ success: false, message: '❌ ดึงจาก K36 ได้ 0 คน — ยกเลิก sync เพื่อกันข้อมูลพนักงานหาย' });
         }
 
+        // 🏷️ โหลด Discord nickname (มี prefix แผนก AMOL-/ODOL- ที่เชื่อถือได้) มา map ด้วย discord_id
+        //    เพราะ K36 มัก tag=ONLINE/TEMP และ username เป็นชื่อล้วน — แผนกจริงอยู่ใน nickname เท่านั้น
+        let nickById = {};
+        try {
+            const guild = await client.guilds.fetch(GUILD_ID);
+            const members = await guild.members.fetch();
+            members.forEach(m => { nickById[m.id] = m.displayName; });
+            console.log(`[SyncStaff] โหลด Discord nickname ${members.size} คน`);
+        } catch (e) { console.error('[SyncStaff] โหลด nickname ไม่ได้:', e.message); }
+
         const shiftMap = { 'กะเช้า': 'morning', 'กะกลาง': 'noon', 'กะดึก': 'night' };
         const staffRows = users
             .filter(u => u.discord_id && u.username)
@@ -482,7 +502,7 @@ app.post('/api/syncstaff', async (req, res) => {
                 discord_id: String(u.discord_id),
                 staff_name: u.username,
                 telegram_id: u.telegram_id || null,
-                department: resolveDept(u),
+                department: resolveDept(u, nickById[String(u.discord_id)]),
                 shift: shiftMap[u.allowed_shift] || 'morning'
             }));
 
