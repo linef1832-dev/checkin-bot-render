@@ -1965,6 +1965,31 @@ client.on('messageCreate', async (message) => {
         return message.reply(`📋 **ห้องแจ้งพักที่ลงทะเบียน:**\n${list}`);
     }
 
+    // ── !checkleaves : ตรวจข้อมูลวันหยุดวันนี้ (debug "คนหยุดหาย") ──
+    if (message.content === '!checkleaves') {
+        const targetDate = getSupabaseDateStr();
+        if (!supabaseLeave) return message.reply('❌ ยังไม่ได้ตั้งค่า SUPABASE_LEAVE_* — ดึงวันหยุดไม่ได้');
+        const waiting = await message.reply(`⏳ กำลังตรวจวันหยุดวันที่ ${targetDate}...`);
+        try {
+            const { data, error } = await supabaseLeave
+                .from('leave_requests')
+                .select('user_name, reason, status')
+                .eq('leave_date', targetDate)
+                .eq('status', 'approved')
+                .order('id', { ascending: true });
+            if (error) return waiting.edit('❌ query error: ' + error.message);
+            const rows = data || [];
+            const leavesObj = await getLeavesFromSupabase('ALL');
+            let msg = `🔎 **ตรวจวันหยุด วันที่ ${targetDate}**\napproved ในระบบ: **${rows.length}** รายการ\n`;
+            if (rows.length > 0) msg += rows.slice(0, 40).map((r, i) => `${i + 1}. **${r.user_name}** · \`${r.reason || '-'}\``).join('\n') + '\n';
+            else msg += `⚠️ ไม่มี leave ที่ approved สำหรับวันนี้ → เช็ค leave_date/status ในระบบ K36 (อาจวันที่ไม่ตรง)\n`;
+            msg += `─────\nจัดกลุ่มเข้ากะได้ → ☀️เช้า **${leavesObj.morning.length}** · 🕛เที่ยง **${leavesObj.noon.length}** · 🌙ดึก **${leavesObj.night.length}**`;
+            return waiting.edit(msg.slice(0, 1990));
+        } catch (e) {
+            return waiting.edit('❌ error: ' + e.message);
+        }
+    }
+
     // !addstaff และ !removestaff ถูกลบออกแล้ว — ใช้ปุ่ม Sync บนหน้าเว็บแทน
 
         if (message.content === '!exportstaff') {
