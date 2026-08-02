@@ -1796,8 +1796,9 @@ function startSummaryTimer(channelId) {
                     });
                 }
                 let absentMembers = [];
+                let shiftStaffCount = 0;
                 try {
-                    const currentStaffData = await fetchStaffData(); 
+                    const currentStaffData = await fetchStaffData();
                     let shiftKey = 'morning';
                     const sType = session.shiftType ? session.shiftType.toLowerCase() : '';
                     if (sType.includes('ดึก') || sType.includes('night')) shiftKey = 'night';
@@ -1811,6 +1812,7 @@ function startSummaryTimer(channelId) {
                     } else {
                         if (staffDataObj[targetDept] && staffDataObj[targetDept][shiftKey]) shiftStaff = staffDataObj[targetDept][shiftKey];
                     }
+                    shiftStaffCount = Object.keys(shiftStaff).length;
                     let safeLeaves = [];
                     if (Array.isArray(leavesObj)) safeLeaves = leavesObj;
                     else if (leavesObj && Array.isArray(leavesObj[shiftKey])) safeLeaves = leavesObj[shiftKey];
@@ -1829,6 +1831,10 @@ function startSummaryTimer(channelId) {
                 if (absentMembers.length > 0) {
                     summary += `\n❓ **พนักงานที่หายตัวไป (ไม่มีชื่อลา & ไม่ได้เช็คชื่อ):**\n`;
                     absentMembers.forEach((name, i) => { summary += `   ${i + 1}. **${name}**\n`; });
+                } else if (shiftStaffCount === 0) {
+                    summary += `\n⚠️ **ไม่พบรายชื่อพนักงานแผนก ${session.department} กะนี้ในระบบ** — เช็คไม่ได้ว่าใครขาด (กด Sync จาก K36 / ตรวจ staff_list)\n`;
+                } else if (uniqueMembers.length === 0) {
+                    summary += `\n🔴 **ยังไม่มีใครเช็คชื่อเลย** (พนักงานกะนี้ ${shiftStaffCount} คน ยังไม่เช็ค/ไม่ลา)\n`;
                 } else {
                     summary += `\n✅ **เข้างานครบทุกคน (ไม่มีคนขาด)**\n`;
                 }
