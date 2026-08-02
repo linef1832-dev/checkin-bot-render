@@ -545,10 +545,14 @@ app.post('/api/syncstaff', async (req, res) => {
 
         const newCount = upsertRows.filter(r => !existingMap[r.discord_id]).length;
         const keptCount = existing.filter(e => !upsertRows.some(r => r.discord_id === String(e.discord_id))).length;
-        console.log(`[SyncStaff] ✅ upsert ${upsertRows.length} คน (ใหม่ ${newCount}) — คงไว้ ${keptCount} คนที่ไม่มีใน K36`);
+        // สรุปแผนกที่ได้ (ไว้ยืนยันว่า resolveDept ทำงาน — ควรเห็น AMOL/ODOL ไม่ใช่ ONLINE/TEMP)
+        const deptBreak = {};
+        upsertRows.forEach(r => { deptBreak[r.department] = (deptBreak[r.department] || 0) + 1; });
+        const deptStr = Object.entries(deptBreak).sort().map(([d, n]) => `${d}:${n}`).join(' · ');
+        console.log(`[SyncStaff] ✅ upsert ${upsertRows.length} คน (ใหม่ ${newCount}) — คงไว้ ${keptCount} | แผนก ${deptStr} | nickname ${Object.keys(nickById).length} คน`);
         res.json({
             success: true,
-            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount} คน) — คงพนักงานเดิมที่ไม่มีใน K36 ไว้ ${keptCount} คน, กะไม่เปลี่ยน`
+            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount} คน) — คงไว้ ${keptCount} คน\n📊 แผนก: ${deptStr}\n(Discord nickname โหลด ${Object.keys(nickById).length} คน)`
         });
     } catch (e) {
         console.error('[SyncStaff] error:', e);
