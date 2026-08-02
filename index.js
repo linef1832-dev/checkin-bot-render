@@ -1512,8 +1512,8 @@ async function processAutoShiftSwaps() {
 }
 
 
-// ===== ดึงรายชื่อสับกะจาก scheduled_tasks (ใช้ from_shift) =====
-async function getSwapListFromScheduledTasks(targetDate, currentShift) {
+// ===== ดึงรายชื่อสับกะจาก scheduled_tasks (ใช้ from_shift) + กรองตามแผนก =====
+async function getSwapListFromScheduledTasks(targetDate, currentShift, department = 'ALL') {
     if (!supabaseLeave) return [];
     try {
         const startOfDay = new Date(targetDate + 'T00:00:00+07:00').toISOString();
@@ -1528,16 +1528,43 @@ async function getSwapListFromScheduledTasks(targetDate, currentShift) {
             .lte('scheduled_for', endOfDay);
         if (error || !data) return [];
         const shiftMap = { 'กะเช้า': 'morning', 'เช้า': 'morning', 'กะดึก': 'night', 'ดึก': 'night', 'กะกลาง': 'noon', 'เที่ยง': 'noon' };
+        const dep = (department || 'ALL').toUpperCase();
+
+        // เตรียม index ชื่อ→แผนกจริง จาก staff_list (เผื่อชื่อใน payload ไม่มี prefix แผนก)
+        let nameDeptPairs = [];
+        if (dep !== 'ALL') {
+            const staffData = await fetchStaffData();
+            for (const d in staffData) {
+                if (!VALID_DEPTS.includes(d.toUpperCase())) continue; // ข้าม ONLINE ฯลฯ
+                for (const sh of ['morning', 'noon', 'night']) {
+                    for (const id in (staffData[d][sh] || {})) {
+                        const e = staffData[d][sh][id];
+                        const sn = (typeof e === 'object' ? e.name : e);
+                        nameDeptPairs.push({ name: (sn || '').trim().toUpperCase(), dept: d.toUpperCase() });
+                    }
+                }
+            }
+        }
+        const deptOfName = (name) => {
+            const cn = (name || '').toUpperCase();
+            const hit = nameDeptPairs.find(x => isSamePerson(x.name, cn));
+            return hit ? hit.dept : deptFromName(name); // ไม่เจอใน staff_list → เดาจากชื่อ
+        };
+
         const result = [];
         for (const task of data) {
             let p = task.payload;
             if (typeof p === 'string') { try { p = JSON.parse(p); } catch(e) { continue; } }
             if (!p || !p.user_name) continue;
             const fromShift = shiftMap[p.from_shift] || null;
-            if (!fromShift) continue;
-            if (fromShift === currentShift) {
-                result.push({ name: p.user_name });
+            if (!fromShift || fromShift !== currentShift) continue;
+            if (dep !== 'ALL') {
+                const pTag = (p.tag || p.department || '').toUpperCase();
+                const realDept = VALID_DEPTS.includes(pTag) ? pTag : deptOfName(p.user_name);
+                // กรองเฉพาะเมื่อรู้แผนกจริงและเป็นคนละแผนก (เดาไม่ได้ → ไม่ตัดออก กันคนหาย)
+                if (realDept && VALID_DEPTS.includes(realDept) && realDept !== dep) continue;
             }
+            result.push({ name: p.user_name });
         }
         return result;
     } catch(e) { return []; }
@@ -1664,7 +1691,7 @@ function startSummaryTimer(channelId) {
                 currentShiftLeaves = leavesObj.noon || [];
             }
             const todayDateStr = getSupabaseDateStr();
-            const swapFromScheduled = await getSwapListFromScheduledTasks(todayDateStr, currentShiftKey);
+            const swapFromScheduled = await getSwapListFromScheduledTasks(todayDateStr, currentShiftKey, session.department);
             const guild = await client.guilds.fetch(GUILD_ID).catch(() => null);
             const tChannel = await client.channels.fetch(channelId).catch(() => null);
             if (guild && tChannel) {
