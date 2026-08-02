@@ -1544,18 +1544,28 @@ async function getSwapListFromScheduledTasks(targetDate, currentShift) {
 }
 // ===== จบ getSwapListFromScheduledTasks =====
 
+// เดากะจากชื่อ เช่น "AMOL-VINZO-กะเช้า" → morning (เผื่อ match staff_list ไม่เจอ)
+function shiftFromName(name) {
+    const s = String(name || '');
+    if (s.includes('กะดึก') || s.includes('ดึก')) return 'night';
+    if (s.includes('กะเที่ยง') || s.includes('กะกลาง') || s.includes('เที่ยง') || s.includes('กลาง')) return 'noon';
+    if (s.includes('กะเช้า') || s.includes('เช้า')) return 'morning';
+    return null;
+}
+
 async function getLeavesFromSupabase(department = 'ALL') {
     const targetDate = getSupabaseDateStr();
     let result = { morning: [], noon: [], night: [] };
-    if (!supabaseLeave) return result; 
+    if (!supabaseLeave) { console.warn('[Leaves] supabaseLeave = null (ยังไม่ตั้งค่า SUPABASE_LEAVE_*)'); return result; }
     try {
         const { data, error } = await supabaseLeave
-            .from('leave_requests') 
-            .select('id, user_name, reason, status') 
+            .from('leave_requests')
+            .select('id, user_name, reason, status')
             .eq('leave_date', targetDate)
             .eq('status', 'approved')
             .order('id', { ascending: true });
-        if (error) return result;
+        if (error) { console.error('[Leaves] query error:', error.message); return result; }
+        console.log(`[Leaves] วันที่ ${targetDate} approved=${(data || []).length} → ${JSON.stringify((data || []).map(r => ({ n: r.user_name, r: r.reason })))}`);
         let activeLeaves = {};
         if (data) {
             for (const row of data) {
@@ -1591,7 +1601,8 @@ async function getLeavesFromSupabase(department = 'ALL') {
                 }
                 if (shiftFound) break;
             }
-            if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) return; 
+            if (!shiftFound) shiftFound = shiftFromName(leaveName); // หาใน staff_list ไม่เจอ → เดากะจากชื่อ
+            if (department !== 'ALL' && userDeptFound && userDeptFound.toUpperCase() !== department.toUpperCase()) return;
             const rawAction = activeLeaves[leaveName].toUpperCase().trim();
             let leaveType = "วันหยุด";
             if (rawAction === 'KL' || rawAction.includes('KL')) leaveType = "ลากิจ";
@@ -1602,7 +1613,9 @@ async function getLeavesFromSupabase(department = 'ALL') {
             if (shiftFound === 'morning') result.morning.push(leaveData);
             else if (shiftFound === 'noon') result.noon.push(leaveData);
             else if (shiftFound === 'night') result.night.push(leaveData);
+            else { result.morning.push(leaveData); console.log(`[Leaves] ⚠️ หากะไม่เจอ ใส่ morning กันหาย: ${leaveName} (${activeLeaves[leaveName]})`); }
         });
+        console.log(`[Leaves] ${targetDate} สรุป → morning:${result.morning.length} noon:${result.noon.length} night:${result.night.length}`);
         return result;
     } catch (e) { return result; }
 }
