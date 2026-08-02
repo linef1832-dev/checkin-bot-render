@@ -2003,6 +2003,28 @@ client.on('messageCreate', async (message) => {
         return message.reply(`📋 **ห้องแจ้งพักที่ลงทะเบียน:**\n${list}`);
     }
 
+    // ── !checkstaff : ดูโครงสร้าง staff_list ตามแผนก/กะ (debug "ไม่พบรายชื่อพนักงาน") ──
+    if (message.content === '!checkstaff') {
+        const waiting = await message.reply('⏳ กำลังอ่าน staff_list...');
+        try {
+            const { data: rows } = await supabase.from('staff_list').select('department, shift');
+            const cnt = {};
+            (rows || []).forEach(r => {
+                const d = (r.department || '(ว่าง)').toUpperCase();
+                const s = (r.shift || '(ว่าง)').toLowerCase();
+                cnt[d] = cnt[d] || {};
+                cnt[d][s] = (cnt[d][s] || 0) + 1;
+            });
+            let msg = `🔎 **staff_list ทั้งหมด ${(rows || []).length} คน** (แผนก → กะ:จำนวน)\n`;
+            for (const d of Object.keys(cnt).sort()) {
+                const parts = Object.entries(cnt[d]).map(([s, n]) => `${s}:${n}`).join(' · ');
+                msg += `**${d}** → ${parts}\n`;
+            }
+            msg += `\nℹ️ ห้องเช็คชื่อมองหา key **AMOL**/**ODOL** + กะ **morning/noon/night** — ถ้าคนไปอยู่ AM/OD/ONLINE หรือกะแปลก ๆ จะหาไม่เจอ`;
+            return waiting.edit(msg.slice(0, 1990));
+        } catch (e) { return waiting.edit('❌ error: ' + e.message); }
+    }
+
     // ── !checkleaves : ตรวจข้อมูลวันหยุดวันนี้ (debug "คนหยุดหาย") ──
     if (message.content === '!checkleaves') {
         const targetDate = getSupabaseDateStr();
