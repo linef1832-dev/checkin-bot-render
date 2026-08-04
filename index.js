@@ -2073,8 +2073,14 @@ client.on('messageCreate', async (message) => {
             const deptById = {};
             (staffRows || []).forEach(s => { deptById[String(s.discord_id)] = normDept((s.department || '').toUpperCase()); });
             rows = rows.map(r => ({ ...r, _dept: deptById[String(r.discord_id)] || deptFromName(r.name) || 'ไม่ทราบแผนก' }));
-            if (roomDept) rows = rows.filter(r => r._dept === roomDept);
-            if (rows.length === 0) return waiting.edit(`📋 วันนี้ (${dateStr}) ยังไม่มีใครเช็คชื่อแผนก ${roomDept} ค่ะ`);
+            const totalAll = rows.length;
+            // ถ้าอยู่ในห้องเฉพาะแผนก → กรองเฉพาะแผนกนั้น แต่ถ้าไม่เจอเลย → โชว์ทั้งหมด (ไม่ซ่อนคน)
+            let note = '', showDept = roomDept;
+            if (roomDept) {
+                const inDept = rows.filter(r => r._dept === roomDept);
+                if (inDept.length > 0) rows = inDept;
+                else { note = `\n⚠️ ไม่พบคนแผนก **${roomDept}** วันนี้ — โชว์ทั้งหมด ${totalAll} คนแยกตามแผนกแทน:`; showDept = null; }
+            }
 
             // จัดกลุ่ม แผนก → กะ
             const byDept = {};
@@ -2084,10 +2090,10 @@ client.on('messageCreate', async (message) => {
                 (byDept[r._dept][s] = byDept[r._dept][s] || []).push(r);
             });
             const fmtTime = (iso) => { const t = new Date(iso); return `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
-            let msg = `📋 **คนเช็คชื่อวันนี้ ${dateStr}**${roomDept ? ` — แผนก ${roomDept}` : ''} รวม **${rows.length}** คน\n`;
+            let msg = `📋 **คนเช็คชื่อวันนี้ ${dateStr}**${showDept ? ` — แผนก ${showDept}` : ''} รวม **${rows.length}** คน${note}\n`;
             for (const d of Object.keys(byDept).sort()) {
-                if (!roomDept) msg += `\n🏢 **${d}**\n`;
-                const ind = roomDept ? '' : '   ';
+                if (!showDept) msg += `\n🏢 **${d}**\n`;
+                const ind = showDept ? '' : '   ';
                 for (const sh of Object.keys(byDept[d])) {
                     const arr = byDept[d][sh];
                     const lateN = arr.filter(r => r.late_minutes > 0).length;
