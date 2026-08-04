@@ -2048,7 +2048,7 @@ client.on('messageCreate', async (message) => {
         return message.reply(`📋 **ห้องแจ้งพักที่ลงทะเบียน:**\n${list}`);
     }
 
-    // ── !today / !checkintoday : ดูรายชื่อคนเช็คชื่อวันนี้ ──
+    // ── !today / !checkintoday : ดูรายชื่อคนเช็คชื่อวันนี้ (แยกแผนก / พิมพ์ห้องไหนโชว์เฉพาะแผนกนั้น) ──
     if (message.content === '!today' || message.content === '!checkintoday') {
         const waiting = await message.reply('⏳ กำลังดึงรายชื่อคนเช็คชื่อวันนี้...');
         try {
@@ -2057,26 +2057,46 @@ client.on('messageCreate', async (message) => {
             const start = dateStr + 'T00:00:00.000Z';
             const end = dateStr + 'T23:59:59.999Z';
             const { data, error } = await supabase.from('checkins')
-                .select('name, checkin_time, shift, late_minutes')
+                .select('discord_id, name, checkin_time, shift, late_minutes')
                 .gte('checkin_time', start).lte('checkin_time', end)
                 .order('checkin_time', { ascending: true });
             if (error) return waiting.edit('❌ ' + error.message);
-            const rows = data || [];
+            let rows = data || [];
             if (rows.length === 0) return waiting.edit(`📋 วันนี้ (${dateStr}) ยังไม่มีใครเช็คชื่อค่ะ`);
-            const byShift = {};
-            rows.forEach(r => { const s = r.shift || 'ไม่ระบุ'; (byShift[s] = byShift[s] || []).push(r); });
-            let msg = `📋 **คนเช็คชื่อวันนี้ ${dateStr}** — รวม **${rows.length}** คน\n`;
-            for (const sh of Object.keys(byShift)) {
-                const arr = byShift[sh];
-                const lateN = arr.filter(r => r.late_minutes > 0).length;
-                msg += `\n**${sh}** (${arr.length} คน${lateN ? `, สาย ${lateN}` : ''}):\n`;
-                arr.forEach((r, i) => {
-                    const t = new Date(r.checkin_time);
-                    const hh = String(t.getUTCHours()).padStart(2, '0');
-                    const mm = String(t.getUTCMinutes()).padStart(2, '0');
-                    const late = r.late_minutes > 0 ? ` ⏰สาย ${r.late_minutes}น.` : '';
-                    msg += `${i + 1}. ${r.name} (${hh}:${mm} น.)${late}\n`;
-                });
+
+            // แผนกของห้องนี้ (จากชื่อห้อง) — ถ้าเป็นห้องเฉพาะแผนก จะกรองเฉพาะคนแผนกนั้น
+            const chName = message.channel.name.toUpperCase();
+            const roomDept = chName.includes('ODOL') ? 'ODOL' : (chName.includes('AMOL') ? 'AMOL' : null);
+
+            // map discord_id → แผนกจริง จาก staff_list
+            const { data: staffRows } = await supabase.from('staff_list').select('discord_id, department');
+            const deptById = {};
+            (staffRows || []).forEach(s => { deptById[String(s.discord_id)] = normDept((s.department || '').toUpperCase()); });
+            rows = rows.map(r => ({ ...r, _dept: deptById[String(r.discord_id)] || deptFromName(r.name) || 'ไม่ทราบแผนก' }));
+            if (roomDept) rows = rows.filter(r => r._dept === roomDept);
+            if (rows.length === 0) return waiting.edit(`📋 วันนี้ (${dateStr}) ยังไม่มีใครเช็คชื่อแผนก ${roomDept} ค่ะ`);
+
+            // จัดกลุ่ม แผนก → กะ
+            const byDept = {};
+            rows.forEach(r => {
+                const s = r.shift || 'ไม่ระบุ';
+                byDept[r._dept] = byDept[r._dept] || {};
+                (byDept[r._dept][s] = byDept[r._dept][s] || []).push(r);
+            });
+            const fmtTime = (iso) => { const t = new Date(iso); return `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
+            let msg = `📋 **คนเช็คชื่อวันนี้ ${dateStr}**${roomDept ? ` — แผนก ${roomDept}` : ''} รวม **${rows.length}** คน\n`;
+            for (const d of Object.keys(byDept).sort()) {
+                if (!roomDept) msg += `\n🏢 **${d}**\n`;
+                const ind = roomDept ? '' : '   ';
+                for (const sh of Object.keys(byDept[d])) {
+                    const arr = byDept[d][sh];
+                    const lateN = arr.filter(r => r.late_minutes > 0).length;
+                    msg += `${ind}**${sh}** (${arr.length} คน${lateN ? `, สาย ${lateN}` : ''}):\n`;
+                    arr.forEach((r, i) => {
+                        const late = r.late_minutes > 0 ? ` ⏰สาย ${r.late_minutes}น.` : '';
+                        msg += `${ind}${i + 1}. ${r.name} (${fmtTime(r.checkin_time)} น.)${late}\n`;
+                    });
+                }
             }
             await waiting.delete().catch(() => {});
             return sendLongMessage(message.channel, msg);
