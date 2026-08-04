@@ -457,12 +457,9 @@ function resolveDept(u, discordNick) {
     return deptFromName(u.username) || deptFromName(discordNick) || 'AMOL';
 }
 
-// ===== Sync พนักงานจาก K36 → staff_list =====
-app.post('/api/syncstaff', async (req, res) => {
-    const { pin } = req.body;
-    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
-    if (!supabaseLeave) return res.status(500).json({ success: false, message: '❌ ยังไม่ได้ตั้งค่า SUPABASE_LEAVE_URL / SUPABASE_LEAVE_KEY' });
-
+// ===== Sync พนักงานจาก K36 → staff_list (ใช้ทั้งปุ่มบนเว็บ + cron อัตโนมัติ) =====
+async function runStaffSync() {
+    if (!supabaseLeave) return { success: false, message: '❌ ยังไม่ได้ตั้งค่า SUPABASE_LEAVE_URL / SUPABASE_LEAVE_KEY' };
     try {
         // ดึงข้อมูลจาก users ใน K36 (แบ่งหน้าละ 1000 กัน default limit ของ Supabase ตัดข้อมูล)
         const users = [];
@@ -473,17 +470,13 @@ app.post('/api/syncstaff', async (req, res) => {
                 .select('username, discord_id, telegram_id, tag, department, allowed_shift')
                 .not('discord_id', 'is', null)
                 .range(from, from + PAGE - 1);
-
-            if (fetchErr) return res.status(500).json({ success: false, message: '❌ ดึงข้อมูลจาก K36 ไม่ได้: ' + fetchErr.message });
+            if (fetchErr) return { success: false, message: '❌ ดึงข้อมูลจาก K36 ไม่ได้: ' + fetchErr.message };
             if (!page || page.length === 0) break;
             users.push(...page);
             if (page.length < PAGE) break;
         }
-
         // 🛡️ กันข้อมูลหาย: ถ้า K36 ส่งมา 0 คน แปลว่าผิดปกติ → ไม่แตะ staff_list เลย
-        if (users.length === 0) {
-            return res.status(400).json({ success: false, message: '❌ ดึงจาก K36 ได้ 0 คน — ยกเลิก sync เพื่อกันข้อมูลพนักงานหาย' });
-        }
+        if (users.length === 0) return { success: false, message: '❌ ดึงจาก K36 ได้ 0 คน — ยกเลิก sync เพื่อกันข้อมูลพนักงานหาย' };
 
         // 🏷️ โหลด Discord nickname (มี prefix แผนก AMOL-/ODOL- ที่เชื่อถือได้) มา map ด้วย discord_id
         //    เพราะ K36 มัก tag=ONLINE/TEMP และ username เป็นชื่อล้วน — แผนกจริงอยู่ใน nickname เท่านั้น
@@ -494,6 +487,11 @@ app.post('/api/syncstaff', async (req, res) => {
             members.forEach(m => { nickById[m.id] = m.displayName; });
             console.log(`[SyncStaff] โหลด Discord nickname ${members.size} คน`);
         } catch (e) { console.error('[SyncStaff] โหลด nickname ไม่ได้:', e.message); }
+
+        // 🛡️ ถ้าโหลด nickname ไม่ได้เลย → ยกเลิก (ไม่งั้นแผนกจะ default เป็น AMOL หมด เพราะ K36 tag=ONLINE/TEMP)
+        if (Object.keys(nickById).length === 0) {
+            return { success: false, message: '❌ โหลด Discord nickname ไม่ได้ (0 คน) — ยกเลิก sync กันแผนกเพี้ยนเป็น AMOL ทั้งหมด' };
+        }
 
         const shiftMap = { 'กะเช้า': 'morning', 'กะกลาง': 'noon', 'กะดึก': 'night' };
         const staffRows = users
@@ -518,7 +516,7 @@ app.post('/api/syncstaff', async (req, res) => {
                 .from('staff_list')
                 .select('discord_id, shift')
                 .range(from, from + PAGE - 1);
-            if (error) return res.status(500).json({ success: false, message: '❌ อ่าน staff_list ไม่ได้: ' + error.message });
+            if (error) return { success: false, message: '❌ อ่าน staff_list ไม่ได้: ' + error.message };
             if (!page || page.length === 0) break;
             existing.push(...page);
             if (page.length < PAGE) break;
@@ -540,7 +538,7 @@ app.post('/api/syncstaff', async (req, res) => {
             const { error: upsertErr } = await supabase
                 .from('staff_list')
                 .upsert(upsertRows.slice(i, i + CHUNK), { onConflict: 'discord_id' });
-            if (upsertErr) return res.status(500).json({ success: false, message: '❌ บันทึกไม่ได้: ' + upsertErr.message });
+            if (upsertErr) return { success: false, message: '❌ บันทึกไม่ได้: ' + upsertErr.message };
         }
 
         const newCount = upsertRows.filter(r => !existingMap[r.discord_id]).length;
@@ -550,15 +548,30 @@ app.post('/api/syncstaff', async (req, res) => {
         upsertRows.forEach(r => { deptBreak[r.department] = (deptBreak[r.department] || 0) + 1; });
         const deptStr = Object.entries(deptBreak).sort().map(([d, n]) => `${d}:${n}`).join(' · ');
         console.log(`[SyncStaff] ✅ upsert ${upsertRows.length} คน (ใหม่ ${newCount}) — คงไว้ ${keptCount} | แผนก ${deptStr} | nickname ${Object.keys(nickById).length} คน`);
-        res.json({
+        return {
             success: true,
-            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount} คน) — คงไว้ ${keptCount} คน\n📊 แผนก: ${deptStr}\n(Discord nickname โหลด ${Object.keys(nickById).length} คน)`
-        });
+            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount} คน) — คงไว้ ${keptCount} คน\n📊 แผนก: ${deptStr}\n(Discord nickname โหลด ${Object.keys(nickById).length} คน)`,
+            deptStr
+        };
     } catch (e) {
         console.error('[SyncStaff] error:', e);
-        res.status(500).json({ success: false, message: '❌ เกิดข้อผิดพลาด: ' + e.message });
+        return { success: false, message: '❌ เกิดข้อผิดพลาด: ' + e.message };
     }
+}
+
+app.post('/api/syncstaff', async (req, res) => {
+    const { pin } = req.body;
+    if (pin !== WEB_ADMIN_PIN) return res.status(403).json({ success: false, message: '❌ รหัสผ่านผิด' });
+    const result = await runStaffSync();
+    res.status(result.success ? 200 : 500).json(result);
 });
+
+// 🔄 Auto-sync พนักงานอัตโนมัติ วันละ 2 รอบ (06:00 ก่อนกะเช้า, 19:00 ก่อนกะดึก) เวลาไทย — ไม่ต้องกดเอง
+cron.schedule('0 6,19 * * *', async () => {
+    console.log('[SyncStaff] 🔄 auto-sync เริ่ม...');
+    const r = await runStaffSync();
+    console.log('[SyncStaff] auto-sync:', r.success ? ('สำเร็จ ' + (r.deptStr || '')) : ('ล้มเหลว ' + r.message));
+}, { scheduled: true, timezone: 'Asia/Bangkok' });
 
 // ===== Channel Settings API =====
 app.get('/api/channel-settings', async (req, res) => {
