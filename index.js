@@ -2048,6 +2048,41 @@ client.on('messageCreate', async (message) => {
         return message.reply(`📋 **ห้องแจ้งพักที่ลงทะเบียน:**\n${list}`);
     }
 
+    // ── !today / !checkintoday : ดูรายชื่อคนเช็คชื่อวันนี้ ──
+    if (message.content === '!today' || message.content === '!checkintoday') {
+        const waiting = await message.reply('⏳ กำลังดึงรายชื่อคนเช็คชื่อวันนี้...');
+        try {
+            const dateStr = getSupabaseDateStr();
+            // checkin_time เก็บเป็นเวลาไทย-labeled-UTC → ใช้ช่วงวันไทยแบบ Z ตรง ๆ
+            const start = dateStr + 'T00:00:00.000Z';
+            const end = dateStr + 'T23:59:59.999Z';
+            const { data, error } = await supabase.from('checkins')
+                .select('name, checkin_time, shift, late_minutes')
+                .gte('checkin_time', start).lte('checkin_time', end)
+                .order('checkin_time', { ascending: true });
+            if (error) return waiting.edit('❌ ' + error.message);
+            const rows = data || [];
+            if (rows.length === 0) return waiting.edit(`📋 วันนี้ (${dateStr}) ยังไม่มีใครเช็คชื่อค่ะ`);
+            const byShift = {};
+            rows.forEach(r => { const s = r.shift || 'ไม่ระบุ'; (byShift[s] = byShift[s] || []).push(r); });
+            let msg = `📋 **คนเช็คชื่อวันนี้ ${dateStr}** — รวม **${rows.length}** คน\n`;
+            for (const sh of Object.keys(byShift)) {
+                const arr = byShift[sh];
+                const lateN = arr.filter(r => r.late_minutes > 0).length;
+                msg += `\n**${sh}** (${arr.length} คน${lateN ? `, สาย ${lateN}` : ''}):\n`;
+                arr.forEach((r, i) => {
+                    const t = new Date(r.checkin_time);
+                    const hh = String(t.getUTCHours()).padStart(2, '0');
+                    const mm = String(t.getUTCMinutes()).padStart(2, '0');
+                    const late = r.late_minutes > 0 ? ` ⏰สาย ${r.late_minutes}น.` : '';
+                    msg += `${i + 1}. ${r.name} (${hh}:${mm} น.)${late}\n`;
+                });
+            }
+            await waiting.delete().catch(() => {});
+            return sendLongMessage(message.channel, msg);
+        } catch (e) { return waiting.edit('❌ ' + e.message); }
+    }
+
     // ── !checkstaff : ดูโครงสร้าง staff_list ตามแผนก/กะ (debug "ไม่พบรายชื่อพนักงาน") ──
     if (message.content === '!checkstaff') {
         const waiting = await message.reply('⏳ กำลังอ่าน staff_list...');
