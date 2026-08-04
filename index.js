@@ -2410,11 +2410,16 @@ client.on('messageCreate', async (message) => {
         let shiftName = 'กะเช้า ☀️';
         if (sType.includes('night') || sType.includes('ดึก') || memberShiftKey === 'night') shiftName = 'กะดึก 🌙';
         else if (sType.includes('noon') || sType.includes('เที่ยง') || memberShiftKey === 'noon') shiftName = 'กะเที่ยง 🕛';
-        const totalMin = checkinTime.getHours()*60 + checkinTime.getMinutes();
+        // 🕐 "สาย" คิดตามรอบ: เช็คในรอบที่บอทเปิด (normal phase) = ตรงเวลาเสมอ
+        //    เฉพาะเกินรอบแล้ว (late phase) จึงคิดสายจากเวลาเข้างานกะจริง (08:00/11:00/20:00)
         let lateMin = 0;
-        if (memberShiftKey === 'morning' && totalMin > 8*60) lateMin = totalMin - 8*60;
-        else if (memberShiftKey === 'noon' && totalMin > 11*60) lateMin = totalMin - 11*60;
-        else if (memberShiftKey === 'night' && totalMin > 20*60) lateMin = totalMin - 20*60;
+        if (session && session.latePhase) {
+            const totalMin = checkinTime.getHours()*60 + checkinTime.getMinutes();
+            if (memberShiftKey === 'morning' && totalMin > 8*60) lateMin = totalMin - 8*60;
+            else if (memberShiftKey === 'noon' && totalMin > 11*60) lateMin = totalMin - 11*60;
+            else if (memberShiftKey === 'night' && totalMin > 20*60) lateMin = totalMin - 20*60;
+            if (lateMin === 0) lateMin = 1; // เกินรอบแล้ว = สายอย่างน้อย 1 นาที
+        }
         const lateText = lateMin > 0 ? ' ⏰ **สาย ' + lateMin + ' นาที**' : ' ✅ ตรงเวลา';
         const voiceChId = member.voice.channelId;
         const statusMsg = await message.reply('⏳ กำลังตรวจสอบ 10 วินาที...');
