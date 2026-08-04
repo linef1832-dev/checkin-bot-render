@@ -439,13 +439,16 @@ function normDept(d) {
     if (d === 'OD') return 'ODOL';
     return d;
 }
-// เดาแผนกจากชื่อ เช่น "🧡AMOL-VINZO-กะเช้า🧡" → "AMOL" (หาได้ทุกตำแหน่ง กัน emoji/สัญลักษณ์นำหน้า)
+// เดาแผนกจากชื่อ เช่น "🧡AMOL-VINZO🧡"→AMOL, "OD' FOLKE"→ODOL, "AMOL 〜 BEAM"→AMOL
 function deptFromName(name) {
-    const s = String(name || '').toUpperCase();
+    // ตัด emoji/สัญลักษณ์นำหน้าออกให้เหลือตัวอักษร แล้วเช็ค prefix แผนก
+    const s = String(name || '').toUpperCase().replace(/^[^A-Z0-9]+/, '');
+    // แผนกเป็น prefix: AMOL/ODOL/AM/OD ตามด้วยตัวคั่นอะไรก็ได้ (- _ ' space 〜) หรือจบ — แต่ห้ามตามด้วยตัวอักษร (กัน AMANDA/ODA)
+    const m = s.match(/^(AMOL|ODOL|AM|OD)(?![A-Z])/);
+    if (m) return normDept(m[1]);
     if (s.includes('AMOL')) return 'AMOL';
     if (s.includes('ODOL')) return 'ODOL';
-    const m = s.match(/(?:^|[-_\s])(AM|OD)(?:[-_\s]|$)/); // AM/OD แบบเป็น token กันไปชนคำอื่น
-    return m ? normDept(m[1]) : null;
+    return null;
 }
 // หาแผนกที่เชื่อถือได้: tag/department ที่เป็นแผนกจริง > เดาจากชื่อ K36 > เดาจาก Discord nickname (มี prefix เชื่อถือได้)
 // (K36 มัก tag=ONLINE/TEMP และ username เป็นชื่อล้วน → ต้องพึ่ง Discord nickname)
