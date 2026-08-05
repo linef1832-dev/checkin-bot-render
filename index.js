@@ -584,12 +584,7 @@ app.post('/api/syncstaff', async (req, res) => {
     res.status(result.success ? 200 : 500).json(result);
 });
 
-// 🔄 Auto-sync พนักงานอัตโนมัติ วันละ 2 รอบ (06:00 ก่อนกะเช้า, 19:00 ก่อนกะดึก) เวลาไทย — ไม่ต้องกดเอง
-cron.schedule('0 6,19 * * *', async () => {
-    console.log('[SyncStaff] 🔄 auto-sync เริ่ม...');
-    const r = await runStaffSync();
-    console.log('[SyncStaff] auto-sync:', r.success ? ('สำเร็จ ' + (r.deptStr || '')) : ('ล้มเหลว ' + r.message));
-}, { scheduled: true, timezone: 'Asia/Bangkok' });
+// (auto-sync ย้ายไปใช้ cron รายชั่วโมงใน client.once('ready') ที่เรียก runStaffSync แล้ว)
 
 // ===== Channel Settings API =====
 app.get('/api/channel-settings', async (req, res) => {
@@ -2558,29 +2553,12 @@ client.once('ready', async () => {
         } catch(e) { console.error('❌ [AutoClean] error:', e.message); }
     });
 
-    // Auto Sync พนักงานจาก K36 ทุก 1 ชั่วโมง
+    // Auto Sync พนักงานจาก K36 ทุก 1 ชั่วโมง — ใช้ runStaffSync (nickname-based + cleanup ONLINE/TEMP)
+    // ⚠️ ห้ามเขียน department = u.tag ตรง ๆ เด็ดขาด (tag เป็นสถานะ ONLINE/TEMP ไม่ใช่แผนก)
     cron.schedule('0 * * * *', async () => {
-        try {
-            if (!supabaseLeave) return;
-            console.log('🔄 [AutoSync] กำลัง Sync พนักงานจาก K36...');
-            const { data: users, error } = await supabaseLeave
-                .from('users')
-                .select('username, discord_id, telegram_id, tag, department, allowed_shift')
-                .not('discord_id', 'is', null);
-            if (error || !users) return console.error('❌ [AutoSync] ดึงข้อมูลไม่ได้:', error?.message);
-            const shiftMap = { 'กะเช้า': 'morning', 'กะกลาง': 'noon', 'กะดึก': 'night' };
-            for (const u of users.filter(u => u.discord_id && u.username)) {
-                const dept = (u.tag || u.department || 'AMOL').toUpperCase();
-                const { data: existing } = await supabase.from('staff_list').select('discord_id').eq('discord_id', u.discord_id).maybeSingle();
-                if (existing) {
-                    await supabase.from('staff_list').update({ staff_name: u.username, telegram_id: u.telegram_id || null, department: dept }).eq('discord_id', u.discord_id);
-                } else {
-                    const shift = shiftMap[u.allowed_shift] || 'morning';
-                    await supabase.from('staff_list').insert({ discord_id: u.discord_id, staff_name: u.username, telegram_id: u.telegram_id || null, department: dept, shift });
-                }
-            }
-            console.log(`✅ [AutoSync] Sync สำเร็จ ${users.length} คน`);
-        } catch(e) { console.error('❌ [AutoSync] error:', e.message); }
+        console.log('🔄 [AutoSync] เริ่ม...');
+        const r = await runStaffSync();
+        console.log('🔄 [AutoSync]', r.success ? ('สำเร็จ | แผนก ' + (r.deptStr || '')) : ('ล้มเหลว: ' + r.message));
     });
 
     cron.schedule('* * * * *', async () => {
