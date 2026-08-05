@@ -2119,6 +2119,26 @@ client.on('messageCreate', async (message) => {
         } catch (e) { return waiting.edit('❌ ' + e.message); }
     }
 
+    // ── !autotime : ดูตารางเวลาเปิดรอบอัตโนมัติ + สถานะ + รอบที่เปิดไปแล้ววันนี้ ──
+    if (message.content === '!autotime') {
+        const times = dataStore.autoCheckinTimes || [];
+        let msg = `⏰ **ตั้งค่าเช็คชื่ออัตโนมัติ**\nสถานะ: ${dataStore.autoCheckinEnabled ? '✅ เปิด' : '🛑 ปิด (พิมพ์ !autoon เพื่อเปิด)'}\n`;
+        if (times.length === 0) msg += `\n📭 ยังไม่ได้ตั้งเวลาเปิดรอบ (ตั้งบนหน้าเว็บ)`;
+        else {
+            msg += `\n📋 เวลาที่ตั้งไว้ (${times.length} รอบ):\n`;
+            times.forEach((t, i) => {
+                if (typeof t === 'string') msg += `${i + 1}. **${t}**\n`;
+                else msg += `${i + 1}. **${t.time}**${t.shift ? ` (${t.shift})` : ''}${t.endTime ? ` → ${t.endTime}` : ''}\n`;
+            });
+        }
+        const today = getThaiDateStr();
+        const firedToday = Object.entries(dataStore.lastCheckinDates || {})
+            .filter(([, k]) => String(k).startsWith(today))
+            .map(([ch, k]) => `<#${ch}>: ${k}`);
+        msg += `\n🔔 รอบที่เปิดไปแล้ววันนี้ (${today}):\n` + (firedToday.length ? firedToday.join('\n') : '- ยังไม่มี -');
+        return message.reply(msg.slice(0, 1990));
+    }
+
     // ── !checkstaff : ดูโครงสร้าง staff_list ตามแผนก/กะ (debug "ไม่พบรายชื่อพนักงาน") ──
     if (message.content === '!checkstaff') {
         const waiting = await message.reply('⏳ กำลังอ่าน staff_list...');
@@ -2562,10 +2582,11 @@ client.once('ready', async () => {
     });
 
     cron.schedule('* * * * *', async () => {
-        await processAutoShiftSwaps();
+        // ⛑️ ครอบ try/catch แยก — ถ้างานอื่น throw ต้องไม่บล็อก "auto-checkin" (สำคัญสุด)
+        try { await processAutoShiftSwaps(); } catch (e) { console.error('[cron] processAutoShiftSwaps error:', e.message); }
         // 🔔 ตรวจแจ้งเตือนพักนาน (เกิน 30 นาที) ทุก 1 นาที — reply ข้อความเดิมของคนที่ยังพักไม่กลับ
         // (ปิดแจ้งเตือนยอดสะสม 120 นาที/วัน ตามที่ผู้ใช้ต้องการ — ฟังก์ชัน checkDailyTotalBreaks ยังอยู่แต่ไม่ถูกเรียก)
-        await checkLongBreaks();
+        try { await checkLongBreaks(); } catch (e) { console.error('[cron] checkLongBreaks error:', e.message); }
         if (!dataStore.autoCheckinEnabled) return;
         const localTime = getThaiTime();
         const currentHour = localTime.getHours();
