@@ -2142,6 +2142,23 @@ client.on('messageCreate', async (message) => {
         return message.reply(msg.slice(0, 1990));
     }
 
+    // ── !thisroom : ดูว่าห้องนี้ระบบจับเป็นแผนกอะไร + มาจาก channel_settings หรือชื่อห้อง ──
+    if (message.content === '!thisroom') {
+        const dept = await resolveChannelDept(channelId, message.channel.name);
+        let src = '⚠️ ชื่อห้อง (fallback — ยังไม่ได้ตั้งค่า Channel ID นี้)';
+        try {
+            const { data } = await supabase.from('channel_settings').select('allowed_tags').eq('channel_id', channelId).maybeSingle();
+            if (data && Array.isArray(data.allowed_tags) && data.allowed_tags.length) src = `✅ channel_settings: [${data.allowed_tags.join(', ')}]`;
+        } catch (e) {}
+        return message.reply(
+            `🏠 **ห้องนี้**\nชื่อ: ${message.channel.name}\nChannel ID: \`${channelId}\`\n` +
+            `🏢 แผนกที่จับได้: **${dept}**\nที่มา: ${src}\n` +
+            (dept === 'ALL'
+                ? '\n❗ จับแผนกไม่ได้ → ไปตั้งค่าที่การ์ด "⚙️ ตั้งค่าห้องเช็คชื่อ" (ใส่ Channel ID นี้ + เลือกแผนก)'
+                : '\n(ถ้าแผนกถูกแล้ว = ใช้ได้ ไม่สนชื่อห้อง)')
+        );
+    }
+
     // ── !checkstaff : ดูโครงสร้าง staff_list ตามแผนก/กะ (debug "ไม่พบรายชื่อพนักงาน") ──
     if (message.content === '!checkstaff') {
         const waiting = await message.reply('⏳ กำลังอ่าน staff_list...');
