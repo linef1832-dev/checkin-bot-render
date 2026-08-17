@@ -133,23 +133,7 @@ app.post('/api/startcheckin', async (req, res) => {
 
     try {
         const channel = await client.channels.fetch(channelId);
-        let sessionDept = "ALL";
-        try {
-            const { data: chanSetting } = await supabase
-                .from('channel_settings')
-                .select('allowed_tags')
-                .eq('channel_id', channelId)
-                .maybeSingle();
-            if (chanSetting && chanSetting.allowed_tags && chanSetting.allowed_tags.length > 0) {
-                sessionDept = chanSetting.allowed_tags.length === 1
-                    ? chanSetting.allowed_tags[0]
-                    : chanSetting.allowed_tags.join(',');
-            }
-        } catch(e) {
-            const chName = channel.name.toUpperCase();
-            if (chName.includes('ODOL')) sessionDept = "ODOL";
-            else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
-        }
+        const sessionDept = await resolveChannelDept(channelId, channel.name);
 
         activeSessions.set(channelId, {
             members: [], startTime: localTime, adminChannel: channel,
@@ -458,6 +442,25 @@ function resolveDept(u, discordNick) {
         if (VALID_DEPTS.includes(t)) return normDept(t);
     }
     return deptFromName(u.username) || deptFromName(discordNick) || 'AMOL';
+}
+
+// หาแผนกของ "ห้องเช็คชื่อ" — ยึด channel_settings.allowed_tags (ตั้งด้วย channel_id บนหน้าเว็บ) ก่อน
+// ถ้าไม่มี → fallback เดาจากชื่อห้อง. คืน 'AMOL' | 'ODOL' | 'AM,OD' | 'ALL'
+async function resolveChannelDept(channelId, channelName) {
+    try {
+        const { data } = await supabase.from('channel_settings')
+            .select('allowed_tags').eq('channel_id', channelId).maybeSingle();
+        if (data && Array.isArray(data.allowed_tags) && data.allowed_tags.length > 0) {
+            const valid = [...new Set(data.allowed_tags.map(t => normDept((t || '').toUpperCase())))]
+                .filter(d => ['AMOL', 'ODOL'].includes(d));
+            if (valid.length === 1) return valid[0];      // แผนกเดียว = จับจาก ID ชัดเจน
+            if (valid.length > 1) return valid.join(',');
+        }
+    } catch (e) { console.error('[resolveChannelDept]', e.message); }
+    const cn = (channelName || '').toUpperCase();          // fallback: เดาจากชื่อห้อง
+    if (cn.includes('ODOL')) return 'ODOL';
+    if (cn.includes('AMOL') || cn.includes('เช็คชื่อ')) return 'AMOL';
+    return 'ALL';
 }
 
 // ===== Sync พนักงานจาก K36 → staff_list (ใช้ทั้งปุ่มบนเว็บ + cron อัตโนมัติ) =====
@@ -2075,8 +2078,8 @@ client.on('messageCreate', async (message) => {
             if (rows.length === 0) return waiting.edit(`📋 วันนี้ (${dateStr}) ยังไม่มีใครเช็คชื่อค่ะ`);
 
             // แผนกของห้องนี้ (จากชื่อห้อง) — ถ้าเป็นห้องเฉพาะแผนก จะกรองเฉพาะคนแผนกนั้น
-            const chName = message.channel.name.toUpperCase();
-            const roomDept = chName.includes('ODOL') ? 'ODOL' : (chName.includes('AMOL') ? 'AMOL' : null);
+            const rd = await resolveChannelDept(channelId, message.channel.name);
+            const roomDept = ['AMOL', 'ODOL'].includes(rd) ? rd : null;
 
             // map discord_id → แผนกจริง จาก staff_list
             const { data: staffRows } = await supabase.from('staff_list').select('discord_id, department');
@@ -2234,10 +2237,8 @@ client.on('messageCreate', async (message) => {
 
     if (message.content === '!checkleave') {
         const todayStr = getThaiDateStr(); 
-        let department = "ALL";
-        if (message.channel.name.toUpperCase().includes('ODOL')) department = "ODOL";
-        else if (message.channel.name.toUpperCase().includes('AMOL') || message.channel.name.includes('เช็คชื่อ')) department = "AMOL";
-        const leavesObj = await getLeavesFromSupabase(department); 
+        const department = await resolveChannelDept(channelId, message.channel.name);
+        const leavesObj = await getLeavesFromSupabase(department);
         let msg = `🔎 **ผลการตรวจสอบวันหยุดจากระบบ (วันที่ ${todayStr})**\n`;
         msg += `🏢 **แผนกที่ตรวจจับได้จากห้องนี้:** ${department === 'ALL' ? 'ทั้งหมด' : department}\n\n`;
         if (leavesObj.morning.length > 0 || leavesObj.noon.length > 0 || leavesObj.night.length > 0) {
@@ -2298,10 +2299,7 @@ client.on('messageCreate', async (message) => {
         else if (currentHour >= 10 && currentHour < 14) shiftType = "Noon";
         else if (currentHour >= 14 && currentHour < 18) shiftType = "Afternoon";
         if (activeSessions.has(channelId)) return message.reply('⚠️ ระบบเช็คชื่อของห้องนี้กำลังทำงานอยู่แล้วค่ะ');
-        let sessionDept = "ALL";
-        const chName = message.channel.name.toUpperCase();
-        if (chName.includes('ODOL')) sessionDept = "ODOL";
-        else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
+        const sessionDept = await resolveChannelDept(channelId, message.channel.name);
         const args = message.content.split(' ');
         const checkinDuration = parseInt(args[1]) || 10;
         activeSessions.set(channelId, {
@@ -2625,10 +2623,7 @@ client.once('ready', async () => {
             try {
                 const channel = await client.channels.fetch(channelId);
                 if (!channel) continue;
-                let sessionDept = "ALL";
-                const chName = channel.name.toUpperCase();
-                if (chName.includes('ODOL')) sessionDept = "ODOL";
-                else if (chName.includes('AMOL') || chName.includes('เช็คชื่อ')) sessionDept = "AMOL";
+                const sessionDept = await resolveChannelDept(channelId, channel.name);
                 let checkinDuration = 10; // รอบปกติ (auto) — จบแล้วต่อด้วยช่วงรับสาย 1 ชม.
                 let displayEndTime = "ไม่ได้ระบุ";
                 if (currentSlot.endTime && /^\d{1,2}:\d{2}$/.test(currentSlot.endTime) && currentSlot.time) {
