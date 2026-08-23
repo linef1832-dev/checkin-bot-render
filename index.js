@@ -434,12 +434,13 @@ function deptFromName(name) {
     if (s.includes('ODOL')) return 'ODOL';
     return null;
 }
-// หาแผนกที่เชื่อถือได้: tag/department ที่เป็นแผนกจริง > เดาจากชื่อ K36 > เดาจาก Discord nickname (มี prefix เชื่อถือได้)
-// (K36 มัก tag=ONLINE/TEMP และ username เป็นชื่อล้วน → ต้องพึ่ง Discord nickname)
+// หาแผนกที่เชื่อถือได้: tag (แผนก+ระดับ: AM/AMQL/OD/ODQL) > เดาจากชื่อ K36 > เดาจาก Discord nickname
+// ⚠️ department ใน K36 ไม่ใช่แผนก — เป็นประเภทงาน: ONLINE/TEMP (ต้องเช็คชื่อ) / ONSITE (ไม่ต้องเช็คชื่อ)
 function resolveDept(u, discordNick) {
     for (const c of [u.tag, u.department]) {
         const t = (c || '').toUpperCase().trim();
-        if (VALID_DEPTS.includes(t)) return normDept(t);
+        if (['AM', 'AMOL', 'AMQL'].includes(t)) return 'AMOL';
+        if (['OD', 'ODOL', 'ODQL'].includes(t)) return 'ODOL';
     }
     return deptFromName(u.username) || deptFromName(discordNick) || 'AMOL';
 }
@@ -500,8 +501,13 @@ async function runStaffSync() {
         }
 
         const shiftMap = { 'กะเช้า': 'morning', 'กะกลาง': 'noon', 'กะดึก': 'night' };
+
+        // 🏗️ ONSITE = คนหน้างาน ไม่ต้องเช็คชื่อ → ไม่เอาเข้า staff_list (ONLINE/TEMP ต้องเช็คชื่อตามปกติ)
+        const isOnsite = (u) => (u.department || '').toUpperCase().trim() === 'ONSITE';
+        const onsiteIds = users.filter(u => u.discord_id && isOnsite(u)).map(u => String(u.discord_id));
+
         const staffRows = users
-            .filter(u => u.discord_id && u.username)
+            .filter(u => u.discord_id && u.username && !isOnsite(u))
             .map(u => ({
                 discord_id: String(u.discord_id),
                 staff_name: u.username,
@@ -549,6 +555,20 @@ async function runStaffSync() {
 
         const newCount = upsertRows.filter(r => !existingMap[r.discord_id]).length;
         const keptCount = existing.filter(e => !upsertRows.some(r => r.discord_id === String(e.discord_id))).length;
+
+        // 🏗️ ลบคน ONSITE ที่เคยค้างอยู่ใน staff_list ออก (เช่น คนที่เพิ่งย้ายจาก ONLINE → ONSITE)
+        //    ลบเฉพาะคนที่ K36 ระบุชัดว่า ONSITE เท่านั้น — คนที่ไม่มีใน K36 ยังอยู่ครบเหมือนเดิม
+        let onsiteRemoved = 0;
+        if (onsiteIds.length > 0) {
+            for (let i = 0; i < onsiteIds.length; i += CHUNK) {
+                const ids = onsiteIds.slice(i, i + CHUNK);
+                const { data: del, error: delErr } = await supabase
+                    .from('staff_list').delete().in('discord_id', ids).select('discord_id');
+                if (delErr) console.error('[SyncStaff] ลบ ONSITE ไม่ได้:', delErr.message);
+                else onsiteRemoved += (del || []).length;
+            }
+            if (onsiteRemoved > 0) console.log(`[SyncStaff] 🏗️ เอาคน ONSITE ออกจาก staff_list ${onsiteRemoved} คน (ไม่ต้องเช็คชื่อ)`);
+        }
 
         // 🧹 ซ่อมทุกคนที่ department ไม่ใช่ AMOL/ODOL (ONLINE/TEMP/ฯลฯ ที่ตกค้าง — คนไม่มีใน K36) → เดาจาก nickname
         //    เป้าหมาย: staff_list เหลือแค่ AMOL กับ ODOL เท่านั้น
