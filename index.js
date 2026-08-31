@@ -860,17 +860,22 @@ app.post('/api/break-summary', async (req, res) => {
             return hit || null;
         }
 
-        // แนบ dept/shift ให้แต่ละ record
+        // แนบ dept/shift ให้แต่ละ record — ถ้า match staff_list ไม่เจอ/แผนกเพี้ยน → เดาจากชื่อ break เอง
+        // (ชื่อ break มัก prefix AMOL-/ODOL- + suffix กะเช้า/กะดึก) กันคนหายเวลากรองแผนก/กะ
         const enriched = (breaks || []).map(b => {
             const m = matchStaff(b.staff_name);
+            let dept = (m && m.dept) ? m.dept.toUpperCase() : '';
+            let shift = (m && m.shift) ? m.shift.toLowerCase() : '';
+            if (!['AMOL', 'ODOL'].includes(dept)) dept = deptFromName(b.staff_name) || dept || 'UNKNOWN';
+            if (!['morning', 'noon', 'night'].includes(shift)) shift = shiftFromName(b.staff_name) || shift || 'unknown';
             return {
                 staff_name: b.staff_name,
                 break_start: b.break_start,
                 break_end: b.break_end,
                 break_date: b.break_date,
                 break_reason: b.break_reason || null,
-                department: m ? m.dept : 'UNKNOWN',
-                shift: m ? m.shift : 'unknown'
+                department: dept,
+                shift: shift
             };
         });
 
