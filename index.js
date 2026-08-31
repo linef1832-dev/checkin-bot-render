@@ -1777,33 +1777,26 @@ function startSummaryTimer(channelId) {
                 });
                 summary += `✅ **เช็คชื่อสำเร็จ:**\n`;
                 if (uniqueMembers.length > 0) {
-                    const morningShift = uniqueMembers.filter(m => m.shift.includes("กะเช้า"));
-                    const noonShift = uniqueMembers.filter(m => m.shift.includes("กะเที่ยง"));
-                    const nightShift = uniqueMembers.filter(m => m.shift.includes("กะดึก"));
-                    if (morningShift.length > 0) {
-                        summary += `\n☀️ **กะเช้า:**\n`;
-                        morningShift.forEach((m, i) => {
+                    const hasS = (m, w) => (m.shift || '').includes(w);
+                    const morningShift = uniqueMembers.filter(m => hasS(m, "กะเช้า"));
+                    const noonShift = uniqueMembers.filter(m => hasS(m, "กะเที่ยง"));
+                    const nightShift = uniqueMembers.filter(m => hasS(m, "กะดึก"));
+                    // 🛟 คนที่กะไม่ตรง 3 แบบ → ไม่ทิ้ง เอามาโชว์กลุ่ม "อื่น ๆ" กันรายชื่อหาย
+                    const otherShift = uniqueMembers.filter(m => !hasS(m, "กะเช้า") && !hasS(m, "กะเที่ยง") && !hasS(m, "กะดึก"));
+                    const renderGroup = (label, arr) => {
+                        if (arr.length === 0) return;
+                        summary += `\n${label}\n`;
+                        arr.forEach((m, i) => {
                             const HH = m.time.getHours().toString().padStart(2, '0');
                             const MM = m.time.getMinutes().toString().padStart(2, '0');
-                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
+                            const late = (m.lateMin > 0) ? ` ⏰สาย ${m.lateMin}น.` : '';
+                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)${late}\n`;
                         });
-                    }
-                    if (noonShift.length > 0) {
-                        summary += `\n🕛 **กะเที่ยง:**\n`;
-                        noonShift.forEach((m, i) => {
-                            const HH = m.time.getHours().toString().padStart(2, '0');
-                            const MM = m.time.getMinutes().toString().padStart(2, '0');
-                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
-                        });
-                    }
-                    if (nightShift.length > 0) {
-                        summary += `\n🌙 **กะดึก:**\n`;
-                        nightShift.forEach((m, i) => {
-                            const HH = m.time.getHours().toString().padStart(2, '0');
-                            const MM = m.time.getMinutes().toString().padStart(2, '0');
-                            summary += `   ${i + 1}. **${m.name}** (เวลา ${HH}:${MM} น.)\n`;
-                        });
-                    }
+                    };
+                    renderGroup('☀️ **กะเช้า:**', morningShift);
+                    renderGroup('🕛 **กะเที่ยง:**', noonShift);
+                    renderGroup('🌙 **กะดึก:**', nightShift);
+                    renderGroup('❔ **กะอื่น/ไม่ระบุ:**', otherShift);
                 } else { summary += `- ไม่มี -\n`; }
                 const dayOffs = currentShiftLeaves.filter(l => l.type === "วันหยุด");
                 const swapShift = swapFromScheduled.length > 0 ? swapFromScheduled : currentShiftLeaves.filter(l => l.type === "สับกะ");
@@ -1918,6 +1911,7 @@ function startSummaryTimer(channelId) {
                 }
                 summary += `──────────────────────────\n`;
                 summary += `**รวมทั้งสิ้น: ${uniqueMembers.length} ท่าน**\n`;
+                summary += `\n📌 *ไม่เจอชื่อใคร? — คน "มาสาย/เช็คหลังจบรอบ" ไม่อยู่ในนี้ พิมพ์ \`!today\` ดูครบจากฐานข้อมูล | คนยังไม่เช็ค = "หายตัวไป" | คนลา = อยู่ในรายการลา*\n`;
                 await sendLongMessage(tChannel, summary);
             }
         } catch (err) { console.error(err); } finally {
