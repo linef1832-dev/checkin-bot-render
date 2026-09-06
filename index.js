@@ -2419,10 +2419,14 @@ client.on('messageCreate', async (message) => {
                 if (staffDataObj[dept][sk]?.[member.id]) { memberShiftKey = sk; break outer; }
             }
         }
+        let shiftMismatchNote = '';
         if (memberShiftKey) {
             if (!activeShifts.includes(memberShiftKey)) {
-                const shiftTH = memberShiftKey === 'morning' ? 'กะเช้า' : memberShiftKey === 'noon' ? 'กะเที่ยง' : 'กะดึก';
-                return message.reply('❌ ยังไม่ถึงเวลาเข้างาน' + shiftTH + 'ค่ะ');
+                // ⚠️ ข้อมูลกะในระบบไม่ตรงกับเวลาปัจจุบัน → ไม่บล็อก แต่ใช้กะที่กำลัง active แทน + เตือน
+                const thName = k => k === 'morning' ? 'กะเช้า' : k === 'noon' ? 'กะเที่ยง' : 'กะดึก';
+                const activeKey = activeShifts[0];
+                shiftMismatchNote = `\n⚠️ *ข้อมูลกะในระบบของคุณคือ ${thName(memberShiftKey)} แต่ตอนนี้เป็น ${thName(activeKey)} — บันทึกเป็น ${thName(activeKey)} ให้ก่อน กรุณาแจ้งหัวหน้าแก้กะในระบบค่ะ*`;
+                memberShiftKey = activeKey; // ใช้กะที่กำลังทำงานตอนนี้แทน (กันบล็อกคนที่มาจริง)
             }
             const today = getSupabaseDateStr();
             let startISO, endISO;
@@ -2509,10 +2513,10 @@ client.on('messageCreate', async (message) => {
                     }]);
                 } catch (dbErr) { console.error('❌ Supabase checkin Error:', dbErr); }
                 if (isLatePhase) {
-                    await statusMsg.edit('⏰ **เช็คชื่อสำเร็จ (มาสาย)** คุณอยู่ **' + shiftName + '** — รอบปกติจบไปแล้ว บันทึกเป็น **มาสาย** ค่ะ');
+                    await statusMsg.edit('⏰ **เช็คชื่อสำเร็จ (มาสาย)** คุณอยู่ **' + shiftName + '** — รอบปกติจบไปแล้ว บันทึกเป็น **มาสาย** ค่ะ' + shiftMismatchNote);
                 } else {
                     const orderText = checkinOrder > 0 ? ' (ลำดับที่ ' + checkinOrder + ')' : '';
-                    await statusMsg.edit('✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **' + shiftName + '**' + lateText + orderText);
+                    await statusMsg.edit('✅ **เช็คชื่อสำเร็จ!** คุณอยู่ **' + shiftName + '**' + lateText + orderText + shiftMismatchNote);
                 }
                 console.log(`[checkin] ✅ ${staffName} เช็คชื่อสำเร็จ${isLatePhase ? ' (เฟสสาย)' : ''}`);
             } catch (err) {
