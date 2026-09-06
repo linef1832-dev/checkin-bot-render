@@ -2426,7 +2426,12 @@ client.on('messageCreate', async (message) => {
                 //    (แก้ K36 กะเพี้ยนเองทุกครั้งที่เช็ค — sync ไม่ทับเพราะยึด shift เดิมใน staff_list)
                 const thName = k => k === 'morning' ? 'กะเช้า' : k === 'noon' ? 'กะเที่ยง' : 'กะดึก';
                 const oldKey = memberShiftKey;
-                const activeKey = activeShifts[0];
+                // ยึด "กะของรอบที่เปิดอยู่" เป็นหลัก (แม่นกว่า activeShifts[0] ตอนกะซ้อน เช่น 19:51 มีทั้งเที่ยง+ดึก)
+                const st = (activeSessions.get(channelId)?.shiftType || '').toLowerCase();
+                let activeKey = (st.includes('night') || st.includes('ดึก')) ? 'night'
+                    : (st.includes('noon') || st.includes('afternoon') || st.includes('เที่ยง')) ? 'noon'
+                    : (st.includes('morning') || st.includes('เช้า')) ? 'morning' : null;
+                if (!activeKey) activeKey = activeShifts[0]; // รอบไม่บอกกะ → เดาจากกะที่ active
                 try {
                     await supabase.from('staff_list').update({ shift: activeKey }).eq('discord_id', member.id);
                     console.log(`[checkin] 🔄 เปลี่ยนกะ ${staffName} (${member.id}): ${oldKey} → ${activeKey}`);
