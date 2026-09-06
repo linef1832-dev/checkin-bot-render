@@ -2422,11 +2422,17 @@ client.on('messageCreate', async (message) => {
         let shiftMismatchNote = '';
         if (memberShiftKey) {
             if (!activeShifts.includes(memberShiftKey)) {
-                // ⚠️ ข้อมูลกะในระบบไม่ตรงกับเวลาปัจจุบัน → ไม่บล็อก แต่ใช้กะที่กำลัง active แทน + เตือน
+                // 🔄 กะในระบบไม่ตรงเวลาจริง → เปลี่ยนกะใน staff_list ให้ตรงกับกะที่มาเช็คจริงอัตโนมัติ
+                //    (แก้ K36 กะเพี้ยนเองทุกครั้งที่เช็ค — sync ไม่ทับเพราะยึด shift เดิมใน staff_list)
                 const thName = k => k === 'morning' ? 'กะเช้า' : k === 'noon' ? 'กะเที่ยง' : 'กะดึก';
+                const oldKey = memberShiftKey;
                 const activeKey = activeShifts[0];
-                shiftMismatchNote = `\n⚠️ *ข้อมูลกะในระบบของคุณคือ ${thName(memberShiftKey)} แต่ตอนนี้เป็น ${thName(activeKey)} — บันทึกเป็น ${thName(activeKey)} ให้ก่อน กรุณาแจ้งหัวหน้าแก้กะในระบบค่ะ*`;
-                memberShiftKey = activeKey; // ใช้กะที่กำลังทำงานตอนนี้แทน (กันบล็อกคนที่มาจริง)
+                try {
+                    await supabase.from('staff_list').update({ shift: activeKey }).eq('discord_id', member.id);
+                    console.log(`[checkin] 🔄 เปลี่ยนกะ ${staffName} (${member.id}): ${oldKey} → ${activeKey}`);
+                } catch (e) { console.error('[checkin] update shift error:', e.message); }
+                shiftMismatchNote = `\n🔄 *ระบบเปลี่ยนกะของคุณเป็น ${thName(activeKey)} ให้อัตโนมัติ (เดิมในระบบเป็น ${thName(oldKey)})*`;
+                memberShiftKey = activeKey; // ใช้กะที่กำลังทำงานตอนนี้แทน
             }
             const today = getSupabaseDateStr();
             let startISO, endISO;
