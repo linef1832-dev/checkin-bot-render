@@ -556,18 +556,24 @@ async function runStaffSync() {
         const newCount = upsertRows.filter(r => !existingMap[r.discord_id]).length;
         const keptCount = existing.filter(e => !upsertRows.some(r => r.discord_id === String(e.discord_id))).length;
 
-        // 🏗️ ลบคน ONSITE ที่เคยค้างอยู่ใน staff_list ออก (เช่น คนที่เพิ่งย้ายจาก ONLINE → ONSITE)
-        //    ลบเฉพาะคนที่ K36 ระบุชัดว่า ONSITE เท่านั้น — คนที่ไม่มีใน K36 ยังอยู่ครบเหมือนเดิม
-        let onsiteRemoved = 0;
-        if (onsiteIds.length > 0) {
-            for (let i = 0; i < onsiteIds.length; i += CHUNK) {
-                const ids = onsiteIds.slice(i, i + CHUNK);
+        // 🗑️ ลบคนที่ "ไม่มีใน K36 (ONLINE/TEMP)" ออกจาก staff_list อัตโนมัติ
+        //    ครอบทั้ง คนลาออก (หายจาก K36 หมด) และ ONSITE (ไม่ต้องเช็คชื่อ)
+        //    K36 = แหล่งข้อมูลหลัก → ลบใน K36 แล้ว staff_list ลบตามเอง ไม่ต้องลบมือ
+        let removedCount = 0;
+        const keepSet = new Set(rows.map(r => String(r.discord_id)));           // คนที่ควรอยู่ = ONLINE/TEMP ใน K36
+        const toRemove = existing.map(e => String(e.discord_id)).filter(id => id && !keepSet.has(id));
+        const maxRemove = Math.max(5, Math.floor(existing.length * 0.4));        // 🛡️ ลบได้ไม่เกิน 40% กัน K36 คืนข้อมูลไม่ครบแล้วลบยกชุด
+        if (toRemove.length > 0 && toRemove.length <= maxRemove) {
+            for (let i = 0; i < toRemove.length; i += CHUNK) {
+                const ids = toRemove.slice(i, i + CHUNK);
                 const { data: del, error: delErr } = await supabase
                     .from('staff_list').delete().in('discord_id', ids).select('discord_id');
-                if (delErr) console.error('[SyncStaff] ลบ ONSITE ไม่ได้:', delErr.message);
-                else onsiteRemoved += (del || []).length;
+                if (delErr) console.error('[SyncStaff] ลบคนที่ไม่มีใน K36 ไม่ได้:', delErr.message);
+                else removedCount += (del || []).length;
             }
-            if (onsiteRemoved > 0) console.log(`[SyncStaff] 🏗️ เอาคน ONSITE ออกจาก staff_list ${onsiteRemoved} คน (ไม่ต้องเช็คชื่อ)`);
+            if (removedCount > 0) console.log(`[SyncStaff] 🗑️ ลบคนที่ไม่มีใน K36 (ลาออก/ONSITE) ${removedCount} คน`);
+        } else if (toRemove.length > maxRemove) {
+            console.warn(`[SyncStaff] ⚠️ ข้ามการลบ ${toRemove.length} คน (เกิน ${maxRemove} — K36 อาจคืนข้อมูลไม่ครบ ยกเลิกกันพลาด)`);
         }
 
         // 🧹 ซ่อมทุกคนที่ department ไม่ใช่ AMOL/ODOL (ONLINE/TEMP/ฯลฯ ที่ตกค้าง — คนไม่มีใน K36) → เดาจาก nickname
@@ -588,10 +594,12 @@ async function runStaffSync() {
         const deptBreak = {};
         (finalStaff || []).forEach(r => { const d = (r.department || '(ว่าง)').toUpperCase(); deptBreak[d] = (deptBreak[d] || 0) + 1; });
         const deptStr = Object.entries(deptBreak).sort().map(([d, n]) => `${d}:${n}`).join(' · ');
-        console.log(`[SyncStaff] ✅ upsert ${upsertRows.length} (ใหม่ ${newCount}) คงไว้ ${keptCount} ซ่อม ${fixedCount} | แผนก ${deptStr} | nick ${Object.keys(nickById).length}`);
+        console.log(`[SyncStaff] ✅ upsert ${upsertRows.length} (ใหม่ ${newCount}) ลบ ${removedCount} ซ่อม ${fixedCount} | แผนก ${deptStr} | nick ${Object.keys(nickById).length}`);
         return {
             success: true,
-            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount})${fixedCount ? ` — ซ่อมแผนกเพี้ยน ${fixedCount} คน` : ''}\n📊 แผนก: ${deptStr}\n(Discord nickname โหลด ${Object.keys(nickById).length} คน)`,
+            message: `✅ Sync สำเร็จ! อัปเดต ${upsertRows.length} คน (ใหม่ ${newCount})` +
+                `${removedCount ? ` — ลบคนไม่มีใน K36 (ลาออก) ${removedCount} คน` : ''}` +
+                `${fixedCount ? ` — ซ่อมแผนก ${fixedCount} คน` : ''}\n📊 แผนก: ${deptStr}\n(Discord nickname โหลด ${Object.keys(nickById).length} คน)`,
             deptStr
         };
     } catch (e) {
