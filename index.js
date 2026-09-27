@@ -1892,6 +1892,18 @@ function startSummaryTimer(channelId) {
                     if (Array.isArray(leavesObj)) safeLeaves = leavesObj;
                     else if (leavesObj && Array.isArray(leavesObj[shiftKey])) safeLeaves = leavesObj[shiftKey];
                     else if (leavesObj && Array.isArray(leavesObj.night)) safeLeaves = leavesObj.night;
+
+                    // 🧹 คนที่ไม่เช็คชื่อมานานเกิน 14 วัน = ถือว่าลาออก/ไม่ active → ไม่โชว์ในรายการหายตัวไป
+                    //    (ไม่แตะ staff_list — ถ้ากลับมาเช็คชื่อจะโผล่กลับเอง)
+                    let activeIds = new Set();
+                    try {
+                        const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+                        const { data: recent } = await supabase.from('checkins').select('discord_id').gte('checkin_time', since).limit(20000);
+                        (recent || []).forEach(r => activeIds.add(String(r.discord_id)));
+                    } catch (e) { console.error('[absent] activeIds error:', e.message); }
+                    const applyActiveFilter = activeIds.size > 0; // ดึงไม่ได้/ว่าง → ไม่กรอง (โชว์ตามเดิม กันพลาด)
+
+                    let skippedInactive = 0;
                     for (const [staffId, _staffEntry] of Object.entries(shiftStaff)) {
                         const staffName = typeof _staffEntry === 'object' ? _staffEntry.name : _staffEntry;
                         let isLeave = false;
@@ -1900,8 +1912,12 @@ function startSummaryTimer(channelId) {
                                 isLeave = true; break;
                             }
                         }
-                        if (!checkedIds.has(staffId) && !isLeave) absentMembers.push(staffName);
+                        if (checkedIds.has(staffId) || isLeave) continue;
+                        // ไม่เช็ค + ไม่ลา → นับเป็น "หายตัวไป" เฉพาะคนที่ยัง active (เคยเช็คภายใน 14 วัน)
+                        if (applyActiveFilter && !activeIds.has(String(staffId))) { skippedInactive++; continue; }
+                        absentMembers.push(staffName);
                     }
+                    if (skippedInactive > 0) console.log(`[absent] ข้ามคนไม่ active (>14 วันไม่เช็คชื่อ) ${skippedInactive} คน`);
                 } catch (error) {}
                 if (absentMembers.length > 0) {
                     summary += `\n❓ **พนักงานที่หายตัวไป (ไม่มีชื่อลา & ไม่ได้เช็คชื่อ):**\n`;
