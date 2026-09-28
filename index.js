@@ -1132,6 +1132,9 @@ function breakDateFromCreatedAt(createdAt) {
 }
 
 async function handleBreakMessage(rawText, message) {
+    // ⛔ ปิดการบันทึกพักจากบอทนี้ — ให้ botlink เป็นคนบันทึก break_sessions คนเดียว
+    // (เดิมบอทนี้อ่านข้อความแจ้งพักของ botlink ใน Discord แล้วไปปิด record ที่ botlink เพิ่งสร้าง ทำให้ขึ้น 60 นาทีทุกครั้ง)
+    return;
     if (!rawText || rawText.trim() === '') return;
     // 🚫 กันจับ "ข้อความแจ้งเตือนพักนาน" ของบอทเอง (มีคำ ปวดน้อย/กลับที่นั่ง ปนอยู่) เป็นการพักใหม่
     if (/แจ้งเตือนพักนาน|ยังไม่กดกลับที่นั่ง|พักเกิน \d+ นาที/.test(rawText)) return;
